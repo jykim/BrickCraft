@@ -57,14 +57,15 @@ ensure enable_register_confirmation false
 
 # Connection name without a prompt. Who is playing is picked in the game window, so this
 # only has to tell computers apart: $BRICKCRAFT_NAME, else this Mac's user/player_name
-# file (one line), else the Mac's network name. Luanti allows 1-20 letters, digits, - and _.
+# file (one line), else the Mac's network name. Names are 1-19 letters, digits, - and _: Luanti's
+# limit is 20 on paper, but a 20-character name hangs at connecting with no error at all.
 player_name() {
   local name="${BRICKCRAFT_NAME:-}"
   [[ -z "$name" && -f "$ROOT/user/player_name" ]] && name="$(head -n 1 "$ROOT/user/player_name" | tr -d '[:space:]')"
-  [[ -z "$name" ]] && name="$(scutil --get LocalHostName 2>/dev/null | tr -cd 'A-Za-z0-9_-' | cut -c1-20)"
+  [[ -z "$name" ]] && name="$(scutil --get LocalHostName 2>/dev/null | tr -cd 'A-Za-z0-9_-' | cut -c1-19)"
   name="${name:-$1}"
-  if [[ ! "$name" =~ '^[A-Za-z0-9_-]{1,20}$' ]]; then
-    print "Ignoring player name \"$name\": use 1-20 letters, digits, - or _ (no spaces)."
+  if [[ ! "$name" =~ '^[A-Za-z0-9_-]{1,19}$' ]]; then
+    print "Ignoring player name \"$name\": use 1-19 letters, digits, - or _ (no spaces)."
     name="$1"
   fi
   REPLY="$name"

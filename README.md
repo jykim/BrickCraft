@@ -87,9 +87,9 @@ cd ~/dev/BrickCraft
    ./"Play BrickCraft.command"
    ```
 
-   - 주소는 묻지 않습니다. **Tailscale의 `jms`**(100.72.189.12)를 먼저 시도하고, 안 되면 로컬 네트워크의 `jms.local`로 넘어갑니다. 각 주소에 실제로 BrickCraft 서버가 응답하는지 확인한 뒤 응답한 곳으로 접속하고, 어느 경로로 들어갔는지 화면과 `logs/play.log`에 남깁니다. 아무 데서도 응답이 없으면 게임 창을 열지 않고 이유를 알려 줍니다. 다른 주소를 먼저 쓰려면 `user/server_address`에 한 줄로 적거나 `BRICKCRAFT_SERVER=주소`로 실행합니다.
+   - 주소는 묻지 않습니다. **Tailscale의 `jms`**(100.72.189.12)를 먼저 시도하고, 안 되면 로컬 네트워크의 `jms.local`로 넘어갑니다. 각 주소에 실제로 BrickCraft 서버가 응답하는지 확인한 뒤 응답한 곳으로 접속하고, 어느 경로로 들어갔는지 화면과 `logs/play.log`에 남깁니다. 아무 데서도 응답이 없으면 게임 창을 열지 않고 이유를 알려 줍니다. 게임 창이 열렸는데 접속하지 못하고 닫히면(시간 초과·접근 거부·접속 전 종료) 이유와 다른 경로로 다시 해 볼 명령을 보여 줍니다. 다른 주소를 먼저 쓰려면 `user/server_address`에 한 줄로 적거나 `BRICKCRAFT_SERVER=주소`로 실행합니다.
    - 이름도 묻지 않습니다. 게임 창에 **Who's playing?** 화면이 뜨면 자기를 고릅니다(아래 3번).
-   - 접속 이름은 Mac의 네트워크 이름(시스템 설정 → 일반 → 공유 → 로컬 호스트 이름, 20자까지)이라 Mac끼리 겹치지 않습니다. 바꾸려면 `user/player_name` 파일에 한 줄로 적거나 `BRICKCRAFT_NAME=이름`으로 실행합니다(영문·숫자·`-`·`_`, 20자 이내).
+   - 접속 이름은 Mac의 네트워크 이름(시스템 설정 → 일반 → 공유 → 로컬 호스트 이름, 앞 19자)이라 Mac끼리 겹치지 않습니다. 바꾸려면 `user/player_name` 파일에 한 줄로 적거나 `BRICKCRAFT_NAME=이름`으로 실행합니다(영문·숫자·`-`·`_`, 19자 이내 — 20자 이름은 오류 없이 접속 중에 멈춥니다).
    - 처음 접속하는 Mac도 **Register and Join** 확인 없이 바로 등록됩니다(실행기가 `enable_register_confirmation = false`를 넣음).
    - 터미널의 `sandbox_extension_issue_file_to_process failed`, `SDL_PollEvent took too long` 경고는 무시해도 됩니다.
 
