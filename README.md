@@ -104,7 +104,7 @@ cd ~/dev/BrickCraft
 
 ### 안 될 때
 
-- **접속이 안 됨:** jms에서 Admin이 실행 중인지 확인합니다(Launch로 연 싱글 플레이에는 접속할 수 없음). Tailscale이면 두 기기 모두 Tailscale이 켜져 있어야 합니다.
+- **접속이 안 됨:** Play가 출력한 `Joining jms.local (주소)`의 주소를 확인합니다. jms 터미널에 보이는 주소와 다르면 `BRICKCRAFT_SERVER=192.168.4.97 ./"Play BrickCraft.command"`처럼 직접 지정합니다. jms에서 Admin이 실행 중인지 확인합니다(Launch로 연 싱글 플레이에는 접속할 수 없음). Tailscale이면 두 기기 모두 Tailscale이 켜져 있어야 합니다.
 - **Launch가 실행을 거절함:** 서버가 같은 세계를 열고 있는 상태입니다. `BRICKCRAFT_SERVER=127.0.0.1 ./"Play BrickCraft.command"`로 들어가거나 서버를 끝낸 뒤 실행합니다.
 - **macOS가 들어오는 연결 허용을 물음:** 처음 서버를 열 때 허용해야 다른 기기가 들어옵니다.
 - 서버 목록에는 공개하지 않고 빈 비밀번호를 허용합니다. 공유기 포트를 열어 인터넷에 공개하지 말고 Tailscale을 쓰세요.
