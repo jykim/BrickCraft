@@ -31,7 +31,12 @@ IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null ||
 print ""
 print "BrickCraft server is running. Friends on this network can join with:"
 print "   Address: $(scutil --get LocalHostName 2>/dev/null || hostname -s).local   (or $IP)"
+TS=$(command -v tailscale || print /Applications/Tailscale.app/Contents/MacOS/Tailscale)
+TSIP=$("$TS" ip -4 2>/dev/null | head -1 || true)
+TSNAME=$("$TS" status --self --json 2>/dev/null | grep -m1 '"HostName"' | cut -d'"' -f4 || true)
+if [[ -n "$TSIP" ]]; then print "   Tailscale: ${TSNAME:-$TSIP}   (or $TSIP)"; fi
 print "   Port:    $PORT"
+print "Use the Luanti app or Join BrickCraft.command (not a web browser)."
 print "Keep this window open. Quitting your game stops the server for everyone."
 print ""
 "$LUANTI" --config "$CONF" --address 127.0.0.1 --port "$PORT" --name "$NAME" --go --logfile "$ROOT/logs/client.log" || true
