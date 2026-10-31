@@ -46,5 +46,21 @@ if [[ -z "$ADDR" ]]; then
 fi
 player_name Guest; NAME="$REPLY"
 print "Joining $HOST ($ADDR):$PORT from $NAME. Pick who is playing in the game window." | tee -a "$PLAYLOG"
-exec "$LUANTI" --config "$CONF" --address "$ADDR" --port "$PORT" --name "$NAME" --go --logfile "$ROOT/logs/client.log"
+# Wait for the game, then read this session's part of the client log to say how joining went:
+# a game window that never connects otherwise closes without any explanation.
+CLIENTLOG="$ROOT/logs/client.log"
+START=0; [[ -f "$CLIENTLOG" ]] && START=$(wc -l < "$CLIENTLOG")
+"$LUANTI" --config "$CONF" --address "$ADDR" --port "$PORT" --name "$NAME" --go --logfile "$CLIENTLOG" || true
+SESSION="$(tail -n +$((START + 1)) "$CLIENTLOG" 2>/dev/null || true)"
+if print -r -- "$SESSION" | grep -q "Connected to"; then
+  print "$(date '+%F %T') Game closed after playing via $HOST ($ADDR)." >> "$PLAYLOG"
+else
+  REASON="$(print -r -- "$SESSION" | grep -iE 'timed out|denied|ERROR' | grep -v 'SDL_PollEvent' | tail -n 1 | sed 's/^[0-9: -]*//')"
+  REASON="${REASON:-the game closed before connecting, with no error from Luanti (closed by hand while it was still connecting?)}"
+  [[ "$HOST" == jms.local ]] && OTHER=jms || OTHER=jms.local
+  print "Could not join $HOST ($ADDR): $REASON" | tee -a "$PLAYLOG"
+  print "Try the other route: BRICKCRAFT_SERVER=$OTHER ./\"Play BrickCraft.command\" --no-update"
+  print "Details: logs/play.log and logs/client.log"
+  exit 1
+fi
 }
