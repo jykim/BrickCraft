@@ -95,7 +95,42 @@ C.register_on_joinplayer(function(player)
       assert(inv:get_stack("main",3):get_count()==24,"1 x 2 and plate refund one each")
       C.node_dig({x=1,y=-1,z=2},C.get_node({x=1,y=-1,z=2}),player)
       assert(C.get_node({x=1,y=-1,z=2}).name=="brickcraft:baseplate","baseplate protected")
-      C.log("action","BRICKCRAFT TEST PHASE 2 PASS: restart persistence, separator recovery, inventory credit, 2x4 turn and whole-brick refund, base protection")
+      -- Harvest: every landscape cell above the bottom layer gives one brick of its color.
+      local function count(item)
+        local n=0
+        for _,s in ipairs(inv:get_list("main")) do if s:get_name()==item then n=n+s:get_count() end end
+        return n
+      end
+      local edge={x=46,y=26,z=46}
+      for scenery,item in pairs({trunk="brown",leaves="green",grass="green",dirt="tan"}) do
+        local found=C.find_nodes_in_area(vector.multiply(edge,-1),edge,"brickcraft:"..scenery)[1]
+        assert(found,"landscape has "..scenery)
+        local before=count("brickcraft:"..item)
+        separator(player,"on_use",found)
+        assert(C.get_node(found).name=="air",scenery.." harvested")
+        assert(count("brickcraft:"..item)==before+1,scenery.." gives one "..item.." brick")
+        if scenery=="trunk" then
+          assert(brickcraft.undo(player),"undo harvest succeeds")
+          assert(C.get_node(found).name=="brickcraft:trunk" and count("brickcraft:brown")==before,
+            "undo harvest restores the trunk and takes the brick back")
+        end
+      end
+      -- The green ground next to the workshop can be dug; the gray floor below it cannot.
+      local ground={x=26,y=-1,z=0}
+      local greens=count("brickcraft:green")
+      separator(player,"on_use",ground)
+      assert(C.get_node(ground).name=="air" and count("brickcraft:green")==greens+1,"green ground harvested")
+      local floor=vector.offset(ground,0,-1,0)
+      assert(C.get_node(floor).name=="brickcraft:baseplate","gray floor under the hills")
+      separator(player,"on_use",floor)
+      C.node_dig(floor,C.get_node(floor),player)
+      assert(C.get_node(floor).name=="brickcraft:baseplate","gray floor protected")
+      inv:add_item("main","brickcraft:brown")
+      local slot
+      for i,s in ipairs(inv:get_list("main")) do if s:get_name()=="brickcraft:brown" then slot=i end end
+      assert(place(player,slot,{x=2,y=-1,z=6},{x=2,y=0,z=6})>=0 and C.get_node({x=2,y=0,z=6}).name=="brickcraft:brown",
+        "harvested brown brick places as a real brick")
+      C.log("action","BRICKCRAFT TEST PHASE 2 PASS: restart persistence, separator recovery, inventory credit, 2x4 turn and whole-brick refund, base protection, landscape harvest")
     end
     C.request_shutdown("BrickCraft integration phase passed",false,1)
   end)

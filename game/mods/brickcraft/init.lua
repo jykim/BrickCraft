@@ -2,8 +2,10 @@ local C = core
 -- Automated checks skip the welcome and look pickers.
 local testing = C.settings:get_bool("brickcraft_integration_test",false) or
   C.settings:get_bool("brickcraft_multiplayer_test",false) or C.settings:get_bool("brickcraft_house_test",false)
-local colors = {"coral", "gold", "mint", "sky", "violet", "cream", "navy", "rose"}
-local labels = {"Coral", "Gold", "Mint", "Sky", "Violet", "Cream", "Navy", "Rose"}
+-- The first 8 colors are the starter kit; the last 3 come from harvesting the landscape.
+local colors = {"coral", "gold", "mint", "sky", "violet", "cream", "navy", "rose", "green", "brown", "tan"}
+local labels = {"Coral", "Gold", "Mint", "Sky", "Violet", "Cream", "Navy", "Rose", "Green", "Brown", "Tan"}
+local STARTER_COLORS = 8
 C.register_alias("mapgen_singlenode", "air")
 C.register_item(":", {type="none", wield_image="brickcraft_hand.png", range=7,
   tool_capabilities={full_punch_interval=1, groupcaps={}}})
@@ -216,7 +218,7 @@ end
 local function turn_placed(pos,node,player)
   pos,node=primary_of(pos,node)
   local def=C.registered_nodes[node.name]
-  if not def or C.get_item_group(node.name,"brick")~=1 then return end
+  if not def or not def.brickcraft_shape then return end
   local param2=(node.param2+1)%4
   local old_tail,new_tail
   if def.brickcraft_long then
@@ -332,20 +334,26 @@ C.register_on_generated(function(minp,maxp)
   vm:set_data(data); vm:write_to_map()
 end)
 
--- Scenery around the workshop: fixed, not collectable, so brick counts stay unchanged.
+-- Scenery around the workshop is harvestable: each cell is one brick of its color.
+-- The nodes stay plain cubes (cheap to draw across the hills) and keep their saved names;
+-- what the separator collects is an ordinary brick. A gray baseplate floor at y -2
+-- stays put under the hills, so digging the green ground never opens a hole to the void.
 for _, n in ipairs({
-  {"grass","Grass",{"brickcraft_grass.png","brickcraft_dirt.png","brickcraft_grass_side.png"}},
-  {"dirt","Dirt",{"brickcraft_dirt.png"}},
-  {"trunk","Tree Trunk",{"brickcraft_trunk_top.png","brickcraft_trunk_top.png","brickcraft_trunk.png"}},
-  {"leaves","Leaves",{"brickcraft_leaves.png"}},
+  {"grass","Grass","green",{"brickcraft_grass.png","brickcraft_dirt.png","brickcraft_grass_side.png"}},
+  {"dirt","Dirt","tan",{"brickcraft_dirt.png"}},
+  {"trunk","Tree Trunk","brown",{"brickcraft_trunk_top.png","brickcraft_trunk_top.png","brickcraft_trunk.png"}},
+  {"leaves","Leaves","green",{"brickcraft_leaves.png"}},
 }) do
-  C.register_node("brickcraft:"..n[1], {description=n[2], tiles=n[3], groups={scenery=1},
-    diggable=false, is_ground_content=false})
+  C.register_node("brickcraft:"..n[1], {description=n[2].."\nCollect for a "..n[3].." brick", tiles=n[4],
+    groups={brick=1, scenery=1, not_in_creative_inventory=1}, drop="brickcraft:"..n[3],
+    brickcraft_scenery=true, is_ground_content=false, on_dig=collect})
 end
 
 -- The landscape is written once per world after its area loads, so worlds created
 -- before hills existed get them too. Only air is filled: saved builds always win.
-local LANDSCAPE_VERSION, EDGE = 1, 46 -- saved worlds only have map blocks to about ±48
+-- v1: hills and trees. v2: protected floor under them, added alone to v1 worlds so
+-- nothing harvested grows back.
+local LANDSCAPE_VERSION, EDGE = 2, 46 -- saved worlds only have map blocks to about ±48
 local function noise(x,z) return (math.sin(x*12.9898+z*78.233)*43758.5453)%1 end
 local function hill_height(x,z)
   local d=math.max(math.abs(x),math.abs(z))-27 -- 3-node flat grass ring past the baseplate
@@ -353,8 +361,8 @@ local function hill_height(x,z)
   local h=d*.55+2.5*math.sin(x*.21)+2*math.cos(z*.17)+1.5*math.sin((x+z)*.11)
   return math.max(-1,math.min(18,math.floor(h)-1))
 end
-local function build_landscape()
-  local minp,maxp={x=-EDGE,y=-1,z=-EDGE},{x=EDGE,y=26,z=EDGE}
+local function build_landscape(from)
+  local minp,maxp={x=-EDGE,y=-2,z=-EDGE},{x=EDGE,y=26,z=EDGE}
   local vm=C.get_voxel_manip()
   local emin,emax=vm:read_from_map(minp,maxp)
   local area=VoxelArea:new({MinEdge=emin,MaxEdge=emax})
@@ -362,6 +370,7 @@ local function build_landscape()
   local air=C.get_content_id("air")
   local grass,dirt=C.get_content_id("brickcraft:grass"),C.get_content_id("brickcraft:dirt")
   local trunk,leaves=C.get_content_id("brickcraft:trunk"),C.get_content_id("brickcraft:leaves")
+  local floor=C.get_content_id("brickcraft:baseplate")
   local function put(x,y,z,id)
     if math.abs(x)>EDGE or math.abs(z)>EDGE or y>maxp.y then return end
     local i=area:index(x,y,z)
@@ -370,11 +379,15 @@ local function build_landscape()
   for z=-EDGE,EDGE do
     for x=-EDGE,EDGE do
       if math.max(math.abs(x),math.abs(z))>24 then
-        local top=hill_height(x,z)
-        for y=-1,top do put(x,y,z,y==top and grass or dirt) end
+        put(x,-2,z,floor)
+        if from<1 then
+          local top=hill_height(x,z)
+          for y=-1,top do put(x,y,z,y==top and grass or dirt) end
+        end
       end
     end
   end
+  if from>=1 then vm:set_data(data); vm:write_to_map(true); return end
   -- Trees on a loose 3-node grid, kept off the baseplate and the steep outer ridge.
   for z=-EDGE+3,EDGE-3,3 do
     for x=-EDGE+3,EDGE-3,3 do
@@ -398,10 +411,11 @@ local function build_landscape()
 end
 local storage=C.get_mod_storage()
 C.after(0,function()
-  if storage:get_int("landscape_version")>=LANDSCAPE_VERSION then return end
-  C.emerge_area({x=-EDGE,y=-1,z=-EDGE},{x=EDGE,y=26,z=EDGE},function(_,_,remaining)
+  local from=storage:get_int("landscape_version")
+  if from>=LANDSCAPE_VERSION then return end
+  C.emerge_area({x=-EDGE,y=-2,z=-EDGE},{x=EDGE,y=26,z=EDGE},function(_,_,remaining)
     if remaining>0 then return end
-    build_landscape()
+    build_landscape(from)
     storage:set_int("landscape_version",LANDSCAPE_VERSION)
     C.log("action","BrickCraft landscape v"..LANDSCAPE_VERSION.." built")
   end)
@@ -412,7 +426,7 @@ local function welcome(player)
     "formspec_version[6]size[10,7.6]bgcolor[#142936;true]"..
     "label[.6,.6;BRICKCRAFT / BUILD TOGETHER]"..
     "textarea[.6,1.3;8.8,5.4;;Welcome to your brick workshop!;"..
-    C.formspec_escape("WASD / arrows: move    Mouse: look    Space: jump\n1: orange separator / left click to collect\n2–9: choose a color / right click to place\nTab / E: next piece    Q: turn    U: undo\nSeparator right click: turn a placed brick\nI: inventory    C: see your brick person    ?: all keys\nEsc: pause / Quit to Menu saves and closes world\n\nCollect the colored stacks, then build a tiny home!\n/home returns you safely to the workshop.")..
+    C.formspec_escape("WASD / arrows: move    Mouse: look    Space: jump\n1: orange separator / left click to collect\n2–9 / mouse wheel: choose a color / right click to place\nTab / E: next piece    Q: turn    U: undo\nSeparator right click: turn a placed brick\nI: inventory    C: see your brick person    ?: all keys\nEsc: pause / Quit to Menu saves and closes world\n\nCollect the colored stacks, trees and hills, then build a tiny home!\n/home returns you safely to the workshop.")..
     "]button_exit[1.2,6.7;3.6,.6;go;Let's build!]button[5.2,6.7;3.6,.6;help;Keys and commands]")
 end
 -- One list feeds the help screen; keep it in sync with the controls above.
@@ -422,10 +436,10 @@ local help_rows={
   {"BUILD",""},
   {"1","Orange separator"},{"Left click (separator)","Collect a brick"},
   {"Right click (separator)","Turn a placed brick"},
-  {"2 – 9","Choose a color"},{"Right click (color)","Place a brick"},
+  {"2 – 9 / mouse wheel","Choose a color (harvested colors sit after 9)"},{"Right click (color)","Place a brick"},
   {"F or Control+click","Same as right click (trackpad)"},
   {"E or Tab","Next piece"},{"Q","Turn the next brick 90°"},
-  {"Mouse wheel","Next / previous hotbar slot"},{"U or I > Undo","Undo your last build action"},
+  {"Left click tree / hill","Harvest a green, brown or tan brick"},{"U or I > Undo","Undo your last build action"},
   {"MENUS",""},
   {"?","This help screen"},
   {"I","Inventory and shape buttons"},{"T","Chat (type a command)"},
@@ -528,7 +542,7 @@ function inventory_formspec(player)
     end
   end
   return fs.."list[current_player;main;.4,3.3;8,4;]"..
-    "label[.4,8.5;1: Separator | 2-9: Colors | Right click or F: Build | Q: Turn | U: Undo]"..
+    "label[.4,8.5;1: Separator | 2-9, wheel: Colors | Right click or F: Build | Q: Turn | U: Undo]"..
     "label[.4,9;2 x 4 pieces use 2 bricks of their color. The others use 1.]listring[current_player;main]"..
     "style[undo;bgcolor=#f5872c]button[1.6,9.4;2.8,.6;undo;Undo last action]"..
     "button[4.6,9.4;2.8,.6;look;Change look]button[7.6,9.4;2.8,.6;help;Help: all keys]"
@@ -557,7 +571,8 @@ C.register_on_player_receive_fields(function(player,formname,fields)
 end)
 C.register_on_joinplayer(function(player)
   local inv=player:get_inventory(); inv:set_size("main",32)
-  player:hud_set_hotbar_itemcount(9)
+  -- 1 separator + 8 starter colors + 3 slots for harvested green/brown/tan bricks.
+  player:hud_set_hotbar_itemcount(12)
   player:set_inventory_formspec(inventory_formspec(player))
   apply_style(player)
   player:set_sky({base_color="#93cddd",type="regular",clouds=true})
@@ -567,7 +582,7 @@ C.register_on_joinplayer(function(player)
   update_hud(player)
   if player:get_meta():get_int("brickcraft_started")==0 then
     inv:set_stack("main",1,"brickcraft:separator")
-    for i,color in ipairs(colors) do inv:set_stack("main",i+1,"brickcraft:"..color.." 24") end
+    for i=1,STARTER_COLORS do inv:set_stack("main",i+1,"brickcraft:"..colors[i].." 24") end
     player:get_meta():set_int("brickcraft_started",1)
     claim_spot(player)
     player:set_pos(home_pos(player)); player:set_look_horizontal(0)

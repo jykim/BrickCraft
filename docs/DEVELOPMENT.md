@@ -119,7 +119,7 @@ python3 tools/test_integration.py
 
 ### 언덕과 나무
 
-`init.lua`의 `build_landscape`가 서버 시작 후 `core.emerge_area`로 ±46 영역을 불러와 한 번만 씁니다. 모드 저장소의 `landscape_version`이 `LANDSCAPE_VERSION`보다 작을 때만 실행하므로 기존 세계에도 추가되며, 공기 칸만 채워 저장된 건축물을 보존합니다. 지형을 바꾸면 버전을 올리세요. 이미 쓰인 잔디·나무는 지우지 않고 빈 칸만 채웁니다. 기존 workshop 세계는 `mapgen_limit = 64`로 만들어져 블록이 약 -48..63에만 있으므로 지형 범위를 ±46으로 제한했습니다. 경치 노드(`grass`, `dirt`, `trunk`, `leaves`)는 `diggable = false`입니다.
+`init.lua`의 `build_landscape`가 서버 시작 후 `core.emerge_area`로 ±46 영역을 불러와 한 번만 씁니다. 모드 저장소의 `landscape_version`이 `LANDSCAPE_VERSION`보다 작을 때만 실행하므로 기존 세계에도 추가되며, 공기 칸만 채워 저장된 건축물을 보존합니다. 지형을 바꾸면 버전을 올리세요. 이미 쓰인 잔디·나무는 지우지 않고 빈 칸만 채웁니다. 기존 workshop 세계는 `mapgen_limit = 64`로 만들어져 블록이 약 -48..63에만 있으므로 지형 범위를 ±46으로 제한했습니다. 경치 노드(`grass`, `dirt`, `trunk`, `leaves`)는 `brick` 그룹이라 세퍼레이터로 수확하며, `drop`으로 일반 브릭(`green`·`tan`·`brown`·`green`) 1개를 줍니다. 언덕 전체를 그려도 가볍도록 노드 자체는 돌기 없는 정육면체로 두었고, 저장된 이름도 그대로라 마이그레이션이 필요 없습니다. 언덕 아래 y = -2에는 캘 수 없는 `brickcraft:baseplate` 바닥이 있습니다. `LANDSCAPE_VERSION` 2에서 추가했으며, v1 세계에는 바닥만 더하고 언덕·나무는 다시 채우지 않으므로 수확한 칸이 되살아나지 않습니다.
 
 ### 배치와 회수
 
@@ -129,7 +129,7 @@ python3 tools/test_integration.py
 
 ### 인벤토리와 플레이어
 
-`register_on_joinplayer`가 `main` 32칸, 핫바 9칸과 8×4 인벤토리 formspec을 설정합니다. 최초 지급은 1번 세퍼레이터, 2–9번 8색 브릭 각 24개입니다. 슬롯을 늘리거나 재배치할 때 formspec·핫바·초기 지급·기존 저장의 아이템 보존을 함께 확인하세요. 작은 크기로 줄이면 기존 슬롯의 아이템이 영향을 받을 수 있습니다.
+`register_on_joinplayer`가 `main` 32칸, 핫바 12칸과 8×4 인벤토리 formspec을 설정합니다. 최초 지급은 1번 세퍼레이터, 2–9번 8색 브릭 각 24개(`STARTER_COLORS`)입니다. `colors`의 마지막 3색(green·brown·tan)은 지급하지 않고 경치 수확으로만 얻으며, 보통 10–12번 칸에 들어갑니다. 슬롯을 늘리거나 재배치할 때 formspec·핫바·초기 지급·기존 저장의 아이템 보존을 함께 확인하세요. 작은 크기로 줄이면 기존 슬롯의 아이템이 영향을 받을 수 있습니다.
 
 현재 캐릭터는 원본 OBJ 정적 메시입니다. `visual_size = {x=10,y=10}`, 충돌 상자와 `eye_height`를 함께 사용하므로 메시 단위와 실제 이동 충돌을 혼동하지 마세요.
 
