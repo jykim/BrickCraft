@@ -6,8 +6,12 @@
 set -eu
 ROOT="${0:A:h}"
 source "$ROOT/tools/update.zsh"
-SERVER="${BRICKCRAFT_SERVER:-}"
-[[ -z "$SERVER" && -f "$ROOT/user/server_address" ]] && SERVER="$(head -n 1 "$ROOT/user/server_address" | tr -d '[:space:]')"
-BRICKCRAFT_SERVER="${SERVER:-jms.local}" exec "$ROOT/Join BrickCraft.command"
-exit
+source "$ROOT/tools/launcher-common.zsh"
+HOST="${BRICKCRAFT_SERVER:-}"
+[[ -z "$HOST" && -f "$ROOT/user/server_address" ]] && HOST="$(head -n 1 "$ROOT/user/server_address" | tr -d '[:space:]')"
+HOST="${HOST:-jms.local}"
+player_name Guest; NAME="$REPLY"
+print "Joining $HOST:$PORT from $NAME. Pick who is playing in the game window."
+print "The first time, press \"Register and Join\"."
+exec "$LUANTI" --config "$CONF" --address "$HOST" --port "$PORT" --name "$NAME" --go --logfile "$ROOT/logs/client.log"
 }

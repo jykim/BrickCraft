@@ -5,7 +5,7 @@ ROOT="${0:A:h}"
 source "$ROOT/tools/launcher-common.zsh"
 if server_running; then
   print "The shared BrickCraft server is running on this Mac."
-  print "Join it with \"Join BrickCraft.command\" (host: 127.0.0.1) or stop it first."
+  print "Join it with \"Play BrickCraft.command\" or stop it first."
   exit 1
 fi
 init_world

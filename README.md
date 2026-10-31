@@ -41,33 +41,33 @@ WASD 또는 **방향키** 이동, 마우스 시점, Space 점프. **?** 키(= `/
 
 ## 같이 하기 (멀티플레이)
 
-**가장 쉬운 방법 — 더블클릭 하나:** 둘 다 GitHub에서 최신 버전을 받은 뒤(`git pull`) 게임을 켭니다. 오프라인이면 있는 버전으로 그냥 켭니다.
+jms가 서버를 열고 다른 Mac이 같은 네트워크나 Tailscale로 접속합니다. 모두 한 세계(`worlds/workshop`)에서 같이 짓습니다. 실행 파일은 두 개입니다.
 
-- **jms(관리자):** `Admin BrickCraft.command` → 최신으로 갱신하고 서버를 열어 바로 들어갑니다(= Host).
-- **다른 Mac(플레이어):** `Play BrickCraft.command` → 최신으로 갱신하고 `jms.local`에 접속합니다(= Join, 주소를 묻지 않음). 다른 주소를 쓰려면 `user/server_address`에 한 줄로 적습니다(예: Tailscale이면 `jms`).
+| 어디서 | 실행 | 하는 일 |
+| --- | --- | --- |
+| jms(관리자) | `Admin BrickCraft.command` | (선택) GitHub 갱신 → 서버 열기 → 이 Mac에서도 접속 |
+| 다른 Mac(플레이어) | `Play BrickCraft.command` | (선택) GitHub 갱신 → `jms.local`에 접속 |
 
-이 두 파일이 아직 없는 Mac은 처음 한 번만 `cd ~/dev/BrickCraft && git pull` 합니다. 아래는 각 단계를 직접 하는 방법입니다.
-
-jms가 서버를 열고 다른 Mac이 같은 네트워크나 Tailscale로 접속합니다. 모두 한 세계(`worlds/workshop`)에서 같이 짓습니다.
+**GitHub 갱신은 선택입니다.** 시작하면 `Update BrickCraft from GitHub first? [Y/n]`을 묻고, 5초 안에 답이 없으면 갱신합니다. `n`을 누르면 있는 버전으로 바로 켭니다. 묻지 않게 하려면 `--no-update`를 붙이거나 `BRICKCRAFT_UPDATE=0`(건너뜀)/`1`(항상 갱신)으로 실행합니다. 오프라인이면 경고만 보이고 그대로 켜집니다.
 
 > **브라우저로는 접속할 수 없습니다.** `http://jms:30000`은 동작하지 않습니다. Luanti는 UDP 게임 프로토콜을 쓰므로 접속하는 쪽에도 Luanti 앱이 있어야 합니다.
 
 ### 1. jms에서 서버 열기
 
-싱글 플레이 게임이 켜져 있으면 먼저 종료합니다(Esc → Exit to OS). 그다음:
+싱글 플레이 게임이 켜져 있으면 먼저 종료합니다(Esc → Exit to OS). 그다음 Finder에서 **Admin BrickCraft.command**를 더블클릭하거나:
 
 ```sh
 cd ~/dev/BrickCraft
-./"Host BrickCraft.command"
+./"Admin BrickCraft.command"
 ```
 
-Finder에서 더블클릭해도 됩니다. 이름은 묻지 않습니다. 누가 플레이할지는 게임 창의 **Who's playing?** 화면에서 고릅니다. 서버가 뜨면 접속 주소를 보여 주고 jms에서도 바로 게임에 들어갑니다.
+이름은 묻지 않습니다. 누가 플레이할지는 게임 창의 **Who's playing?** 화면에서 고릅니다. 서버가 뜨면 접속 주소를 보여 주고 jms에서도 바로 게임에 들어갑니다.
 
 - 같은 집/사무실 네트워크: `jms.local` 또는 `192.168.x.x`
 - Tailscale: `jms` 또는 `100.72.189.12`
 - 포트: `30000`
 
-**`Launch BrickCraft.command`는 싱글 플레이라 다른 사람이 들어올 수 없습니다.** 반드시 Host로 여세요. jms에서 게임을 끝내면 서버도 저장 후 종료되어 모두 나가집니다. 터미널 창은 열어 둡니다.
+**`Launch BrickCraft.command`는 싱글 플레이라 다른 사람이 들어올 수 없습니다.** 같이 하려면 Admin으로 여세요. jms에서 게임을 끝내면 서버도 저장 후 종료되어 모두 나가집니다. 터미널 창은 열어 둡니다. 게임 코드가 바뀌면 서버를 Admin으로 다시 열어야 반영됩니다.
 
 ### 2. 다른 Mac에서 접속하기
 
@@ -78,23 +78,20 @@ Finder에서 더블클릭해도 됩니다. 이름은 묻지 않습니다. 누가
    git clone https://github.com/jykim/BrickCraft.git ~/dev/BrickCraft
    ```
 
-   이미 받았다면 최신으로 갱신합니다(`Join BrickCraft.command`가 없으면 오래된 사본입니다):
+   `Play BrickCraft.command`가 없는 오래된 사본이면 한 번만 `cd ~/dev/BrickCraft && git pull` 합니다.
 
-   ```sh
-   cd ~/dev/BrickCraft && git pull
-   ```
-
-3. 접속합니다:
+3. Finder에서 **Play BrickCraft.command**를 더블클릭하거나:
 
    ```sh
    cd ~/dev/BrickCraft
-   ./"Join BrickCraft.command"
+   ./"Play BrickCraft.command"
    ```
 
-   - **Server address:** 같은 네트워크면 Enter(`jms.local`), Tailscale이면 `jms`
-   - 이름은 묻지 않습니다. 게임 창에 **Who's playing?** 화면이 뜨면 자기를 고릅니다(아래 3번).
-   - 접속 이름은 Mac의 네트워크 이름(시스템 설정 → 일반 → 공유 → 로컬 호스트 이름)이라 Mac끼리 겹치지 않습니다. 바꾸려면 `user/player_name` 파일에 한 줄로 적거나 `BRICKCRAFT_NAME=이름`으로 실행합니다(영문·숫자·`-`·`_`, 20자 이내).
+   - 주소는 묻지 않고 `jms.local`로 접속합니다. 다른 주소(예: Tailscale이면 `jms`)는 `user/server_address`에 한 줄로 적거나 `BRICKCRAFT_SERVER=jms`로 실행합니다.
+   - 이름도 묻지 않습니다. 게임 창에 **Who's playing?** 화면이 뜨면 자기를 고릅니다(아래 3번).
+   - 접속 이름은 Mac의 네트워크 이름(시스템 설정 → 일반 → 공유 → 로컬 호스트 이름, 20자까지)이라 Mac끼리 겹치지 않습니다. 바꾸려면 `user/player_name` 파일에 한 줄로 적거나 `BRICKCRAFT_NAME=이름`으로 실행합니다(영문·숫자·`-`·`_`, 20자 이내).
    - 처음 접속할 때는 **Register and Join**을 누릅니다.
+   - 터미널의 `sandbox_extension_issue_file_to_process failed`, `SDL_PollEvent took too long` 경고는 무시해도 됩니다.
 
 이 스크립트로 접속하면 방향키·`?`·F·Control+클릭이 로컬과 똑같습니다. 저장소 없이 Luanti 앱의 **Join Game**(주소 `jms`, 포트 `30000`)으로 들어와도 되지만 그때는 기본 키만 있습니다(도움말은 Z 또는 `/keys`).
 
@@ -107,8 +104,8 @@ Finder에서 더블클릭해도 됩니다. 이름은 묻지 않습니다. 누가
 
 ### 안 될 때
 
-- **접속이 안 됨:** jms에서 Host 스크립트가 실행 중인지 확인합니다(Launch로 연 싱글 플레이에는 접속할 수 없음). Tailscale이면 두 기기 모두 Tailscale이 켜져 있어야 합니다.
-- **Launch가 실행을 거절함:** 서버가 같은 세계를 열고 있는 상태입니다. Join으로 `127.0.0.1`에 들어가거나 서버를 끝낸 뒤 실행합니다.
+- **접속이 안 됨:** jms에서 Admin이 실행 중인지 확인합니다(Launch로 연 싱글 플레이에는 접속할 수 없음). Tailscale이면 두 기기 모두 Tailscale이 켜져 있어야 합니다.
+- **Launch가 실행을 거절함:** 서버가 같은 세계를 열고 있는 상태입니다. `BRICKCRAFT_SERVER=127.0.0.1 ./"Play BrickCraft.command"`로 들어가거나 서버를 끝낸 뒤 실행합니다.
 - **macOS가 들어오는 연결 허용을 물음:** 처음 서버를 열 때 허용해야 다른 기기가 들어옵니다.
 - 서버 목록에는 공개하지 않고 빈 비밀번호를 허용합니다. 공유기 포트를 열어 인터넷에 공개하지 말고 Tailscale을 쓰세요.
 
@@ -138,7 +135,7 @@ Finder에서 더블클릭해도 됩니다. 이름은 묻지 않습니다. 누가
 - 통과: 직접 좌클릭으로 민트 브릭 회수, 24→25; 직접 우클릭으로 다시 놓기, 25→24.
 - 통과: 별도 테스트 세계에서 실제 엔진 콜백을 이용한 배치와 재실행 검증. 배치 24→23, 프로세스 종료 후 재실행 시 브릭·인벤토리·위치 유지, 세퍼레이터 회수 23→24, 베이스플레이트 보호.
 - 통과(형태·되돌리기 추가 후 재검사): 1×2·2×4·플레이트 배치와 비용 1/2/1, 공간 부족 2×4 거절(수량 유지), Q 회전 param2 반영, 재실행 후 2×4 끝 칸 유지, 세퍼레이터 우클릭 회전 시 끝 칸 이동, 끝 칸 회수로 전체 제거·2개 반환, 1×2·플레이트 1개씩 반환. 놓기·회수·긴 부품 회전의 Undo와 인벤토리 수량 복원도 통과. 경고·Lua 오류 없음.
-- 통과(멀티플레이): `python3 tools/test_multiplayer.py`가 전용 서버 + 실제 GUI 클라이언트 2개를 네트워크(127.0.0.1:30010)로 접속시켜 서로 다른 시작 자리, 모습 선택 경로(메시·텍스처·이름표 색), 한 사람이 놓은 브릭을 다른 사람이 회수해 각자 수량 23/25, `/who` 목록을 확인. Host 스크립트도 임시 세계로 실행해 서버 시작·접속·게임 종료 시 서버 저장 종료를 확인. 다른 실제 Mac에서의 접속과 macOS 방화벽 허용 화면은 미확인.
+- 통과(멀티플레이): `python3 tools/test_multiplayer.py`가 전용 서버 + 실제 GUI 클라이언트 2개를 네트워크(127.0.0.1:30010)로 접속시켜 서로 다른 시작 자리, 모습 선택 경로(메시·텍스처·이름표 색), 한 사람이 놓은 브릭을 다른 사람이 회수해 각자 수량 23/25, `/who` 목록을 확인. 호스트 실행기도 임시 세계로 실행해 서버 시작·접속·게임 종료 시 서버 저장 종료를 확인. 다른 실제 Mac에서의 접속과 macOS 방화벽 허용 화면은 미확인.
 - 테스트 스크립트: `python3 tools/test_integration.py`. 매번 `tests/run/session-*`에 별도 세계를 만듭니다. 사용자 workshop는 건드리지 않습니다. 이는 GUI 클라이언트 안에서 자동으로 엔진 콜백을 호출하는 통합 검사이며 전부 마우스로 수행한 검사는 아닙니다.
 - 수정: 자동 OpenGL3 선택 시 실패 후 2.1로 폴백하는 로그가 생겼으므로 `video_driver = opengl`로 고정했습니다. 최종 검사에서 컨텍스트 실패와 Lua 오류는 발생하지 않았습니다. SDL 이벤트 지연 경고가 일부 있습니다.
 - 초기 검사 중 테스트 코드의 저장소 핸들과 존재하지 않는 보조 메서드 오류를 수정했습니다. 실패 로그도 `tests/run/`에 남겨 성공 기록과 구분했습니다.
