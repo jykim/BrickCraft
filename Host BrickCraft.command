@@ -9,7 +9,7 @@ if pgrep -f -- "--world $WORLD" >/dev/null && ! server_running; then
   print "Single-player BrickCraft has the workshop open. Exit it first (Esc > Exit to OS)."
   exit 1
 fi
-ask_name Builder; NAME="$REPLY"
+player_name Builder; NAME="$REPLY"
 
 LOG="$ROOT/logs/server.log"
 SERVER_PID=""

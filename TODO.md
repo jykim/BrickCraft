@@ -76,7 +76,9 @@
 ## 멀티플레이 (기본 구현 2026-10-31)
 
 - [x] jms 호스트 서버(`Host BrickCraft.command`)와 다른 Mac 접속(`Join BrickCraft.command`), 같은 세계 공유.
-- [x] 플레이어별 이름·모습(Builder/Dad/Daughter/Explorer, 머리 모양·색)·이름표 색·시작 자리, `/look`, `/who`.
+- [x] 플레이어별 이름·모습(Builder/Dad/Leona/Explorer, 머리 모양·색)·이름표 색·시작 자리, `/look`, `/who`.
+- [x] 실행기는 이름을 묻지 않고, 게임 창의 *Who's playing?*에서 사람을 고름. 브릭은 사람별로 저장되어 어느 Mac에서든 이어짐(2026-10-31).
+- [ ] *Who's playing?* 화면 외형과 실제 두 Mac에서 사람 바꾸기 확인.
 - [x] 전용 서버 + 클라이언트 2개 네트워크 자동 검사.
 - [ ] 실제 다른 Mac에서 Leona와 접속해 보기(방화벽 허용, `jms.local` 이름 해석 확인).
 - [ ] 건축물 보호(만든 사람/부모만 회수) 필요 여부 결정.

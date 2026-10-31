@@ -52,13 +52,17 @@ ensure keymap_cmd "SYSTEM_SCANCODE_104"
 ensure keymap_place "KEY_RBUTTON|SYSTEM_SCANCODE_9|GAMEPAD_AXIS_PLUS_4"
 ensure keymap_sneak "SYSTEM_SCANCODE_24"
 
-# Ask for a player name (letters, digits, - and _; Luanti allows up to 20).
-ask_name() {
-  local name
-  while true; do
-    read "name?Your name [$1]: "
-    name="${name:-$1}"
-    if [[ "$name" =~ '^[A-Za-z0-9_-]{1,20}$' ]]; then REPLY="$name"; return; fi
-    print "Use 1-20 letters, digits, - or _ (no spaces)."
-  done
+# Connection name without a prompt. Who is playing is picked in the game window, so this
+# only has to tell computers apart: $BRICKCRAFT_NAME, else this Mac's user/player_name
+# file (one line), else the Mac's network name. Luanti allows 1-20 letters, digits, - and _.
+player_name() {
+  local name="${BRICKCRAFT_NAME:-}"
+  [[ -z "$name" && -f "$ROOT/user/player_name" ]] && name="$(head -n 1 "$ROOT/user/player_name" | tr -d '[:space:]')"
+  [[ -z "$name" ]] && name="$(scutil --get LocalHostName 2>/dev/null | tr -cd 'A-Za-z0-9_-' | cut -c1-20)"
+  name="${name:-$1}"
+  if [[ ! "$name" =~ '^[A-Za-z0-9_-]{1,20}$' ]]; then
+    print "Ignoring player name \"$name\": use 1-20 letters, digits, - or _ (no spaces)."
+    name="$1"
+  fi
+  REPLY="$name"
 }

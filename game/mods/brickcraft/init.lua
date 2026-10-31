@@ -464,13 +464,14 @@ local function show_help(player)
     "table[.6,1.1;9.8,7.2;keys;"..table.concat(cells,",")..";0]"..
     "button_exit[3.7,8.5;3.6,.6;close;Back to building]")
 end
--- Block-person looks; each player picks one, and the nametag takes its color.
+-- The family's players, each with a block-person look; the nametag shows the name in
+-- the look's color. Players are chosen in the game window ("Who's playing?").
 local styles={
   {id="builder",label="Builder",mesh="brickcraft_person.obj",tex="brickcraft_person.png",
    tag="#8fd0ff",swatch={"#4aa1d9","#304c6e","#232630"}},
   {id="dad",label="Dad",mesh="brickcraft_person_short.obj",tex="brickcraft_person_dad.png",
    tag="#a9c4e8",swatch={"#304c6e","#464a54","#3e2c20"}},
-  {id="daughter",label="Daughter",mesh="brickcraft_person_long.obj",tex="brickcraft_person_daughter.png",
+  {id="daughter",label="Leona",mesh="brickcraft_person_long.obj",tex="brickcraft_person_daughter.png",
    tag="#ffb3cf",swatch={"#e583a5","#9774cb","#6e4228"}},
   {id="explorer",label="Explorer",mesh="brickcraft_person_short.obj",tex="brickcraft_person_explorer.png",
    tag="#9ee6c6",swatch={"#4ab793","#eee5c7","#e8be5c"}},
@@ -480,28 +481,92 @@ for _,st in ipairs(styles) do style_by_id[st.id]=st end
 local function get_style(player)
   return style_by_id[player:get_meta():get_string("brickcraft_style")] or styles[1]
 end
+-- Each player's bricks live in mod storage, not with the connection, so any computer
+-- can play as anyone. The connection name only tells computers apart. A connection
+-- holds the bricks of the player it plays as; they are saved back on switch and leave.
+local pstore=C.get_mod_storage()
+local function playing_as(player)
+  local meta=player:get_meta()
+  local id=meta:get_string("brickcraft_profile")
+  -- Connections from before the picker own the bricks of the look they chose.
+  if id=="" and meta:get_int("brickcraft_style_chosen")==1 then id=meta:get_string("brickcraft_style") end
+  return style_by_id[id] and id or nil
+end
+local function save_bricks(player)
+  local id=playing_as(player)
+  if not id then return end
+  local items={}
+  for i,stack in ipairs(player:get_inventory():get_list("main")) do items[i]=stack:to_string() end
+  pstore:set_string("bricks_"..id,C.serialize(items))
+end
+local function load_bricks(player,id)
+  local saved=pstore:get_string("bricks_"..id)
+  if saved=="" then return false end
+  saved=C.deserialize(saved) or {}
+  local inv=player:get_inventory()
+  for i=1,inv:get_size("main") do inv:set_stack("main",i,saved[i] or "") end
+  return true
+end
+local function give_starter(inv)
+  inv:set_list("main",{})
+  inv:set_stack("main",1,"brickcraft:separator")
+  for i=1,STARTER_COLORS do inv:set_stack("main",i+1,"brickcraft:"..colors[i].." 24") end
+end
+local function taken_by(player,id)
+  for _,p in ipairs(C.get_connected_players()) do
+    if p~=player and playing_as(p)==id then return p end
+  end
+end
 local function apply_style(player)
   local st=get_style(player)
   player:set_properties({visual="mesh",mesh=st.mesh,textures={st.tex},
     visual_size={x=10,y=10},collisionbox={-.3,0,-.3,.3,1.75,.3},eye_height=1.5,zoom_fov=0})
-  player:set_nametag_attributes({color=st.tag,bgcolor="#14293699"})
+  player:set_nametag_attributes({color=st.tag,bgcolor="#14293699",
+    text=playing_as(player) and st.label or player:get_player_name()})
+end
+-- Returns true when the player was switched; false when someone else already plays them.
+local function choose_player(player,st)
+  local name=player:get_player_name()
+  if taken_by(player,st.id) then
+    C.chat_send_player(name,st.label.." is already playing on another computer. Pick someone else.")
+    return false
+  end
+  local current=playing_as(player)
+  local fresh=false
+  if current~=st.id then
+    save_bricks(player)
+    if not load_bricks(player,st.id) then
+      -- A player's first time: a new connection keeps the starter kit it just got,
+      -- a switch from another player starts with a fresh kit.
+      if current then give_starter(player:get_inventory()) end
+      fresh=true
+    end
+    history[name]=nil -- an undo must not move bricks between players
+  end
+  local meta=player:get_meta()
+  meta:set_string("brickcraft_profile",st.id); meta:set_string("brickcraft_style",st.id)
+  meta:set_int("brickcraft_style_chosen",1)
+  apply_style(player)
+  return true,fresh
 end
 local function show_style_picker(player)
-  local current=get_style(player)
+  local current=playing_as(player)
   local fs="formspec_version[6]size[11,6.4]bgcolor[#142936;true]"..
-    "label[.6,.6;BRICKCRAFT / CHOOSE YOUR LOOK]"..
-    "label[.6,1.1;"..C.formspec_escape("Hi "..player:get_player_name().."! Friends see this look and your name.").."]"
+    "label[.6,.6;BRICKCRAFT / WHO'S PLAYING?]"..
+    "label[.6,1.1;"..C.formspec_escape("Pick yourself. Your bricks and look come with you on any computer.").."]"
   for i,st in ipairs(styles) do
     local x=.6+(i-1)*2.55
+    local other=taken_by(player,st.id)
     -- Hair (or cap), shirt and pants swatches stacked like the figure.
     fs=fs.."box["..(x+.6)..",1.7;1.1,.5;"..st.swatch[3].."]"..
       "box["..(x+.6)..",2.2;1.1,1;"..st.swatch[1].."]"..
       "box["..(x+.6)..",3.2;1.1,.9;"..st.swatch[2].."]"..
-      "style[style_"..st.id..";bgcolor="..(st==current and "#f5872c" or "#3a5566").."]"..
+      "style[style_"..st.id..";bgcolor="..(st.id==current and "#f5872c" or other and "#24343d" or "#3a5566").."]"..
       "button["..x..",4.4;2.3,.7;style_"..st.id..";"..st.label.."]"
+    if other then fs=fs.."label["..(x+.35)..",5.3;(playing)]" end
   end
   C.show_formspec(player:get_player_name(),"brickcraft:style",fs..
-    "label[.6,5.6;You can change it later: I > Change look, or /look]")
+    "label[.6,5.9;Switch later: I > Switch player, or /player]")
 end
 
 -- Each new player gets their own free spot so friends don't spawn inside each other.
@@ -545,18 +610,17 @@ function inventory_formspec(player)
     "label[.4,8.5;1: Separator | 2-9, wheel: Colors | Right click or F: Build | Q: Turn | U: Undo]"..
     "label[.4,9;2 x 4 pieces use 2 bricks of their color. The others use 1.]listring[current_player;main]"..
     "style[undo;bgcolor=#f5872c]button[1.6,9.4;2.8,.6;undo;Undo last action]"..
-    "button[4.6,9.4;2.8,.6;look;Change look]button[7.6,9.4;2.8,.6;help;Help: all keys]"
+    "button[4.6,9.4;2.8,.6;look;Switch player]button[7.6,9.4;2.8,.6;help;Help: all keys]"
 end
 C.register_on_player_receive_fields(function(player,formname,fields)
   if formname=="brickcraft:welcome" and fields.help then show_help(player); return true end
   if formname=="brickcraft:style" then
     for _,st in ipairs(styles) do
       if fields["style_"..st.id] then
-        local meta=player:get_meta()
-        meta:set_string("brickcraft_style",st.id); apply_style(player)
-        local first=meta:get_int("brickcraft_style_chosen")==0
-        meta:set_int("brickcraft_style_chosen",1)
-        if first then welcome(player) else C.close_formspec(player:get_player_name(),formname) end
+        local ok,fresh=choose_player(player,st)
+        if not ok then show_style_picker(player)
+        elseif fresh and not testing then welcome(player)
+        else C.close_formspec(player:get_player_name(),formname) end
       end
     end
     return true
@@ -581,21 +645,22 @@ C.register_on_joinplayer(function(player)
     text="BRICKCRAFT   |   1 Collect   2-9 Colors   Right click Build   Tab Piece   Q Turn   U Undo   ? Help",number=0xffffff,alignment={x=0,y=0},scale={x=100,y=20}})
   update_hud(player)
   if player:get_meta():get_int("brickcraft_started")==0 then
-    inv:set_stack("main",1,"brickcraft:separator")
-    for i=1,STARTER_COLORS do inv:set_stack("main",i+1,"brickcraft:"..colors[i].." 24") end
+    give_starter(inv)
     player:get_meta():set_int("brickcraft_started",1)
     claim_spot(player)
     player:set_pos(home_pos(player)); player:set_look_horizontal(0)
   end
-  -- New players pick a look first; the welcome screen follows their choice.
-  if not testing and player:get_meta():get_int("brickcraft_style_chosen")==0 then
-    show_style_picker(player)
-  end
+  -- Every start asks who is playing; a player's first time is followed by the welcome.
+  if not testing then show_style_picker(player) end
   C.set_timeofday(.48)
 end)
 C.register_on_leaveplayer(function(player)
+  save_bricks(player)
   local name=player:get_player_name()
   hud[name]=nil; held[name]=nil; history[name]=nil
+end)
+C.register_on_shutdown(function()
+  for _,p in ipairs(C.get_connected_players()) do save_bricks(p) end
 end)
 C.register_on_respawnplayer(function(player) player:set_pos(home_pos(player)); return true end)
 C.register_chatcommand("home",{description="Return to the workshop",func=function(name)
@@ -606,14 +671,17 @@ C.register_chatcommand("guide",{description="Show BrickCraft controls",func=func
   local p=C.get_player_by_name(name); if p then welcome(p) end
   return true
 end})
-C.register_chatcommand("look",{description="Choose how your block person looks",func=function(name)
-  local p=C.get_player_by_name(name); if p then show_style_picker(p) end
-  return true
-end})
+for _,cmd in ipairs({"player","look"}) do
+  C.register_chatcommand(cmd,{description="Choose who is playing on this computer",func=function(name)
+    local p=C.get_player_by_name(name); if p then show_style_picker(p) end
+    return true
+  end})
+end
 C.register_chatcommand("who",{description="List the builders here",func=function()
   local names={}
   for _,p in ipairs(C.get_connected_players()) do
-    names[#names+1]=p:get_player_name().." ("..get_style(p).label..")"
+    local id=playing_as(p)
+    names[#names+1]=(id and style_by_id[id].label or "Not picked yet").." (on "..p:get_player_name()..")"
   end
   return true,"Builders here: "..table.concat(names,", ")
 end})
@@ -657,7 +725,7 @@ C.register_globalstep(function(dt)
 end)
 
 brickcraft={shapes=shape_by_id,shape_list=shapes,colors=colors,set_shape=set_shape,turn=turn_next,undo=undo_last,styles=style_by_id,
-  get_style=get_style,home_pos=home_pos}
+  get_style=get_style,home_pos=home_pos,playing_as=playing_as}
 
 -- Opt-in integration checks execute actual engine callbacks, in a disposable world.
 if C.settings:get_bool("brickcraft_integration_test",false) then
