@@ -41,13 +41,68 @@ E로 순서대로 바꾸거나 인벤토리(I)의 줄별 버튼(Bricks / Plates 
 
 ## 같이 하기 (멀티플레이)
 
-jms가 서버를 열고 같은 네트워크의 다른 Mac이 접속합니다. 한 세계(`worlds/workshop`)를 모두 같이 씁니다.
+jms가 서버를 열고 다른 Mac이 같은 네트워크나 Tailscale로 접속합니다. 모두 한 세계(`worlds/workshop`)에서 같이 짓습니다.
 
-1. **jms:** `Host BrickCraft.command`를 더블클릭하고 이름을 입력합니다(기본 `Builder`, 기존 인벤토리 유지). 서버가 뜨면 접속 주소(`jms.local` 또는 IP, 포트 30000)를 보여 주고 jms에서도 바로 게임에 들어갑니다. **jms에서 게임을 끝내면 서버도 저장 후 종료되어 모두 나가집니다.**
-2. **다른 Mac:** 이 저장소를 받고 Luanti 5.17을 `runtime/luanti.app` 또는 `/Applications`에 둔 뒤 `Join BrickCraft.command`를 실행합니다. 서버 주소(기본 `jms.local`)와 이름(예: `Leona`)을 입력하고 처음에는 **Register and Join**을 누릅니다. 이 스크립트로 접속하면 방향키·?·F·Control+클릭이 로컬과 똑같습니다. 그냥 Luanti 앱의 Join Game으로 접속해도 되지만 그때는 기본 키만 있습니다(도움말은 Z 또는 `/keys`).
-3. 처음 들어오면 **모습 고르기**가 나옵니다: Builder, Dad(짧은 머리), Daughter(긴 머리), Explorer. 이름표가 모습 색으로 표시되며 나중에 인벤토리의 *Change look*이나 `/look`으로 바꿉니다. `/who`는 접속자 목록입니다.
+> **브라우저로는 접속할 수 없습니다.** `http://jms:30000`은 동작하지 않습니다. Luanti는 UDP 게임 프로토콜을 쓰므로 접속하는 쪽에도 Luanti 앱이 있어야 합니다.
 
-플레이어마다 이름별로 인벤토리·모습·형태·회전·시작 자리가 따로 저장됩니다. 서로 다른 시작 자리(최대 8곳)에 나타납니다. 세계·수집 더미는 공유이며 **건축물 보호는 없어서** 누구나 다른 사람의 브릭을 회수해 자기 인벤토리로 가져갈 수 있습니다. 같은 네트워크 전용입니다(서버 목록 비공개, 빈 비밀번호 허용). 인터넷 너머 접속은 공유기 포트 개방 대신 Tailscale을 씁니다. 호스트 스크립트가 Tailscale 이름(`jms`)과 100.x 주소도 보여 주며, Join 때 그 이름을 넣으면 됩니다. 브라우저(`http://…:30000`)로는 접속할 수 없습니다(UDP 게임 프로토콜). 처음 서버를 열 때 macOS가 들어오는 연결 허용을 물으면 허용해야 합니다. 싱글 플레이 `Launch BrickCraft.command`는 서버가 켜져 있으면 같은 세계를 동시에 열지 않도록 실행을 거절합니다.
+### 1. jms에서 서버 열기
+
+싱글 플레이 게임이 켜져 있으면 먼저 종료합니다(Esc → Exit to OS). 그다음:
+
+```sh
+cd ~/dev/BrickCraft
+./"Host BrickCraft.command"
+```
+
+Finder에서 더블클릭해도 됩니다. 이름을 물으면 Enter(기본 `Builder`, 기존 인벤토리 유지)를 누릅니다. 서버가 뜨면 접속 주소를 보여 주고 jms에서도 바로 게임에 들어갑니다.
+
+- 같은 집/사무실 네트워크: `jms.local` 또는 `192.168.x.x`
+- Tailscale: `jms` 또는 `100.72.189.12`
+- 포트: `30000`
+
+**`Launch BrickCraft.command`는 싱글 플레이라 다른 사람이 들어올 수 없습니다.** 반드시 Host로 여세요. jms에서 게임을 끝내면 서버도 저장 후 종료되어 모두 나가집니다. 터미널 창은 열어 둡니다.
+
+### 2. 다른 Mac에서 접속하기
+
+1. [Luanti 5.17](https://www.luanti.org/en/downloads/)을 `/Applications`에 설치합니다(Apple Silicon 공식 빌드).
+2. 저장소를 처음 받는다면:
+
+   ```sh
+   git clone https://github.com/jykim/BrickCraft.git ~/dev/BrickCraft
+   ```
+
+   이미 받았다면 최신으로 갱신합니다(`Join BrickCraft.command`가 없으면 오래된 사본입니다):
+
+   ```sh
+   cd ~/dev/BrickCraft && git pull
+   ```
+
+3. 접속합니다:
+
+   ```sh
+   cd ~/dev/BrickCraft
+   ./"Join BrickCraft.command"
+   ```
+
+   - **Server address:** 같은 네트워크면 Enter(`jms.local`), Tailscale이면 `jms`
+   - **Your name:** 예 `Leona` (영문·숫자·`-`·`_`, 공백 없이 20자 이내)
+   - 처음 접속할 때는 **Register and Join**을 누릅니다.
+
+이 스크립트로 접속하면 방향키·`?`·F·Control+클릭이 로컬과 똑같습니다. 저장소 없이 Luanti 앱의 **Join Game**(주소 `jms`, 포트 `30000`)으로 들어와도 되지만 그때는 기본 키만 있습니다(도움말은 Z 또는 `/keys`).
+
+### 3. 게임 안에서
+
+- 처음 들어오면 **모습 고르기**: Builder, Dad(짧은 머리), Daughter(긴 머리), Explorer. 이름표가 모습 색으로 표시됩니다. 나중에 인벤토리의 *Change look*이나 `/look`으로 바꿉니다.
+- `/who`는 접속자 목록, `T`는 채팅입니다.
+- 이름별로 인벤토리·모습·부품·회전·시작 자리가 따로 저장되고, 각자 다른 시작 자리(최대 8곳)에 나타납니다.
+- 세계와 수집 더미는 공유합니다. **건축물 보호는 없어서** 누구나 다른 사람의 브릭을 회수해 자기 인벤토리로 가져갈 수 있습니다.
+
+### 안 될 때
+
+- **접속이 안 됨:** jms에서 Host 스크립트가 실행 중인지 확인합니다(Launch로 연 싱글 플레이에는 접속할 수 없음). Tailscale이면 두 기기 모두 Tailscale이 켜져 있어야 합니다.
+- **Launch가 실행을 거절함:** 서버가 같은 세계를 열고 있는 상태입니다. Join으로 `127.0.0.1`에 들어가거나 서버를 끝낸 뒤 실행합니다.
+- **macOS가 들어오는 연결 허용을 물음:** 처음 서버를 열 때 허용해야 다른 기기가 들어옵니다.
+- 서버 목록에는 공개하지 않고 빈 비밀번호를 허용합니다. 공유기 포트를 열어 인터넷에 공개하지 말고 Tailscale을 쓰세요.
 
 ## 구현된 기능
 
