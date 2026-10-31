@@ -41,6 +41,13 @@ WASD 또는 **방향키** 이동, 마우스 시점, Space 점프. **?** 키(= `/
 
 ## 같이 하기 (멀티플레이)
 
+**가장 쉬운 방법 — 더블클릭 하나:** 둘 다 GitHub에서 최신 버전을 받은 뒤(`git pull`) 게임을 켭니다. 오프라인이면 있는 버전으로 그냥 켭니다.
+
+- **jms(관리자):** `Admin BrickCraft.command` → 최신으로 갱신하고 서버를 열어 바로 들어갑니다(= Host).
+- **다른 Mac(플레이어):** `Play BrickCraft.command` → 최신으로 갱신하고 `jms.local`에 접속합니다(= Join, 주소를 묻지 않음). 다른 주소를 쓰려면 `user/server_address`에 한 줄로 적습니다(예: Tailscale이면 `jms`).
+
+이 두 파일이 아직 없는 Mac은 처음 한 번만 `cd ~/dev/BrickCraft && git pull` 합니다. 아래는 각 단계를 직접 하는 방법입니다.
+
 jms가 서버를 열고 다른 Mac이 같은 네트워크나 Tailscale로 접속합니다. 모두 한 세계(`worlds/workshop`)에서 같이 짓습니다.
 
 > **브라우저로는 접속할 수 없습니다.** `http://jms:30000`은 동작하지 않습니다. Luanti는 UDP 게임 프로토콜을 쓰므로 접속하는 쪽에도 Luanti 앱이 있어야 합니다.
