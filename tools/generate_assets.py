@@ -12,6 +12,15 @@ for name,rgb in colors.items():
 png('brickcraft_baseplate.png',32,32,lambda x,y:(88,126,116,255) if (x%16-8)**2+(y%16-8)**2<12 else (70,103,98,255))
 png('brickcraft_separator.png',32,32,lambda x,y:(245,135,44,255) if (7<=x<=24 and 4<=y<=10) or (12<=x<=20 and 10<=y<=28) else (0,0,0,0))
 png('brickcraft_hand.png',32,32,lambda x,y:(245,196,134,255) if 9<=x<=24 and 7<=y<=29 else (0,0,0,0))
+# Landscape: flat brick-toy colors with a stud dot so hills read as bricks too.
+def stud(base,light):
+    return lambda x,y:light if (x%16-8)**2+(y%16-8)**2<12 else base
+png('brickcraft_grass.png',32,32,stud((96,178,84,255),(122,199,104,255)))
+png('brickcraft_grass_side.png',32,32,lambda x,y:(96,178,84,255) if y<10 else (150,104,70,255) if y!=31 else (128,88,60,255))
+png('brickcraft_dirt.png',32,32,lambda x,y:(150,104,70,255) if x!=31 and y!=31 else (128,88,60,255))
+png('brickcraft_trunk.png',32,32,lambda x,y:(118,80,52,255) if x%8 else (98,66,44,255))
+png('brickcraft_trunk_top.png',32,32,lambda x,y:(150,108,70,255) if (x-15.5)**2+(y-15.5)**2<100 else (118,80,52,255))
+png('brickcraft_leaves.png',32,32,stud((58,148,82,255),(80,170,100,255)))
 palette=[(245,196,134,255),(74,161,217,255),(48,76,110,255),(35,38,48,255)]
 png('brickcraft_person.png',16,64,lambda x,y:palette[min(3,y//16)])
 # A deliberately generic original block person; no copied character mesh.
@@ -29,4 +38,4 @@ box(-.27,.06,-.17,-.02,.58,.17,2);box(.02,.06,-.17,.27,.58,.17,2)
 # Eyes on the front (negative Z).
 box(-.15,1.49,-.228,-.08,1.56,-.22,3);box(.08,1.49,-.228,.15,1.56,-.22,3)
 (root/'models/brickcraft_person.obj').write_text('\n'.join(['# Original BrickCraft block person']+['v %g %g %g'%p for p in vertices]+['vt %g %g'%p for p in uvs]+faces)+'\n')
-print('Generated 12 textures and original block person mesh')
+print('Generated 18 textures and original block person mesh')

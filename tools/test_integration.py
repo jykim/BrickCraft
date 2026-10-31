@@ -22,7 +22,7 @@ exe=root/'runtime/luanti.app/Contents/MacOS/luanti'
 for phase in (1,2):
     log=test/f'phase{phase}.log'
     with (test/f'phase{phase}-stdout.log').open('w') as out:
-        proc=subprocess.Popen([str(exe),'--go','--gameid','brickcraft','--world',str(world),'--config',str(config),'--name','TestBuilder','--logfile',str(log)],env=env,stdout=out,stderr=out)
+        proc=subprocess.Popen([str(exe),'--go','--gameid','brickcraft','--world',str(world),'--config',str(config),'--name','TestBuilder','--port','30009','--logfile',str(log)],env=env,stdout=out,stderr=out)
         try:
             deadline=time.time()+40
             marker=f'BRICKCRAFT TEST PHASE {phase} PASS'
