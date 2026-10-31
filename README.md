@@ -46,7 +46,7 @@ jms가 서버를 열고 다른 Mac이 같은 네트워크나 Tailscale로 접속
 | 어디서 | 실행 | 하는 일 |
 | --- | --- | --- |
 | jms(관리자) | `Admin BrickCraft.command` | GitHub 자동 갱신 → 서버 열기 → 이 Mac에서도 접속 |
-| 다른 Mac(플레이어) | `Play BrickCraft.command` | GitHub 자동 갱신 → `jms.local`에 접속 |
+| 다른 Mac(플레이어) | `Play BrickCraft.command` | GitHub 자동 갱신 → jms에 접속(Tailscale 우선, 안 되면 로컬 네트워크) |
 
 **GitHub 갱신은 자동입니다.** 묻지 않고 최신 버전을 받아, 새 버전이면 실행기를 한 번 다시 시작한 뒤 켭니다. 오프라인이면 경고만 보이고 그대로 켜집니다. 갱신을 건너뛰려면 `--no-update`를 붙이거나 `BRICKCRAFT_UPDATE=0`으로 실행합니다.
 
@@ -87,7 +87,7 @@ cd ~/dev/BrickCraft
    ./"Play BrickCraft.command"
    ```
 
-   - 주소는 묻지 않고 `jms.local`로 접속합니다. 다른 주소(예: Tailscale이면 `jms`)는 `user/server_address`에 한 줄로 적거나 `BRICKCRAFT_SERVER=jms`로 실행합니다.
+   - 주소는 묻지 않습니다. **Tailscale의 `jms`**(100.72.189.12)를 먼저 시도하고, 안 되면 로컬 네트워크의 `jms.local`로 넘어갑니다. 각 주소에 실제로 BrickCraft 서버가 응답하는지 확인한 뒤 응답한 곳으로 접속하고, 어느 경로로 들어갔는지 화면과 `logs/play.log`에 남깁니다. 아무 데서도 응답이 없으면 게임 창을 열지 않고 이유를 알려 줍니다. 다른 주소를 먼저 쓰려면 `user/server_address`에 한 줄로 적거나 `BRICKCRAFT_SERVER=주소`로 실행합니다.
    - 이름도 묻지 않습니다. 게임 창에 **Who's playing?** 화면이 뜨면 자기를 고릅니다(아래 3번).
    - 접속 이름은 Mac의 네트워크 이름(시스템 설정 → 일반 → 공유 → 로컬 호스트 이름, 20자까지)이라 Mac끼리 겹치지 않습니다. 바꾸려면 `user/player_name` 파일에 한 줄로 적거나 `BRICKCRAFT_NAME=이름`으로 실행합니다(영문·숫자·`-`·`_`, 20자 이내).
    - 처음 접속하는 Mac도 **Register and Join** 확인 없이 바로 등록됩니다(실행기가 `enable_register_confirmation = false`를 넣음).
@@ -104,7 +104,7 @@ cd ~/dev/BrickCraft
 
 ### 안 될 때
 
-- **접속이 안 됨:** Play가 출력한 `Joining jms.local (주소)`의 주소를 확인합니다. jms 터미널에 보이는 주소와 다르면 `BRICKCRAFT_SERVER=192.168.4.97 ./"Play BrickCraft.command"`처럼 직접 지정합니다. jms에서 Admin이 실행 중인지 확인합니다(Launch로 연 싱글 플레이에는 접속할 수 없음). Tailscale이면 두 기기 모두 Tailscale이 켜져 있어야 합니다.
+- **접속이 안 됨:** Play가 `No BrickCraft server answered`를 출력하면 `logs/play.log`에서 시도한 주소를 봅니다. jms에서 Admin이 실행 중인지, 이 Mac에서 Tailscale이 켜져 있는지 확인합니다(Launch로 연 싱글 플레이에는 접속할 수 없음). Tailscale이면 두 기기 모두 Tailscale이 켜져 있어야 합니다.
 - **Launch가 실행을 거절함:** 서버가 같은 세계를 열고 있는 상태입니다. `BRICKCRAFT_SERVER=127.0.0.1 ./"Play BrickCraft.command"`로 들어가거나 서버를 끝낸 뒤 실행합니다.
 - **macOS가 들어오는 연결 허용을 물음:** 처음 서버를 열 때 허용해야 다른 기기가 들어옵니다.
 - 서버 목록에는 공개하지 않고 빈 비밀번호를 허용합니다. 공유기 포트를 열어 인터넷에 공개하지 말고 Tailscale을 쓰세요.
