@@ -50,6 +50,7 @@ ensure keymap_zoom "SYSTEM_SCANCODE_56"
 ensure keymap_cmd "SYSTEM_SCANCODE_104"
 # F places too, for trackpads without a secondary click.
 ensure keymap_place "KEY_RBUTTON|SYSTEM_SCANCODE_9|GAMEPAD_AXIS_PLUS_4"
+ensure keymap_sneak "SYSTEM_SCANCODE_24"
 
 # Ask for a player name (letters, digits, - and _; Luanti allows up to 20).
 ask_name() {

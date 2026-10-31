@@ -45,6 +45,21 @@ C.register_on_joinplayer(function(player)
       local plate=C.get_node({x=8,y=0,z=2})
       assert(plate.name=="brickcraft:gold_plate" and plate.param2==1,"plate placed with turn")
       brickcraft.set_shape(player,brickcraft.shapes["2x2"])
+      -- Undo placement refunds the exact cost; undo collection restores the
+      -- exact node and consumes the refund again.
+      local undo_pos={x=10,y=0,z=2}
+      assert(place(player,2,{x=10,y=-1,z=2},undo_pos)==22,"undo test placement")
+      assert(brickcraft.undo(player),"undo placement succeeds")
+      assert(C.get_node(undo_pos).name=="air" and inv:get_stack("main",2):get_count()==23,
+        "undo placement removes node and refunds brick")
+      assert(place(player,2,{x=10,y=-1,z=2},undo_pos)==22,"collect undo setup")
+      separator(player,"on_use",undo_pos)
+      assert(C.get_node(undo_pos).name=="air" and inv:get_stack("main",2):get_count()==23,
+        "collect undo setup collected")
+      assert(brickcraft.undo(player),"undo collection succeeds")
+      assert(C.get_node(undo_pos).name=="brickcraft:coral" and inv:get_stack("main",2):get_count()==22,
+        "undo collection restores node and removes refund")
+      C.remove_node(undo_pos); inv:add_item("main","brickcraft:coral")
       assert(C.registered_chatcommands.keys.func(name),"/keys opens the help screen")
       assert(C.registered_items["brickcraft:gold"].range==7,"bricks reach as far as the separator")
       C.close_formspec(name,"brickcraft:help")
@@ -67,6 +82,10 @@ C.register_on_joinplayer(function(player)
       assert(C.get_node({x=6,y=0,z=2}).param2==1,"2 x 4 turned")
       assert(C.get_node({x=6,y=0,z=3}).name=="air","old end cell cleared")
       assert(C.get_node({x=7,y=0,z=2}).name=="brickcraft:gold_2x4_tail","new end cell")
+      assert(brickcraft.undo(player),"undo turn succeeds")
+      assert(C.get_node({x=6,y=0,z=2}).param2==0,"undo restores old turn")
+      assert(C.get_node({x=6,y=0,z=3}).name=="brickcraft:gold_2x4_tail","undo restores old end")
+      separator(player,"on_place",{x=6,y=0,z=2})
       -- Collecting from the end cell removes the whole brick once.
       separator(player,"on_use",{x=7,y=0,z=2})
       assert(C.get_node({x=6,y=0,z=2}).name=="air" and C.get_node({x=7,y=0,z=2}).name=="air","2 x 4 removed")

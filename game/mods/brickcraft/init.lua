@@ -59,6 +59,19 @@ local function get_shape(player)
 end
 local function get_turn(player) return player:get_meta():get_int("brickcraft_turn")%4 end
 
+-- One in-memory action per player is enough for a predictable Undo button. The
+-- node is checked before reversal so one builder can never undo over a friend's
+-- later change to the same space.
+local history={}
+local function copy_pos(pos) return {x=pos.x,y=pos.y,z=pos.z} end
+local function same_node(pos,node)
+  local current=C.get_node(pos)
+  return current.name==node.name and current.param2==node.param2
+end
+local function remember(player,action)
+  if player and player:is_player() then history[player:get_player_name()]=action end
+end
+
 -- A long piece is one primary node (drawn across both cells) plus an invisible tail cell.
 local function tail_pos(pos,param2) return vector.add(pos,C.facedir_to_dir(param2%4)) end
 local function primary_of(pos,node)
@@ -92,7 +105,18 @@ local function collect(pos,node,player)
     C.chat_send_player(name, "Inventory full: place some bricks first.")
     return false
   end
-  return C.node_dig(pos,node,player)
+  local tail,tail_node
+  if def.brickcraft_long then
+    tail=tail_pos(pos,node.param2)
+    tail_node=C.get_node(tail)
+  end
+  local result=C.node_dig(pos,node,player)
+  if not same_node(pos,node) then
+    remember(player,{kind="collect",pos=copy_pos(pos),node={name=node.name,param2=node.param2},
+      drop=def.drop,tail=tail and copy_pos(tail),tail_node=tail_node and
+        {name=tail_node.name,param2=tail_node.param2}})
+  end
+  return result
 end
 
 for i, color in ipairs(colors) do
@@ -182,6 +206,9 @@ function place_brick(stack,placer,pointed,item)
   if not placed then return stack end
   if tail then C.set_node(tail,{name=item..s.suffix.."_tail",param2=param2}) end
   stack:take_item(s.cost)
+  remember(placer,{kind="place",pos=copy_pos(pos),node={name=item..s.suffix,param2=param2},
+    drop=item.." "..s.cost,tail=tail and copy_pos(tail),tail_node=tail and
+      {name=item..s.suffix.."_tail",param2=param2}})
   return stack
 end
 
@@ -191,16 +218,68 @@ local function turn_placed(pos,node,player)
   local def=C.registered_nodes[node.name]
   if not def or C.get_item_group(node.name,"brick")~=1 then return end
   local param2=(node.param2+1)%4
+  local old_tail,new_tail
   if def.brickcraft_long then
-    local old,new=tail_pos(pos,node.param2),tail_pos(pos,param2)
-    if not is_free(new) then
+    old_tail,new_tail=tail_pos(pos,node.param2),tail_pos(pos,param2)
+    if not is_free(new_tail) then
       C.chat_send_player(player:get_player_name(),"No room to turn this long piece.")
       return
     end
-    C.set_node(new,{name=node.name.."_tail",param2=param2})
-    C.remove_node(old)
+    C.set_node(new_tail,{name=node.name.."_tail",param2=param2})
+    C.remove_node(old_tail)
   end
   C.swap_node(pos,{name=node.name,param2=param2})
+  remember(player,{kind="turn",pos=copy_pos(pos),before={name=node.name,param2=node.param2},
+    after={name=node.name,param2=param2},old_tail=old_tail and copy_pos(old_tail),
+    new_tail=new_tail and copy_pos(new_tail),tail_name=def.brickcraft_long and node.name.."_tail"})
+end
+
+local function undo_last(player)
+  local name=player:get_player_name()
+  local action=history[name]
+  if not action then C.chat_send_player(name,"Nothing to undo yet."); return false end
+  local inv=player:get_inventory()
+  if action.kind=="place" then
+    if not same_node(action.pos,action.node) or
+       (action.tail and not same_node(action.tail,action.tail_node)) then
+      C.chat_send_player(name,"Can't undo: that brick was changed by someone else.")
+      return false
+    end
+    if not inv:room_for_item("main",action.drop) then
+      C.chat_send_player(name,"Can't undo: your inventory is full.")
+      return false
+    end
+    C.remove_node(action.pos) -- long-piece on_destruct also removes its tail
+    inv:add_item("main",action.drop)
+  elseif action.kind=="collect" then
+    if not is_free(action.pos) or (action.tail and not is_free(action.tail)) then
+      C.chat_send_player(name,"Can't undo: another brick now occupies that space.")
+      return false
+    end
+    if not inv:contains_item("main",action.drop) then
+      C.chat_send_player(name,"Can't undo: you no longer have the collected brick.")
+      return false
+    end
+    inv:remove_item("main",action.drop)
+    C.set_node(action.pos,action.node)
+    if action.tail then C.set_node(action.tail,action.tail_node) end
+  elseif action.kind=="turn" then
+    if not same_node(action.pos,action.after) or
+       (action.new_tail and not same_node(action.new_tail,
+         {name=action.tail_name,param2=action.after.param2})) or
+       (action.old_tail and not is_free(action.old_tail)) then
+      C.chat_send_player(name,"Can't undo: that brick was changed by someone else.")
+      return false
+    end
+    if action.new_tail then C.remove_node(action.new_tail) end
+    C.swap_node(action.pos,action.before)
+    if action.old_tail then
+      C.set_node(action.old_tail,{name=action.tail_name,param2=action.before.param2})
+    end
+  end
+  history[name]=nil
+  C.chat_send_player(name,"Undid your last "..action.kind.." action.")
+  return true
 end
 
 C.register_node("brickcraft:baseplate", {
@@ -333,7 +412,7 @@ local function welcome(player)
     "formspec_version[6]size[10,7.6]bgcolor[#142936;true]"..
     "label[.6,.6;BRICKCRAFT / BUILD TOGETHER]"..
     "textarea[.6,1.3;8.8,5.4;;Welcome to your brick workshop!;"..
-    C.formspec_escape("WASD / arrows: move    Mouse: look    Space: jump\n1: orange separator / left click to collect\n2–9: choose a color / right click to place\nTab / E: next piece (Shift: back)    Q: turn\nSeparator right click: turn a placed brick\nI: inventory    C: see your brick person    ?: all keys\nEsc: pause / Quit to Menu saves and closes world\n\nCollect the colored stacks, then build a tiny home!\n/home returns you safely to the workshop.")..
+    C.formspec_escape("WASD / arrows: move    Mouse: look    Space: jump\n1: orange separator / left click to collect\n2–9: choose a color / right click to place\nTab / E: next piece    Q: turn    U: undo\nSeparator right click: turn a placed brick\nI: inventory    C: see your brick person    ?: all keys\nEsc: pause / Quit to Menu saves and closes world\n\nCollect the colored stacks, then build a tiny home!\n/home returns you safely to the workshop.")..
     "]button_exit[1.2,6.7;3.6,.6;go;Let's build!]button[5.2,6.7;3.6,.6;help;Keys and commands]")
 end
 -- One list feeds the help screen; keep it in sync with the controls above.
@@ -345,14 +424,15 @@ local help_rows={
   {"Right click (separator)","Turn a placed brick"},
   {"2 – 9","Choose a color"},{"Right click (color)","Place a brick"},
   {"F or Control+click","Same as right click (trackpad)"},
-  {"E or Tab","Next piece (Shift: previous)"},{"Q","Turn the next brick 90°"},
-  {"Mouse wheel","Next / previous hotbar slot"},
+  {"E or Tab","Next piece"},{"Q","Turn the next brick 90°"},
+  {"Mouse wheel","Next / previous hotbar slot"},{"U or I > Undo","Undo your last build action"},
   {"MENUS",""},
   {"?","This help screen"},
   {"I","Inventory and shape buttons"},{"T","Chat (type a command)"},
   {"Esc","Pause / Exit to Menu saves the world"},{"F1 / F2","Hide HUD / chat"},
   {"COMMANDS",""},
   {"/keys","This help screen"},{"/guide","Welcome screen"},{"/home","Back to the workshop"},
+  {"/undo","Undo your last build action"},
   {"/shape slope_2x2","Pick a piece by name (/shape lists them)"},
 }
 local function show_help(player)
@@ -448,8 +528,9 @@ function inventory_formspec(player)
     end
   end
   return fs.."list[current_player;main;.4,3.3;8,4;]"..
-    "label[.4,8.5;1: Separator | 2-9: Colors | Right click or F: Build | Q: Turn]"..
+    "label[.4,8.5;1: Separator | 2-9: Colors | Right click or F: Build | Q: Turn | U: Undo]"..
     "label[.4,9;2 x 4 pieces use 2 bricks of their color. The others use 1.]listring[current_player;main]"..
+    "style[undo;bgcolor=#f5872c]button[1.6,9.4;2.8,.6;undo;Undo last action]"..
     "button[4.6,9.4;2.8,.6;look;Change look]button[7.6,9.4;2.8,.6;help;Help: all keys]"
 end
 C.register_on_player_receive_fields(function(player,formname,fields)
@@ -467,6 +548,7 @@ C.register_on_player_receive_fields(function(player,formname,fields)
     return true
   end
   if formname~="" then return end
+  if fields.undo then undo_last(player); return true end
   if fields.help then show_help(player); return true end
   if fields.look then show_style_picker(player); return true end
   for _,s in ipairs(shapes) do
@@ -481,7 +563,7 @@ C.register_on_joinplayer(function(player)
   player:set_sky({base_color="#93cddd",type="regular",clouds=true})
   player:set_sun({visible=true}); player:set_moon({visible=false})
   player:hud_add({type="text",position={x=.5,y=0},offset={x=0,y=28},
-    text="BRICKCRAFT   |   1 Collect   2-9 Colors   Right click Build   Tab Piece   Q Turn   I Inventory   ? Help",number=0xffffff,alignment={x=0,y=0},scale={x=100,y=20}})
+    text="BRICKCRAFT   |   1 Collect   2-9 Colors   Right click Build   Tab Piece   Q Turn   U Undo   ? Help",number=0xffffff,alignment={x=0,y=0},scale={x=100,y=20}})
   update_hud(player)
   if player:get_meta():get_int("brickcraft_started")==0 then
     inv:set_stack("main",1,"brickcraft:separator")
@@ -496,7 +578,10 @@ C.register_on_joinplayer(function(player)
   end
   C.set_timeofday(.48)
 end)
-C.register_on_leaveplayer(function(player) hud[player:get_player_name()]=nil; held[player:get_player_name()]=nil end)
+C.register_on_leaveplayer(function(player)
+  local name=player:get_player_name()
+  hud[name]=nil; held[name]=nil; history[name]=nil
+end)
 C.register_on_respawnplayer(function(player) player:set_pos(home_pos(player)); return true end)
 C.register_chatcommand("home",{description="Return to the workshop",func=function(name)
   local p=C.get_player_by_name(name); if p then p:set_pos(home_pos(p)) end
@@ -521,6 +606,11 @@ C.register_chatcommand("keys",{description="Show every BrickCraft key and comman
   local p=C.get_player_by_name(name); if p then show_help(p) end
   return true
 end})
+C.register_chatcommand("undo",{description="Undo your last build action",func=function(name)
+  local p=C.get_player_by_name(name)
+  if not p then return false,"Player is not connected." end
+  return undo_last(p)
+end})
 C.register_chatcommand("shape",{params="<piece>",description="Choose the piece to build with",
   func=function(name,param)
     local p,s=C.get_player_by_name(name),shape_by_id[param]
@@ -530,13 +620,10 @@ C.register_chatcommand("shape",{params="<piece>",description="Choose the piece t
   end})
 local elapsed=0
 -- Key presses the server can see: E or Tab (aux1, fast movement is off) picks the next
--- piece, with Shift the previous one; the ?/ key, bound to zoom in brickcraft.conf with
--- zoom_fov 0, opens help.
+-- piece, U (sneak) undoes, and the ?/ key (zoom with zoom_fov 0) opens help.
 local key_actions={
-  aux1=function(p)
-    local step=p:get_player_control().sneak and -2 or 0
-    set_shape(p,shapes[(get_shape(p).index+step)%#shapes+1])
-  end,
+  aux1=function(p) set_shape(p,shapes[get_shape(p).index%#shapes+1]) end,
+  sneak=undo_last,
   zoom=show_help,
 }
 C.register_globalstep(function(dt)
@@ -554,7 +641,7 @@ C.register_globalstep(function(dt)
   end
 end)
 
-brickcraft={shapes=shape_by_id,shape_list=shapes,colors=colors,set_shape=set_shape,turn=turn_next,styles=style_by_id,
+brickcraft={shapes=shape_by_id,shape_list=shapes,colors=colors,set_shape=set_shape,turn=turn_next,undo=undo_last,styles=style_by_id,
   get_style=get_style,home_pos=home_pos}
 
 -- Opt-in integration checks execute actual engine callbacks, in a disposable world.
