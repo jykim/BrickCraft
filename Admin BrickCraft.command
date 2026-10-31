@@ -5,6 +5,7 @@
 {
 set -eu
 ROOT="${0:A:h}"
+LAUNCHER="${0:A}"
 source "$ROOT/tools/update.zsh"
 source "$ROOT/tools/launcher-common.zsh"
 init_world
