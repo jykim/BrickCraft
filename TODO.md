@@ -78,7 +78,7 @@
 - [x] jms 호스트 서버(`Admin BrickCraft.command`)와 다른 Mac 접속(`Play BrickCraft.command`), 같은 세계 공유.
 - [x] 플레이어별 이름·모습(Builder/Dad/Leona/Explorer, 머리 모양·색)·이름표 색·시작 자리, `/look`, `/who`.
 - [x] 실행기는 이름을 묻지 않고, 게임 창의 *Who's playing?*에서 사람을 고름. 브릭은 사람별로 저장되어 어느 Mac에서든 이어짐(2026-10-31).
-- [x] `Admin BrickCraft.command`(갱신 후 서버 열기)·`Play BrickCraft.command`(갱신 후 접속) 더블클릭 실행기. GitHub 갱신은 선택(묻고 5초 뒤 기본 갱신, `--no-update`/`BRICKCRAFT_UPDATE`). Host/Join은 이 둘로 합침.
+- [x] `Admin BrickCraft.command`(갱신 후 서버 열기)·`Play BrickCraft.command`(갱신 후 접속) 더블클릭 실행기. GitHub 자동 갱신(묻지 않음, `--no-update`/`BRICKCRAFT_UPDATE=0`으로 건너뜀). Host/Join은 이 둘로 합침.
 - [ ] *Who's playing?* 화면 외형과 실제 두 Mac에서 사람 바꾸기 확인.
 - [x] 전용 서버 + 클라이언트 2개 네트워크 자동 검사.
 - [ ] 실제 다른 Mac에서 Leona와 접속해 보기(방화벽 허용, `jms.local` 이름 해석 확인).

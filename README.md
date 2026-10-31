@@ -45,10 +45,10 @@ jms가 서버를 열고 다른 Mac이 같은 네트워크나 Tailscale로 접속
 
 | 어디서 | 실행 | 하는 일 |
 | --- | --- | --- |
-| jms(관리자) | `Admin BrickCraft.command` | (선택) GitHub 갱신 → 서버 열기 → 이 Mac에서도 접속 |
-| 다른 Mac(플레이어) | `Play BrickCraft.command` | (선택) GitHub 갱신 → `jms.local`에 접속 |
+| jms(관리자) | `Admin BrickCraft.command` | GitHub 자동 갱신 → 서버 열기 → 이 Mac에서도 접속 |
+| 다른 Mac(플레이어) | `Play BrickCraft.command` | GitHub 자동 갱신 → `jms.local`에 접속 |
 
-**GitHub 갱신은 선택입니다.** 시작하면 `Update BrickCraft from GitHub first? [Y/n]`을 묻고, 5초 안에 답이 없으면 갱신합니다. `n`을 누르면 있는 버전으로 바로 켭니다. 묻지 않게 하려면 `--no-update`를 붙이거나 `BRICKCRAFT_UPDATE=0`(건너뜀)/`1`(항상 갱신)으로 실행합니다. 오프라인이면 경고만 보이고 그대로 켜집니다.
+**GitHub 갱신은 자동입니다.** 묻지 않고 최신 버전을 받아, 새 버전이면 실행기를 한 번 다시 시작한 뒤 켭니다. 오프라인이면 경고만 보이고 그대로 켜집니다. 갱신을 건너뛰려면 `--no-update`를 붙이거나 `BRICKCRAFT_UPDATE=0`으로 실행합니다.
 
 > **브라우저로는 접속할 수 없습니다.** `http://jms:30000`은 동작하지 않습니다. Luanti는 UDP 게임 프로토콜을 쓰므로 접속하는 쪽에도 Luanti 앱이 있어야 합니다.
 
