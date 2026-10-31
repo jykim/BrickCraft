@@ -1,7 +1,7 @@
 local C = core
 -- Automated checks skip the welcome and look pickers.
 local testing = C.settings:get_bool("brickcraft_integration_test",false) or
-  C.settings:get_bool("brickcraft_multiplayer_test",false)
+  C.settings:get_bool("brickcraft_multiplayer_test",false) or C.settings:get_bool("brickcraft_house_test",false)
 local colors = {"coral", "gold", "mint", "sky", "violet", "cream", "navy", "rose"}
 local labels = {"Coral", "Gold", "Mint", "Sky", "Violet", "Cream", "Navy", "Rose"}
 C.register_alias("mapgen_singlenode", "air")
@@ -10,25 +10,46 @@ C.register_item(":", {type="none", wield_image="brickcraft_hand.png", range=7,
 
 -- Shapes share one inventory item per color: the hotbar stays 1 separator + 8 colors.
 -- cost = voxel cells occupied; the 2 x 2 node keeps its original name for saved worlds.
+-- One cell = 2 x 2 studs wide and one brick tall; a plate is a third of a brick.
 -- Bodies fill their cell and studs poke into the cell above, so a brick stacked on top
 -- hides the studs it covers, like real bricks clicking together.
+-- Every shape mirrors a real catalog part (design ID in `part`), so a build can be listed
+-- as real parts later. Long shapes span two cells along +z and keep an invisible end cell.
 local function studs(boxes,xs,zs,y0,y1)
   for _, x in ipairs(xs) do
     for _, z in ipairs(zs) do boxes[#boxes+1] = {x-.13,y0,z-.13,x+.13,y1,z+.13} end
   end
   return boxes
 end
+local PLATE_TOP=-.5+1/3
+local function plate(x1,z1,xs,zs)
+  return studs({{-.5,-.5,-.5,x1,PLATE_TOP,z1}},xs,zs,PLATE_TOP,PLATE_TOP+.14)
+end
 local shapes = {
-  {id="2x2", suffix="", label="Brick 2 x 2", cost=1,
+  {id="2x2", suffix="", label="Brick 2 x 2", part="3003", group="Bricks", cost=1,
    boxes=studs({{-.5,-.5,-.5,.5,.5,.5}},{-.25,.25},{-.25,.25},.5,.64)},
-  {id="1x2", suffix="_1x2", label="Brick 1 x 2", cost=1,
+  {id="1x2", suffix="_1x2", label="Brick 1 x 2", part="3004", group="Bricks", cost=1,
    boxes=studs({{-.5,-.5,-.5,0,.5,.5}},{-.25},{-.25,.25},.5,.64),
    collision={-.5,-.5,-.5,0,.5,.5}},
-  {id="2x4", suffix="_2x4", label="Brick 2 x 4", cost=2,
+  {id="2x4", suffix="_2x4", label="Brick 2 x 4", part="3001", group="Bricks", cost=2, long=true,
    boxes=studs({{-.5,-.5,-.5,.5,.5,1.5}},{-.25,.25},{-.25,.25,.75,1.25},.5,.64)},
-  {id="plate", suffix="_plate", label="Plate 2 x 2", cost=1,
-   boxes=studs({{-.5,-.5,-.5,.5,-.17,.5}},{-.25,.25},{-.25,.25},-.17,-.03),
-   collision={-.5,-.5,-.5,.5,-.03,.5}},
+  {id="plate", suffix="_plate", label="Plate 2 x 2", part="3022", group="Plates", cost=1,
+   boxes=plate(.5,.5,{-.25,.25},{-.25,.25}),
+   collision={-.5,-.5,-.5,.5,PLATE_TOP,.5}},
+  {id="plate_1x2", suffix="_plate_1x2", label="Plate 1 x 2", part="3023", group="Plates", cost=1,
+   boxes=plate(0,.5,{-.25},{-.25,.25}),
+   collision={-.5,-.5,-.5,0,PLATE_TOP,.5}},
+  {id="plate_2x4", suffix="_plate_2x4", label="Plate 2 x 4", part="3020", group="Plates", cost=2, long=true,
+   boxes=plate(.5,1.5,{-.25,.25},{-.25,.25,.75,1.25}),
+   collision={-.5,-.5,-.5,.5,PLATE_TOP,.5}},
+  {id="round_2x2", suffix="_round_2x2", label="Round Brick 2 x 2", part="3941", group="Round & Slopes", cost=1,
+   mesh="brickcraft_round_2x2.obj"},
+  {id="slope_2x2", suffix="_slope_2x2", label="Slope 45 2 x 2", part="3039", group="Round & Slopes", cost=1,
+   mesh="brickcraft_slope_2x2.obj",
+   collision={{-.5,-.5,-.5,.5,0,.5},{-.5,0,0,.5,.5,.5}}},
+  {id="slope_2x1", suffix="_slope_2x1", label="Slope 45 2 x 1", part="3040", group="Round & Slopes", cost=1,
+   mesh="brickcraft_slope_2x1.obj",
+   collision={{-.5,-.5,-.5,0,0,.5},{-.5,0,0,0,.5,.5}}},
 }
 local shape_by_id = {}
 for i, s in ipairs(shapes) do s.index=i; shape_by_id[s.id]=s end
@@ -38,7 +59,7 @@ local function get_shape(player)
 end
 local function get_turn(player) return player:get_meta():get_int("brickcraft_turn")%4 end
 
--- A 2 x 4 is one primary node (drawn across both cells) plus an invisible tail cell.
+-- A long piece is one primary node (drawn across both cells) plus an invisible tail cell.
 local function tail_pos(pos,param2) return vector.add(pos,C.facedir_to_dir(param2%4)) end
 local function primary_of(pos,node)
   if C.get_item_group(node.name,"brick_tail")==1 then
@@ -78,15 +99,16 @@ for i, color in ipairs(colors) do
   local item="brickcraft:"..color
   for _, s in ipairs(shapes) do
     local nodename=item..s.suffix
+    local box={type="fixed",fixed=s.collision or {-.5,-.5,-.5,.5,.5,.5}}
     local def={
-      description=labels[i].." "..s.label, drawtype="nodebox",
+      description=labels[i].." "..s.label.."\nPart "..s.part,
+      drawtype=s.mesh and "mesh" or "nodebox", mesh=s.mesh,
+      node_box=not s.mesh and {type="fixed", fixed=s.boxes} or nil,
       tiles={"brickcraft_"..color..".png"}, paramtype="light", paramtype2="facedir",
-      node_box={type="fixed", fixed=s.boxes},
-      collision_box={type="fixed",fixed=s.collision or {-.5,-.5,-.5,.5,.5,.5}},
-      selection_box={type="fixed",fixed=s.collision or {-.5,-.5,-.5,.5,.5,.5}},
+      collision_box=box, selection_box=box,
       groups={brick=1, not_in_creative_inventory=s.suffix~="" and 1 or nil}, stack_max=999,
       drop=item..(s.cost>1 and " "..s.cost or ""),
-      sunlight_propagates=s.id~="2x2", brickcraft_shape=s.id,
+      sunlight_propagates=s.id~="2x2", brickcraft_shape=s.id, brickcraft_long=s.long,
       on_dig=collect,
     }
     if s.id=="2x2" then
@@ -95,29 +117,30 @@ for i, color in ipairs(colors) do
       -- Q turns the next brick instead of throwing it into the world.
       def.on_drop=function(stack,dropper) turn_next(dropper); return stack end
     end
-    if s.id=="2x4" then
+    if s.long then
       def.on_destruct=function(pos)
         local t=tail_pos(pos,C.get_node(pos).param2)
         if C.get_node(t).name==nodename.."_tail" then C.remove_node(t) end
       end
+      -- The end cell of a plate is only plate-high so bricks can sit on both halves.
+      local tail_box={type="fixed",fixed=s.collision or {-.5,-.5,-.5,.5,.5,.5}}
+      C.register_node(nodename.."_tail", {
+        description=labels[i].." "..s.label.." (end)", drawtype="airlike", paramtype="light",
+        paramtype2="facedir", sunlight_propagates=true, walkable=true, pointable=true,
+        groups={brick_tail=1, not_in_creative_inventory=1}, drop="",
+        collision_box=tail_box, selection_box=tail_box, on_dig=collect,
+      })
     end
     C.register_node(nodename, def)
   end
-  C.register_node(item.."_2x4_tail", {
-    description=labels[i].." Brick 2 x 4 (end)", drawtype="airlike", paramtype="light",
-    paramtype2="facedir", sunlight_propagates=true, walkable=true, pointable=true,
-    groups={brick_tail=1, not_in_creative_inventory=1}, drop="",
-    collision_box={type="fixed",fixed={-.5,-.5,-.5,.5,.5,.5}},
-    selection_box={type="fixed",fixed={-.5,-.5,-.5,.5,.5,.5}},
-    on_dig=collect,
-  })
 end
 
 local hud={}
 local held={} -- keys each player held last step
 local function update_hud(player)
   local name=player:get_player_name()
-  local text="Shape: "..get_shape(player).label.."  [E]     Turn: "..(get_turn(player)*90).."°  [Q]"
+  local sh=get_shape(player)
+  local text="Piece: "..sh.label.." (part "..sh.part..")  [E]     Turn: "..(get_turn(player)*90).."°  [Q]"
   if hud[name] then player:hud_change(hud[name],"text",text)
   else
     hud[name]=player:hud_add({type="text",position={x=.5,y=1},offset={x=0,y=-96},
@@ -147,14 +170,14 @@ function place_brick(stack,placer,pointed,item)
   end
   local pos=(udef and udef.buildable_to) and pointed.under or pointed.above
   local param2=(C.dir_to_facedir(placer:get_look_dir())+get_turn(placer))%4
-  local tail=s.id=="2x4" and tail_pos(pos,param2)
+  local tail=s.long and tail_pos(pos,param2)
   if tail and not is_free(tail) then
-    C.chat_send_player(name,"No room for a 2 x 4 here. Press Q to turn it.")
+    C.chat_send_player(name,"No room for a "..s.label.." here. Press Q to turn it.")
     return stack
   end
   local _,placed=C.item_place_node(ItemStack(item..s.suffix),placer,pointed,param2)
   if not placed then return stack end
-  if tail then C.set_node(tail,{name=item.."_2x4_tail",param2=param2}) end
+  if tail then C.set_node(tail,{name=item..s.suffix.."_tail",param2=param2}) end
   stack:take_item(s.cost)
   return stack
 end
@@ -165,10 +188,10 @@ local function turn_placed(pos,node,player)
   local def=C.registered_nodes[node.name]
   if not def or C.get_item_group(node.name,"brick")~=1 then return end
   local param2=(node.param2+1)%4
-  if def.brickcraft_shape=="2x4" then
+  if def.brickcraft_long then
     local old,new=tail_pos(pos,node.param2),tail_pos(pos,param2)
     if not is_free(new) then
-      C.chat_send_player(player:get_player_name(),"No room to turn this 2 x 4.")
+      C.chat_send_player(player:get_player_name(),"No room to turn this long piece.")
       return
     end
     C.set_node(new,{name=node.name.."_tail",param2=param2})
@@ -307,7 +330,7 @@ local function welcome(player)
     "formspec_version[6]size[10,7.6]bgcolor[#142936;true]"..
     "label[.6,.6;BRICKCRAFT / BUILD TOGETHER]"..
     "textarea[.6,1.3;8.8,5.4;;Welcome to your brick workshop!;"..
-    C.formspec_escape("WASD / arrows: move    Mouse: look    Space: jump\n1: orange separator / left click to collect\n2–9: choose a color / right click to place\nE: change shape (2x2, 1x2, 2x4, plate)    Q: turn\nSeparator right click: turn a placed brick\nI: inventory    C: see your brick person    ?: all keys\nEsc: pause / Quit to Menu saves and closes world\n\nCollect the colored stacks, then build a tiny home!\n/home returns you safely to the workshop.")..
+    C.formspec_escape("WASD / arrows: move    Mouse: look    Space: jump\n1: orange separator / left click to collect\n2–9: choose a color / right click to place\nE: next piece (bricks, plates, round, slopes)    Q: turn\nSeparator right click: turn a placed brick\nI: inventory    C: see your brick person    ?: all keys\nEsc: pause / Quit to Menu saves and closes world\n\nCollect the colored stacks, then build a tiny home!\n/home returns you safely to the workshop.")..
     "]button_exit[1.2,6.7;3.6,.6;go;Let's build!]button[5.2,6.7;3.6,.6;help;Keys and commands]")
 end
 -- One list feeds the help screen; keep it in sync with the controls above.
@@ -319,7 +342,7 @@ local help_rows={
   {"Right click (separator)","Turn a placed brick"},
   {"2 – 9","Choose a color"},{"Right click (color)","Place a brick"},
   {"F or Control+click","Same as right click (trackpad)"},
-  {"E","Change shape: 2x2, 1x2, 2x4, plate"},{"Q","Turn the next brick 90°"},
+  {"E","Next piece: bricks, plates, round, slopes"},{"Q","Turn the next brick 90°"},
   {"Mouse wheel","Next / previous hotbar slot"},
   {"MENUS",""},
   {"?","This help screen"},
@@ -327,7 +350,7 @@ local help_rows={
   {"Esc","Pause / Exit to Menu saves the world"},{"F1 / F2","Hide HUD / chat"},
   {"COMMANDS",""},
   {"/keys","This help screen"},{"/guide","Welcome screen"},{"/home","Back to the workshop"},
-  {"/shape 2x4","Pick a shape: 2x2, 1x2, 2x4, plate"},
+  {"/shape slope_2x2","Pick a piece by name (/shape lists them)"},
 }
 local function show_help(player)
   local cells={}
@@ -403,16 +426,28 @@ end
 
 function inventory_formspec(player)
   local current=get_shape(player)
-  local fs="formspec_version[6]size[10.8,8.6]label[.4,.4;BRICKCRAFT / YOUR BRICKS]"..
-    "label[.4,1;Shape (E):]"
-  for i,s in ipairs(shapes) do
-    fs=fs.."style[shape_"..s.id..";bgcolor="..(s==current and "#f5872c" or "#3a5566").."]"..
-      "button["..(1.9+(i-1)*2.15)..",.7;2,.6;shape_"..s.id..";"..s.label:gsub("Brick ","").."]"
+  local fs="formspec_version[6]size[10.8,10.4]label[.4,.4;BRICKCRAFT / YOUR BRICKS   (E: next piece)]"
+  -- One row per piece family; the tooltip names the real catalog part.
+  local rows,order={}, {}
+  for _,s in ipairs(shapes) do
+    if not rows[s.group] then rows[s.group]={}; order[#order+1]=s.group end
+    table.insert(rows[s.group],s)
   end
-  return fs.."list[current_player;main;.4,1.7;8,4;]"..
-    "label[.4,6.9;1: Separator | 2-9: Colors | Right click: Build | Q: Turn]"..
-    "label[.4,7.4;A 2 x 4 uses 2 bricks. The others use 1.]listring[current_player;main]"..
-    "button[4.6,7.7;2.8,.6;look;Change look]button[7.6,7.7;2.8,.6;help;Help: all keys]"
+  for r,group in ipairs(order) do
+    local y=.8+(r-1)*.8
+    fs=fs.."label[.4,"..(y+.3)..";"..C.formspec_escape(group).."]"
+    for i,s in ipairs(rows[group]) do
+      local x=2.5+(i-1)*2.75
+      fs=fs.."style[shape_"..s.id..";bgcolor="..(s==current and "#f5872c" or "#3a5566").."]"..
+        "button["..x..","..y..";2.6,.6;shape_"..s.id..";"..
+        C.formspec_escape(s.label:gsub("^Brick ",""):gsub("^Plate ",""):gsub("^Round Brick","Round")).."]"..
+        "tooltip[shape_"..s.id..";"..C.formspec_escape(s.label.." - part "..s.part.." - uses "..s.cost.." brick"..(s.cost>1 and "s" or "")).."]"
+    end
+  end
+  return fs.."list[current_player;main;.4,3.3;8,4;]"..
+    "label[.4,8.5;1: Separator | 2-9: Colors | Right click or F: Build | Q: Turn]"..
+    "label[.4,9;2 x 4 pieces use 2 bricks of their color. The others use 1.]listring[current_player;main]"..
+    "button[4.6,9.4;2.8,.6;look;Change look]button[7.6,9.4;2.8,.6;help;Help: all keys]"
 end
 C.register_on_player_receive_fields(function(player,formname,fields)
   if formname=="brickcraft:welcome" and fields.help then show_help(player); return true end
@@ -483,10 +518,10 @@ C.register_chatcommand("keys",{description="Show every BrickCraft key and comman
   local p=C.get_player_by_name(name); if p then show_help(p) end
   return true
 end})
-C.register_chatcommand("shape",{params="<2x2|1x2|2x4|plate>",description="Choose the brick shape",
+C.register_chatcommand("shape",{params="<piece>",description="Choose the piece to build with",
   func=function(name,param)
     local p,s=C.get_player_by_name(name),shape_by_id[param]
-    if not s then return false,"Shapes: 2x2, 1x2, 2x4, plate" end
+    if not s then return false,"Pieces: 2x2, 1x2, 2x4, plate, plate_1x2, plate_2x4, round_2x2, slope_2x2, slope_2x1" end
     if p then set_shape(p,s) end
     return true,"Shape: "..s.label
   end})
@@ -512,7 +547,7 @@ C.register_globalstep(function(dt)
   end
 end)
 
-brickcraft={shapes=shape_by_id,set_shape=set_shape,turn=turn_next,styles=style_by_id,
+brickcraft={shapes=shape_by_id,shape_list=shapes,colors=colors,set_shape=set_shape,turn=turn_next,styles=style_by_id,
   get_style=get_style,home_pos=home_pos}
 
 -- Opt-in integration checks execute actual engine callbacks, in a disposable world.
@@ -521,4 +556,7 @@ if C.settings:get_bool("brickcraft_integration_test",false) then
 end
 if C.settings:get_bool("brickcraft_multiplayer_test",false) then
   dofile(C.get_modpath("brickcraft").."/multiplayer_test.lua")
+end
+if C.settings:get_bool("brickcraft_house_test",false) then
+  dofile(C.get_modpath("brickcraft").."/house_test.lua")
 end

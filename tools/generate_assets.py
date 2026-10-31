@@ -60,4 +60,54 @@ def person(path,hair):
 person('brickcraft_person.obj',None)
 person('brickcraft_person_short.obj','short')
 person('brickcraft_person_long.obj','long')
-print('Generated 21 textures and 3 original block person meshes')
+# Brick meshes for shapes a node box cannot draw. Node units: the cell is -0.5..0.5,
+# the high/back side faces +z (away from the builder), studs rise 0.5..0.64 into the cell above.
+import math
+class Mesh:
+    def __init__(self): self.v=[];self.vt=[];self.vn=[];self.f=[]
+    def poly(self,pts):
+        ax,ay,az=pts[0];bx,by,bz=pts[1];cx,cy,cz=pts[2]
+        n=((by-ay)*(cz-az)-(bz-az)*(cy-ay),(bz-az)*(cx-ax)-(bx-ax)*(cz-az),(bx-ax)*(cy-ay)-(by-ay)*(cx-ax))
+        l=math.sqrt(sum(c*c for c in n)) or 1; n=tuple(c/l for c in n)
+        self.vn.append(n); ni=len(self.vn)
+        dom=max(range(3),key=lambda i:abs(n[i]))
+        idx=[]
+        for x,y,z in pts:
+            self.v.append((x,y,z))
+            self.vt.append({0:(z+.5,y+.5),1:(x+.5,z+.5),2:(x+.5,y+.5)}[dom])
+            idx.append(f'{len(self.v)}/{len(self.vt)}/{ni}')
+        self.f.append('f '+' '.join(idx))
+    def box(self,x0,y0,z0,x1,y1,z1):
+        P=lambda x,y,z:(x,y,z)
+        self.poly([P(x0,y0,z0),P(x0,y1,z0),P(x1,y1,z0),P(x1,y0,z0)])  # -z
+        self.poly([P(x1,y0,z1),P(x1,y1,z1),P(x0,y1,z1),P(x0,y0,z1)])  # +z
+        self.poly([P(x0,y0,z1),P(x0,y1,z1),P(x0,y1,z0),P(x0,y0,z0)])  # -x
+        self.poly([P(x1,y0,z0),P(x1,y1,z0),P(x1,y1,z1),P(x1,y0,z1)])  # +x
+        self.poly([P(x0,y1,z0),P(x0,y1,z1),P(x1,y1,z1),P(x1,y1,z0)])  # top
+        self.poly([P(x0,y0,z1),P(x0,y0,z0),P(x1,y0,z0),P(x1,y0,z1)])  # bottom
+    def stud(self,x,z): self.box(x-.13,.5,z-.13,x+.13,.64,z+.13)
+    def save(self,name,title):
+        lines=['# Original BrickCraft '+title]+['v %g %g %g'%p for p in self.v]+['vt %g %g'%p for p in self.vt]
+        lines+=['vn %g %g %g'%p for p in self.vn]+self.f
+        (root/'models'/name).write_text('\n'.join(lines)+'\n')
+def slope(name,x0,x1,stud_xs,title):
+    # Side profile (z,y): flat top over the back stud row, 45-degree face down to a low front lip.
+    m=Mesh(); lip=-.39
+    prof=[(-.5,-.5),(.5,-.5),(.5,.5),(0,.5),(-.5,lip)]
+    m.poly([(x0,y,z) for z,y in prof])                       # left side
+    m.poly([(x1,y,z) for z,y in reversed(prof)])             # right side
+    for (za,ya),(zb,yb) in zip(prof,prof[1:]+prof[:1]):     # bottom, back, top, slope, lip
+        m.poly([(x1,ya,za),(x1,yb,zb),(x0,yb,zb),(x0,ya,za)])
+    for x in stud_xs: m.stud(x,.25)
+    m.save(name,title)
+slope('brickcraft_slope_2x2.obj',-.5,.5,(-.25,.25),'45-degree slope 2 x 2')
+slope('brickcraft_slope_2x1.obj',-.5,0,(-.25,),'45-degree slope 2 x 1')
+m=Mesh(); N=24; r=.49
+ring=[(r*math.cos(2*math.pi*i/N),r*math.sin(2*math.pi*i/N)) for i in range(N)]
+for (xa,za),(xb,zb) in zip(ring,ring[1:]+ring[:1]):
+    m.poly([(xa,-.5,za),(xa,.5,za),(xb,.5,zb),(xb,-.5,zb)])
+m.poly([(x,.5,z) for x,z in reversed(ring)]); m.poly([(x,-.5,z) for x,z in ring])
+for x in (-.25,.25):
+    for z in (-.25,.25): m.stud(x,z)
+m.save('brickcraft_round_2x2.obj','round brick 2 x 2')
+print('Generated 21 textures, 3 block person meshes and 3 brick meshes')
