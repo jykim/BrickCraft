@@ -113,6 +113,9 @@ for i, color in ipairs(colors) do
     }
     if s.id=="2x2" then
       def.description=labels[i].." Bricks"
+      -- Node items default to 4 nodes of reach; match the separator so building works
+      -- from as far away as collecting does (and in third-person view).
+      def.range=7
       def.on_place=function(stack,placer,pointed) return place_brick(stack,placer,pointed,item) end
       -- Q turns the next brick instead of throwing it into the world.
       def.on_drop=function(stack,dropper) turn_next(dropper); return stack end
@@ -140,7 +143,7 @@ local held={} -- keys each player held last step
 local function update_hud(player)
   local name=player:get_player_name()
   local sh=get_shape(player)
-  local text="Piece: "..sh.label.." (part "..sh.part..")  [E]     Turn: "..(get_turn(player)*90).."°  [Q]"
+  local text="Piece: "..sh.label.." (part "..sh.part..")  [Tab]     Turn: "..(get_turn(player)*90).."°  [Q]"
   if hud[name] then player:hud_change(hud[name],"text",text)
   else
     hud[name]=player:hud_add({type="text",position={x=.5,y=1},offset={x=0,y=-96},
@@ -330,7 +333,7 @@ local function welcome(player)
     "formspec_version[6]size[10,7.6]bgcolor[#142936;true]"..
     "label[.6,.6;BRICKCRAFT / BUILD TOGETHER]"..
     "textarea[.6,1.3;8.8,5.4;;Welcome to your brick workshop!;"..
-    C.formspec_escape("WASD / arrows: move    Mouse: look    Space: jump\n1: orange separator / left click to collect\n2–9: choose a color / right click to place\nE: next piece (bricks, plates, round, slopes)    Q: turn\nSeparator right click: turn a placed brick\nI: inventory    C: see your brick person    ?: all keys\nEsc: pause / Quit to Menu saves and closes world\n\nCollect the colored stacks, then build a tiny home!\n/home returns you safely to the workshop.")..
+    C.formspec_escape("WASD / arrows: move    Mouse: look    Space: jump\n1: orange separator / left click to collect\n2–9: choose a color / right click to place\nTab / E: next piece (Shift: back)    Q: turn\nSeparator right click: turn a placed brick\nI: inventory    C: see your brick person    ?: all keys\nEsc: pause / Quit to Menu saves and closes world\n\nCollect the colored stacks, then build a tiny home!\n/home returns you safely to the workshop.")..
     "]button_exit[1.2,6.7;3.6,.6;go;Let's build!]button[5.2,6.7;3.6,.6;help;Keys and commands]")
 end
 -- One list feeds the help screen; keep it in sync with the controls above.
@@ -342,7 +345,7 @@ local help_rows={
   {"Right click (separator)","Turn a placed brick"},
   {"2 – 9","Choose a color"},{"Right click (color)","Place a brick"},
   {"F or Control+click","Same as right click (trackpad)"},
-  {"E","Next piece: bricks, plates, round, slopes"},{"Q","Turn the next brick 90°"},
+  {"E or Tab","Next piece (Shift: previous)"},{"Q","Turn the next brick 90°"},
   {"Mouse wheel","Next / previous hotbar slot"},
   {"MENUS",""},
   {"?","This help screen"},
@@ -426,7 +429,7 @@ end
 
 function inventory_formspec(player)
   local current=get_shape(player)
-  local fs="formspec_version[6]size[10.8,10.4]label[.4,.4;BRICKCRAFT / YOUR BRICKS   (E: next piece)]"
+  local fs="formspec_version[6]size[10.8,10.4]label[.4,.4;BRICKCRAFT / YOUR BRICKS   (Tab or E: next piece)]"
   -- One row per piece family; the tooltip names the real catalog part.
   local rows,order={}, {}
   for _,s in ipairs(shapes) do
@@ -478,7 +481,7 @@ C.register_on_joinplayer(function(player)
   player:set_sky({base_color="#93cddd",type="regular",clouds=true})
   player:set_sun({visible=true}); player:set_moon({visible=false})
   player:hud_add({type="text",position={x=.5,y=0},offset={x=0,y=28},
-    text="BRICKCRAFT   |   1 Collect   2-9 Colors   Right click Build   E Shape   Q Turn   I Inventory   ? Help",number=0xffffff,alignment={x=0,y=0},scale={x=100,y=20}})
+    text="BRICKCRAFT   |   1 Collect   2-9 Colors   Right click Build   Tab Piece   Q Turn   I Inventory   ? Help",number=0xffffff,alignment={x=0,y=0},scale={x=100,y=20}})
   update_hud(player)
   if player:get_meta():get_int("brickcraft_started")==0 then
     inv:set_stack("main",1,"brickcraft:separator")
@@ -526,10 +529,14 @@ C.register_chatcommand("shape",{params="<piece>",description="Choose the piece t
     return true,"Shape: "..s.label
   end})
 local elapsed=0
--- Key presses the server can see: E (aux1, fast movement is off) cycles the shape and
--- the ?/ key, bound to zoom in brickcraft.conf with zoom_fov 0, opens help.
+-- Key presses the server can see: E or Tab (aux1, fast movement is off) picks the next
+-- piece, with Shift the previous one; the ?/ key, bound to zoom in brickcraft.conf with
+-- zoom_fov 0, opens help.
 local key_actions={
-  aux1=function(p) set_shape(p,shapes[get_shape(p).index%#shapes+1]) end,
+  aux1=function(p)
+    local step=p:get_player_control().sneak and -2 or 0
+    set_shape(p,shapes[(get_shape(p).index+step)%#shapes+1])
+  end,
   zoom=show_help,
 }
 C.register_globalstep(function(dt)
