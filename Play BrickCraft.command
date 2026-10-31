@@ -24,6 +24,5 @@ if [[ ! "$HOST" =~ '^[0-9.]+$' ]]; then
 fi
 player_name Guest; NAME="$REPLY"
 print "Joining $HOST ($ADDR):$PORT from $NAME. Pick who is playing in the game window."
-print "The first time, press \"Register and Join\"."
 exec "$LUANTI" --config "$CONF" --address "$ADDR" --port "$PORT" --name "$NAME" --go --logfile "$ROOT/logs/client.log"
 }

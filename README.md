@@ -90,7 +90,7 @@ cd ~/dev/BrickCraft
    - 주소는 묻지 않고 `jms.local`로 접속합니다. 다른 주소(예: Tailscale이면 `jms`)는 `user/server_address`에 한 줄로 적거나 `BRICKCRAFT_SERVER=jms`로 실행합니다.
    - 이름도 묻지 않습니다. 게임 창에 **Who's playing?** 화면이 뜨면 자기를 고릅니다(아래 3번).
    - 접속 이름은 Mac의 네트워크 이름(시스템 설정 → 일반 → 공유 → 로컬 호스트 이름, 20자까지)이라 Mac끼리 겹치지 않습니다. 바꾸려면 `user/player_name` 파일에 한 줄로 적거나 `BRICKCRAFT_NAME=이름`으로 실행합니다(영문·숫자·`-`·`_`, 20자 이내).
-   - 처음 접속할 때는 **Register and Join**을 누릅니다.
+   - 처음 접속하는 Mac도 **Register and Join** 확인 없이 바로 등록됩니다(실행기가 `enable_register_confirmation = false`를 넣음).
    - 터미널의 `sandbox_extension_issue_file_to_process failed`, `SDL_PollEvent took too long` 경고는 무시해도 됩니다.
 
 이 스크립트로 접속하면 방향키·`?`·F·Control+클릭이 로컬과 똑같습니다. 저장소 없이 Luanti 앱의 **Join Game**(주소 `jms`, 포트 `30000`)으로 들어와도 되지만 그때는 기본 키만 있습니다(도움말은 Z 또는 `/keys`).
