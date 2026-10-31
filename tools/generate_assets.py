@@ -21,21 +21,43 @@ png('brickcraft_dirt.png',32,32,lambda x,y:(150,104,70,255) if x!=31 and y!=31 e
 png('brickcraft_trunk.png',32,32,lambda x,y:(118,80,52,255) if x%8 else (98,66,44,255))
 png('brickcraft_trunk_top.png',32,32,lambda x,y:(150,108,70,255) if (x-15.5)**2+(y-15.5)**2<100 else (118,80,52,255))
 png('brickcraft_leaves.png',32,32,stud((58,148,82,255),(80,170,100,255)))
-palette=[(245,196,134,255),(74,161,217,255),(48,76,110,255),(35,38,48,255)]
-png('brickcraft_person.png',16,64,lambda x,y:palette[min(3,y//16)])
+# Block-person styles. Texture rows: skin, shirt, pants, eyes, hair (8 rows, room to grow).
+ROWS=8
+styles=dict(
+    builder=dict(shirt=(74,161,217),pants=(48,76,110),hair=None),
+    dad=dict(shirt=(48,76,110),pants=(70,74,84),hair=(62,44,32)),
+    daughter=dict(shirt=(229,131,165),pants=(151,116,203),hair=(110,66,40)),
+    explorer=dict(shirt=(74,183,147),pants=(238,229,199),hair=(232,190,92)),
+)
+for name,st in styles.items():
+    rows=[(245,196,134),st['shirt'],st['pants'],(35,38,48),st['hair'] or (35,38,48)]
+    rows+= [rows[0]]*(ROWS-len(rows))
+    fname='brickcraft_person.png' if name=='builder' else f'brickcraft_person_{name}.png'
+    png(fname,16,16*ROWS,lambda x,y,r=rows:r[y//16]+(255,))
 # A deliberately generic original block person; no copied character mesh.
-vertices=[];uvs=[];faces=[]
-def box(x0,y0,z0,x1,y1,z1,color):
-    offset=len(vertices)
-    vertices.extend([(x0,y0,z0),(x1,y0,z0),(x1,y1,z0),(x0,y1,z0),(x0,y0,z1),(x1,y0,z1),(x1,y1,z1),(x0,y1,z1)])
-    uvs.append((.5,1-(color+.5)/4)); t=len(uvs)
-    for f in [(1,4,3,2),(5,6,7,8),(1,5,8,4),(2,3,7,6),(4,8,7,3),(1,2,6,5)]:
-        faces.append('f '+' '.join(f'{offset+i}/{t}' for i in f))
-box(-.25,1.22,-.22,.25,1.72,.22,0)
-box(-.3,.58,-.18,.3,1.2,.18,1)
-box(-.5,.58,-.15,-.31,1.16,.15,0);box(.31,.58,-.15,.5,1.16,.15,0)
-box(-.27,.06,-.17,-.02,.58,.17,2);box(.02,.06,-.17,.27,.58,.17,2)
-# Eyes on the front (negative Z).
-box(-.15,1.49,-.228,-.08,1.56,-.22,3);box(.08,1.49,-.228,.15,1.56,-.22,3)
-(root/'models/brickcraft_person.obj').write_text('\n'.join(['# Original BrickCraft block person']+['v %g %g %g'%p for p in vertices]+['vt %g %g'%p for p in uvs]+faces)+'\n')
-print('Generated 18 textures and original block person mesh')
+def person(path,hair):
+    vertices=[];uvs=[];faces=[]
+    def box(x0,y0,z0,x1,y1,z1,color):
+        offset=len(vertices)
+        vertices.extend([(x0,y0,z0),(x1,y0,z0),(x1,y1,z0),(x0,y1,z0),(x0,y0,z1),(x1,y0,z1),(x1,y1,z1),(x0,y1,z1)])
+        uvs.append((.5,1-(color+.5)/ROWS)); t=len(uvs)
+        for f in [(1,4,3,2),(5,6,7,8),(1,5,8,4),(2,3,7,6),(4,8,7,3),(1,2,6,5)]:
+            faces.append('f '+' '.join(f'{offset+i}/{t}' for i in f))
+    box(-.25,1.22,-.22,.25,1.72,.22,0)
+    box(-.3,.58,-.18,.3,1.2,.18,1)
+    box(-.5,.58,-.15,-.31,1.16,.15,0);box(.31,.58,-.15,.5,1.16,.15,0)
+    box(-.27,.06,-.17,-.02,.58,.17,2);box(.02,.06,-.17,.27,.58,.17,2)
+    # Eyes on the front (negative Z).
+    box(-.15,1.49,-.228,-.08,1.56,-.22,3);box(.08,1.49,-.228,.15,1.56,-.22,3)
+    if hair:
+        box(-.27,1.64,-.24,.27,1.78,.24,4)          # cap
+        box(-.27,1.4,.16,.27,1.72,.25,4)            # back
+        box(-.27,1.58,-.24,.27,1.66,-.2,4)          # fringe
+    if hair=='long':
+        box(-.27,.95,.16,.27,1.4,.25,4)             # long back hair
+        box(-.3,1.05,-.1,-.25,1.7,.24,4);box(.25,1.05,-.1,.3,1.7,.24,4)  # sides
+    (root/'models'/path).write_text('\n'.join(['# Original BrickCraft block person']+['v %g %g %g'%p for p in vertices]+['vt %g %g'%p for p in uvs]+faces)+'\n')
+person('brickcraft_person.obj',None)
+person('brickcraft_person_short.obj','short')
+person('brickcraft_person_long.obj','long')
+print('Generated 21 textures and 3 original block person meshes')

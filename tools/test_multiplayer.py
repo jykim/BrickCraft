@@ -1,0 +1,57 @@
+"""Dedicated server + two real Luanti GUI clients joining over the network.
+Uses a dedicated test world and port 30010; never touches the user's workshop.
+"""
+import os, subprocess, time, tempfile
+from pathlib import Path
+root=Path(__file__).resolve().parents[1]
+testroot=root/'tests'/'run'
+testroot.mkdir(parents=True,exist_ok=True)
+test=Path(tempfile.mkdtemp(prefix='multiplayer-',dir=testroot))
+print('Test artifacts: '+str(test),flush=True)
+exe=root/'runtime/luanti.app/Contents/MacOS/luanti'
+PORT='30010'
+world=test/'world'
+world.mkdir()
+(world/'world.mt').write_text('gameid = brickcraft\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_backend = sqlite3\nmod_storage_backend = sqlite3\n')
+def user_dir(name):
+    user=test/name
+    (user/'games').mkdir(parents=True)
+    (user/'games'/'brickcraft').symlink_to(root/'game',target_is_directory=True)
+    env=os.environ.copy();env['LUANTI_USER_PATH']=str(user)
+    return env
+server_conf=test/'server.conf'
+server_conf.write_text((root/'server.conf').read_text()+'\nbrickcraft_multiplayer_test = true\n')
+client_conf=(root/'brickcraft.conf').read_text()+'\nenable_register_confirmation = false\nscreen_w = 800\nscreen_h = 560\nwindow_maximized = false\n'
+log=test/'server.log'
+procs=[]
+try:
+    procs.append(subprocess.Popen([str(exe),'--server','--config',str(server_conf),'--world',str(world),
+        '--gameid','brickcraft','--port',PORT,'--logfile',str(log)],env=user_dir('server'),
+        stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL))
+    deadline=time.time()+20
+    while 'listening on' not in (log.read_text() if log.exists() else ''):
+        if time.time()>deadline or procs[0].poll() is not None: raise RuntimeError('server did not start')
+        time.sleep(.25)
+    for name in ('MPDad','MPLeona'):
+        conf=test/f'{name}.conf'; conf.write_text(client_conf)
+        procs.append(subprocess.Popen([str(exe),'--config',str(conf),'--address','127.0.0.1','--port',PORT,
+            '--name',name,'--go','--logfile',str(test/f'{name}.log')],env=user_dir(name),
+            stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL))
+        time.sleep(2)
+    deadline=time.time()+60
+    while True:
+        content=log.read_text()
+        if 'BRICKCRAFT MULTIPLAYER PASS' in content:
+            print(next(l for l in content.splitlines() if 'MULTIPLAYER PASS' in l),flush=True)
+            break
+        if 'ServerError' in content or 'ModError' in content or procs[0].poll() is not None:
+            raise RuntimeError(content[-3000:])
+        if time.time()>deadline: raise RuntimeError('timed out: '+content[-3000:])
+        time.sleep(.25)
+finally:
+    for p in procs:
+        p.terminate()
+    for p in procs:
+        try: p.wait(timeout=8)
+        except subprocess.TimeoutExpired: p.kill(); p.wait()
+print('PASS: dedicated server with two network clients. Logs in '+str(test))

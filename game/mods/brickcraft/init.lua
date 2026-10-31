@@ -1,4 +1,7 @@
 local C = core
+-- Automated checks skip the welcome and look pickers.
+local testing = C.settings:get_bool("brickcraft_integration_test",false) or
+  C.settings:get_bool("brickcraft_multiplayer_test",false)
 local colors = {"coral", "gold", "mint", "sky", "violet", "cream", "navy", "rose"}
 local labels = {"Coral", "Gold", "Mint", "Sky", "Violet", "Cream", "Navy", "Rose"}
 C.register_alias("mapgen_singlenode", "air")
@@ -7,6 +10,8 @@ C.register_item(":", {type="none", wield_image="brickcraft_hand.png", range=7,
 
 -- Shapes share one inventory item per color: the hotbar stays 1 separator + 8 colors.
 -- cost = voxel cells occupied; the 2 x 2 node keeps its original name for saved worlds.
+-- Bodies fill their cell and studs poke into the cell above, so a brick stacked on top
+-- hides the studs it covers, like real bricks clicking together.
 local function studs(boxes,xs,zs,y0,y1)
   for _, x in ipairs(xs) do
     for _, z in ipairs(zs) do boxes[#boxes+1] = {x-.13,y0,z-.13,x+.13,y1,z+.13} end
@@ -15,12 +20,12 @@ local function studs(boxes,xs,zs,y0,y1)
 end
 local shapes = {
   {id="2x2", suffix="", label="Brick 2 x 2", cost=1,
-   boxes=studs({{-.5,-.5,-.5,.5,.36,.5}},{-.25,.25},{-.25,.25},.36,.5)},
+   boxes=studs({{-.5,-.5,-.5,.5,.5,.5}},{-.25,.25},{-.25,.25},.5,.64)},
   {id="1x2", suffix="_1x2", label="Brick 1 x 2", cost=1,
-   boxes=studs({{-.5,-.5,-.5,0,.36,.5}},{-.25},{-.25,.25},.36,.5),
+   boxes=studs({{-.5,-.5,-.5,0,.5,.5}},{-.25},{-.25,.25},.5,.64),
    collision={-.5,-.5,-.5,0,.5,.5}},
   {id="2x4", suffix="_2x4", label="Brick 2 x 4", cost=2,
-   boxes=studs({{-.5,-.5,-.5,.5,.36,1.5}},{-.25,.25},{-.25,.25,.75,1.25},.36,.5)},
+   boxes=studs({{-.5,-.5,-.5,.5,.5,1.5}},{-.25,.25},{-.25,.25,.75,1.25},.5,.64)},
   {id="plate", suffix="_plate", label="Plate 2 x 2", cost=1,
    boxes=studs({{-.5,-.5,-.5,.5,-.17,.5}},{-.25,.25},{-.25,.25},-.17,-.03),
    collision={-.5,-.5,-.5,.5,-.03,.5}},
@@ -339,6 +344,63 @@ local function show_help(player)
     "table[.6,1.1;9.8,7.2;keys;"..table.concat(cells,",")..";0]"..
     "button_exit[3.7,8.5;3.6,.6;close;Back to building]")
 end
+-- Block-person looks; each player picks one, and the nametag takes its color.
+local styles={
+  {id="builder",label="Builder",mesh="brickcraft_person.obj",tex="brickcraft_person.png",
+   tag="#8fd0ff",swatch={"#4aa1d9","#304c6e","#232630"}},
+  {id="dad",label="Dad",mesh="brickcraft_person_short.obj",tex="brickcraft_person_dad.png",
+   tag="#a9c4e8",swatch={"#304c6e","#464a54","#3e2c20"}},
+  {id="daughter",label="Daughter",mesh="brickcraft_person_long.obj",tex="brickcraft_person_daughter.png",
+   tag="#ffb3cf",swatch={"#e583a5","#9774cb","#6e4228"}},
+  {id="explorer",label="Explorer",mesh="brickcraft_person_short.obj",tex="brickcraft_person_explorer.png",
+   tag="#9ee6c6",swatch={"#4ab793","#eee5c7","#e8be5c"}},
+}
+local style_by_id={}
+for _,st in ipairs(styles) do style_by_id[st.id]=st end
+local function get_style(player)
+  return style_by_id[player:get_meta():get_string("brickcraft_style")] or styles[1]
+end
+local function apply_style(player)
+  local st=get_style(player)
+  player:set_properties({visual="mesh",mesh=st.mesh,textures={st.tex},
+    visual_size={x=10,y=10},collisionbox={-.3,0,-.3,.3,1.75,.3},eye_height=1.5,zoom_fov=0})
+  player:set_nametag_attributes({color=st.tag,bgcolor="#14293699"})
+end
+local function show_style_picker(player)
+  local current=get_style(player)
+  local fs="formspec_version[6]size[11,6.4]bgcolor[#142936;true]"..
+    "label[.6,.6;BRICKCRAFT / CHOOSE YOUR LOOK]"..
+    "label[.6,1.1;"..C.formspec_escape("Hi "..player:get_player_name().."! Friends see this look and your name.").."]"
+  for i,st in ipairs(styles) do
+    local x=.6+(i-1)*2.55
+    -- Hair (or cap), shirt and pants swatches stacked like the figure.
+    fs=fs.."box["..(x+.6)..",1.7;1.1,.5;"..st.swatch[3].."]"..
+      "box["..(x+.6)..",2.2;1.1,1;"..st.swatch[1].."]"..
+      "box["..(x+.6)..",3.2;1.1,.9;"..st.swatch[2].."]"..
+      "style[style_"..st.id..";bgcolor="..(st==current and "#f5872c" or "#3a5566").."]"..
+      "button["..x..",4.4;2.3,.7;style_"..st.id..";"..st.label.."]"
+  end
+  C.show_formspec(player:get_player_name(),"brickcraft:style",fs..
+    "label[.6,5.6;You can change it later: I > Change look, or /look]")
+end
+
+-- Each new player gets their own free spot so friends don't spawn inside each other.
+local spots={{x=0,z=4},{x=-3,z=4},{x=3,z=4},{x=-6,z=4},{x=6,z=4},{x=-3,z=1},{x=3,z=1},{x=0,z=1}}
+local function home_pos(player)
+  local s=spots[player:get_meta():get_int("brickcraft_spot")] or spots[1]
+  return {x=s.x,y=2,z=s.z}
+end
+local function claim_spot(player)
+  local used={}
+  for _,p in ipairs(C.get_connected_players()) do
+    if p~=player then used[p:get_meta():get_int("brickcraft_spot")]=true end
+  end
+  for i=1,#spots do
+    if not used[i] then player:get_meta():set_int("brickcraft_spot",i); return end
+  end
+  player:get_meta():set_int("brickcraft_spot",1)
+end
+
 function inventory_formspec(player)
   local current=get_shape(player)
   local fs="formspec_version[6]size[10.8,8.6]label[.4,.4;BRICKCRAFT / YOUR BRICKS]"..
@@ -350,12 +412,25 @@ function inventory_formspec(player)
   return fs.."list[current_player;main;.4,1.7;8,4;]"..
     "label[.4,6.9;1: Separator | 2-9: Colors | Right click: Build | Q: Turn]"..
     "label[.4,7.4;A 2 x 4 uses 2 bricks. The others use 1.]listring[current_player;main]"..
-    "button[7.6,7.7;2.8,.6;help;Help: all keys]"
+    "button[4.6,7.7;2.8,.6;look;Change look]button[7.6,7.7;2.8,.6;help;Help: all keys]"
 end
 C.register_on_player_receive_fields(function(player,formname,fields)
   if formname=="brickcraft:welcome" and fields.help then show_help(player); return true end
+  if formname=="brickcraft:style" then
+    for _,st in ipairs(styles) do
+      if fields["style_"..st.id] then
+        local meta=player:get_meta()
+        meta:set_string("brickcraft_style",st.id); apply_style(player)
+        local first=meta:get_int("brickcraft_style_chosen")==0
+        meta:set_int("brickcraft_style_chosen",1)
+        if first then welcome(player) else C.close_formspec(player:get_player_name(),formname) end
+      end
+    end
+    return true
+  end
   if formname~="" then return end
   if fields.help then show_help(player); return true end
+  if fields.look then show_style_picker(player); return true end
   for _,s in ipairs(shapes) do
     if fields["shape_"..s.id] then set_shape(player,s); return true end
   end
@@ -364,8 +439,7 @@ C.register_on_joinplayer(function(player)
   local inv=player:get_inventory(); inv:set_size("main",32)
   player:hud_set_hotbar_itemcount(9)
   player:set_inventory_formspec(inventory_formspec(player))
-  player:set_properties({visual="mesh",mesh="brickcraft_person.obj",textures={"brickcraft_person.png"},
-    visual_size={x=10,y=10},collisionbox={-.3,0,-.3,.3,1.75,.3},eye_height=1.5,zoom_fov=0})
+  apply_style(player)
   player:set_sky({base_color="#93cddd",type="regular",clouds=true})
   player:set_sun({visible=true}); player:set_moon({visible=false})
   player:hud_add({type="text",position={x=.5,y=0},offset={x=0,y=28},
@@ -375,20 +449,35 @@ C.register_on_joinplayer(function(player)
     inv:set_stack("main",1,"brickcraft:separator")
     for i,color in ipairs(colors) do inv:set_stack("main",i+1,"brickcraft:"..color.." 24") end
     player:get_meta():set_int("brickcraft_started",1)
-    player:set_pos({x=0,y=2,z=4}); player:set_look_horizontal(0)
-    if not C.settings:get_bool("brickcraft_integration_test",false) then welcome(player) end
+    claim_spot(player)
+    player:set_pos(home_pos(player)); player:set_look_horizontal(0)
+  end
+  -- New players pick a look first; the welcome screen follows their choice.
+  if not testing and player:get_meta():get_int("brickcraft_style_chosen")==0 then
+    show_style_picker(player)
   end
   C.set_timeofday(.48)
 end)
 C.register_on_leaveplayer(function(player) hud[player:get_player_name()]=nil; held[player:get_player_name()]=nil end)
-C.register_on_respawnplayer(function(player) player:set_pos({x=0,y=2,z=4}); return true end)
+C.register_on_respawnplayer(function(player) player:set_pos(home_pos(player)); return true end)
 C.register_chatcommand("home",{description="Return to the workshop",func=function(name)
-  local p=C.get_player_by_name(name); if p then p:set_pos({x=0,y=2,z=4}) end
+  local p=C.get_player_by_name(name); if p then p:set_pos(home_pos(p)) end
   return true,"Welcome home!"
 end})
 C.register_chatcommand("guide",{description="Show BrickCraft controls",func=function(name)
   local p=C.get_player_by_name(name); if p then welcome(p) end
   return true
+end})
+C.register_chatcommand("look",{description="Choose how your block person looks",func=function(name)
+  local p=C.get_player_by_name(name); if p then show_style_picker(p) end
+  return true
+end})
+C.register_chatcommand("who",{description="List the builders here",func=function()
+  local names={}
+  for _,p in ipairs(C.get_connected_players()) do
+    names[#names+1]=p:get_player_name().." ("..get_style(p).label..")"
+  end
+  return true,"Builders here: "..table.concat(names,", ")
 end})
 C.register_chatcommand("keys",{description="Show every BrickCraft key and command",func=function(name)
   local p=C.get_player_by_name(name); if p then show_help(p) end
@@ -419,13 +508,17 @@ C.register_globalstep(function(dt)
   end
   elapsed=elapsed+dt; if elapsed<1 then return end; elapsed=0
   for _,p in ipairs(C.get_connected_players()) do
-    if p:get_pos().y< -8 then p:set_pos({x=0,y=2,z=4}) end
+    if p:get_pos().y< -8 then p:set_pos(home_pos(p)) end
   end
 end)
 
-brickcraft={shapes=shape_by_id,set_shape=set_shape,turn=turn_next}
+brickcraft={shapes=shape_by_id,set_shape=set_shape,turn=turn_next,styles=style_by_id,
+  get_style=get_style,home_pos=home_pos}
 
 -- Opt-in integration checks execute actual engine callbacks, in a disposable world.
 if C.settings:get_bool("brickcraft_integration_test",false) then
   dofile(C.get_modpath("brickcraft").."/integration.lua")
+end
+if C.settings:get_bool("brickcraft_multiplayer_test",false) then
+  dofile(C.get_modpath("brickcraft").."/multiplayer_test.lua")
 end
