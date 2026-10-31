@@ -1,0 +1,17 @@
+
+
+-------------
+  Separator
+-------------
+
+2026-10-31 12:56:01: WARNING[Main]: Irrlicht: SDL_PollEvent took too long: 327ms
+2026-10-31 12:56:01: ACTION[ServerStart]: World at [/Volumes/990PRO/lifidea/Projects/dev/BrickCraft/tests/run/session-j59o76xc/world]
+2026-10-31 12:56:01: ACTION[ServerStart]: Server for gameid="brickcraft" listening on [::]:30000.
+2026-10-31 12:56:02: ACTION[Server]: TestBuilder [::ffff:127.0.0.1] joins game. List of players: TestBuilder
+2026-10-31 12:56:02: ACTION[Main]: CHAT: # Server: version: 5.17.0 | game: BrickCraft — Build Together | uptime: 0s | max lag: 0.125s | clients: TestBuilder
+2026-10-31 12:56:02: ACTION[Main]: CHAT: *** TestBuilder joined the game.
+2026-10-31 12:56:05: ACTION[Server]: TestBuilder digs brickcraft:coral at (1,0,2)
+2026-10-31 12:56:05: ACTION[Server]: BRICKCRAFT TEST PHASE 2 PASS: restart persistence, separator recovery, inventory credit, base protection
+2026-10-31 12:56:05: ACTION[Main]: CHAT: *** Server shutting down in 1s.
+2026-10-31 12:56:06: ACTION[Server]: TestBuilder leaves game. List of players:
+2026-10-31 12:56:06: ACTION[ServerStop]: Server: Shutting down
