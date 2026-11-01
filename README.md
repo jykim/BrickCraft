@@ -115,6 +115,11 @@ Admin으로 연 서버에는 **jms**(이름표 `jms (AI)`, 주황 작업복)라�
 - 다른 사람 옆에도 짓습니다: `jms, build a tree next to Leona`, `jms, build a house for Dad`, `jms, 레오나 옆에 탑 만들어줘`. 그 사람 앞쪽에, 정면이 그 사람을 보도록 짓습니다.
 - jms는 누가 어디 있는지 압니다(화면의 이름표처럼). `jms, where is Leona?`/`jms, 레오나 어디 있어?`에 거리·방향(+z가 북쪽)·바라보는 쪽으로, `jms, who's here?`에 모두의 위치로 답합니다. **Who's playing?**에서 아직 고르지 않은 접속은 목록에 없습니다.
 - 사람이 서 있는 칸(몸 너비 0.3, 키 1.75)에는 브릭을 놓지 않고 기다리며, 비켜 달라고 한 번 말합니다.
+- **이미 있는 것도 돌봅니다.** 부탁한 사람 앞 16×16칸을 살펴보고 고칩니다.
+  - `jms, fill the holes here`/`jms, 구멍 메워줘`: 바닥(y −1)의 빈칸과 벽의 빠진 칸(양옆·위아래가 브릭인 빈칸, 문은 위가 비어 있어 제외)을 주변에 가장 많은 색 브릭으로 채웁니다.
+  - `jms, fix the roof here`, `jms, finish the house`, `jms, make the top of the wall gold`, `jms, 집 고쳐줘`처럼 고치기·완성·추가·바꾸기 부탁은 그 구역의 브릭 목록을 Claude에게 보여 주고 바꿀 것만 받아, 필요한 브릭을 세퍼레이터로 먼저 회수한 뒤 새 브릭을 놓습니다. 설계 API가 꺼져 있으면 구멍 메우기만 합니다.
+  - Workshop 밖에서 부탁하면 거절합니다. 고친 것도 `jms, undo`로 되돌립니다(새로 놓은 브릭을 회수).
+- **유지보수 모드**(기본 켜짐): 조용할 때 새로 짓기 전에 먼저 Workshop 바닥(±30칸)을 살펴 구멍을 메웁니다. 누가 방금(5분 안) 판 자리는 일부러 캔 것일 수 있어 그대로 두고, 닿지 않는 구멍은 그 서버 실행 동안 다시 시도하지 않습니다. `jms, maintenance off`/`on`으로 끄고 켜며, `brickcraft_ai_maintenance = false`, `brickcraft_ai_patch_after`(초)로 설정합니다.
 - 누가 가까이(6칸) 오면 이름을 불러 인사하고, 근처에 머물면 가끔 말을 겁니다(짓는 것 진행률, 주변 브릭 칭찬). 같은 사람에게는 4분에 한 번, 채팅이 잠잠할 때만 말합니다. `brickcraft_ai_small_talk = false`로 끄고 `brickcraft_ai_chat_gap`(초)으로 간격을 바꿉니다.
 - 그 밖의 말: `jms, help`, `jms, status`, `jms, stop`(짓던 것 중단), `jms, undo`(마지막 건물 철거), `jms, come here`, `jms, auto off`/`auto on`(혼자 짓기 끄기/켜기).
 - jms는 **Workshop**에서만 짓습니다. 다른 세계에서 부탁해도 Workshop에 짓습니다.

@@ -355,7 +355,7 @@ end
 
 -- Plans from Claude: "<piece> <color> x y z [turn]", "box|walls <color> x1 y1 z1 x2 y2 z2",
 -- "clear x1 y1 z1 x2 y2 z2". Unknown lines are skipped; the result is capped and clamped.
-local function parse_plan(lines,turns)
+local function plan_lines(lines)
   local p=new_plan()
   local count=0
   local function n(v) return tonumber(v) and math.floor(tonumber(v)) end
@@ -379,8 +379,9 @@ local function parse_plan(lines,turns)
     count=count+1
     if #p.pieces>MAX_PIECES*2 then break end
   end
-  return finish(p,turns)
+  return p
 end
+local function parse_plan(lines,turns) return finish(plan_lines(lines),turns) end
 
 -- The world ----------------------------------------------------------------------------
 -- jms plays by the players' rules: he walks (with collision, gravity and the players'
@@ -391,10 +392,22 @@ end
 local function def_of(pos) return C.registered_nodes[C.get_node(pos).name] end
 local function is_free(pos)
   local def=def_of(pos)
-  return def and def.buildable_to and pos.y>=0
+  return def and def.buildable_to and pos.y>=-1 -- y -1 is the ground: holes in it can be filled
 end
 local function walkable(pos) local def=def_of(pos); return not def or def.walkable end
 local function node_name(it) return "brickcraft:"..it.color..shapes[it.piece].suffix end
+-- Node name -> {piece,color}, for reading what's already built.
+local piece_of={}
+for _,sh in ipairs(brickcraft.shape_list) do
+  for _,color in ipairs(colors) do piece_of["brickcraft:"..color..sh.suffix]={piece=sh.id,color=color} end
+end
+-- The brick color a node is (scenery is the color it collects as).
+local function color_of(name)
+  local pc=piece_of[name] or piece_of[(name:gsub("_tail$",""))]
+  if pc then return pc.color end
+  local def=C.registered_nodes[name]
+  if def and def.brickcraft_scenery and type(def.drop)=="string" then return def.drop:match("^brickcraft:(.+)$") end
+end
 -- The player whose body (.3 around their feet, 1.75 high) is partly inside the cell, if any.
 local function player_in(pos)
   for _,pl in ipairs(C.get_connected_players()) do
@@ -852,11 +865,15 @@ local function turns_toward(from,to)
   if d.x==0 and d.z==0 then return 0 end
   return (C.dir_to_facedir(d)-2)%4
 end
--- Puts a plan on the baseplate and queues it. by=nil for jms's own builds.
-local function start_job(list,title,by,near)
+-- by=nil for jms's own builds.
+-- Puts a plan on the baseplate (or `at`, for work on what's already there) and queues it.
+local function start_job(list,title,by,near,at)
   if #list==0 then return false,"empty" end
-  local b=bounds(list)
-  local plot=find_plot(b.x+1,b.z+1,near,by==nil)
+  local plot=at
+  if not plot then
+    local b=bounds(list)
+    plot=find_plot(b.x+1,b.z+1,near,by==nil)
+  end
   if not plot then return false,"room" end
   local j={kind="build",title=title,by=by,list=list,origin=plot,i=1,placed={},scaffold={},waits=0}
   if by and job and not job.by and job.kind=="build" and #(job.scaffold or {})==0 then
@@ -879,6 +896,203 @@ local function plan_for(text,name,near,from)
   -- Face the front toward the asker, seen from where the build will roughly go.
   local turns=from and turns_toward(near,from) or 0
   return blueprint(id,o,turns),(o.color and o.color.." " or "")..(id=="word" and "sign \""..o.text.."\"" or blueprints[id].title)
+end
+
+-- Maintenance ---------------------------------------------------------------------------
+-- jms looks over what's already there, as a player walking by would: holes in the ground
+-- (y -1 is solid all around the workshop) and gaps in walls (an empty cell with bricks on
+-- both sides, above and below; a doorway has air above, so it isn't one).
+local GROUND=30                -- how far out the flat ground is checked
+local PATCH_AFTER=tonumber(S:get("brickcraft_ai_patch_after")) or 300 -- seconds he leaves a fresh dig alone
+local maint_on=S:get_bool("brickcraft_ai_maintenance",true)
+local dug,gave_up={},{}        -- when players dug cells; holes he couldn't reach this run
+C.register_on_dignode(function(pos,_,digger)
+  if digger and digger.get_player_name and digger:get_player_name()~=ID then dug[key(pos.x,pos.y,pos.z)]=os.time() end
+end)
+local function survey(minp,maxp,gaps)
+  local vm=C.get_voxel_manip()
+  local emin,emax=vm:read_from_map(vector.offset(minp,-1,-1,-1),vector.offset(maxp,1,1,1))
+  local area=VoxelArea:new({MinEdge=emin,MaxEdge=emax})
+  local data=vm:get_data()
+  local air=C.get_content_id("air")
+  local solid={}
+  local function at(x,y,z)
+    local id=data[area:index(x,y,z)]
+    if solid[id]==nil then
+      local def=C.registered_nodes[C.get_name_from_content_id(id)]
+      solid[id]=def and def.walkable or false
+    end
+    return solid[id]
+  end
+  local holes={}
+  for z=minp.z,maxp.z do for x=minp.x,maxp.x do
+    if minp.y<=-1 and math.abs(x)<=GROUND and math.abs(z)<=GROUND and data[area:index(x,-1,z)]==air then
+      holes[#holes+1]={x=x,y=-1,z=z,ground=true}
+    end
+    if gaps then
+      for y=math.max(minp.y,0),maxp.y do
+        if data[area:index(x,y,z)]==air and at(x,y-1,z) and at(x,y+1,z) and
+           ((at(x-1,y,z) and at(x+1,y,z)) or (at(x,y,z-1) and at(x,y,z+1))) then holes[#holes+1]={x=x,y=y,z=z} end
+      end
+    end
+  end end
+  return holes
+end
+-- Puts pieces at fixed world spots (origin + their cells). Cells that aren't free (unless
+-- in `freed`, about to be emptied) or are above y 8 are dropped; each piece comes after
+-- one it touches, counting what's already in the world.
+local function order_in_world(items,origin,freed)
+  freed=freed or {}
+  local taken,list={},{}
+  for _,it in ipairs(items) do
+    local ok=#list<MAX_PIECES
+    for _,c in ipairs(cells_of(it)) do
+      local w=vector.add(origin,c)
+      local k=key(w.x,w.y,w.z)
+      if taken[k] or w.y>8 or not (freed[k] or is_free(w)) then ok=false end
+    end
+    if ok then
+      for _,c in ipairs(cells_of(it)) do local w=vector.add(origin,c); taken[key(w.x,w.y,w.z)]=true end
+      list[#list+1]=it
+    end
+  end
+  table.sort(list,function(a,b)
+    if a.y~=b.y then return a.y<b.y end
+    if a.z~=b.z then return a.z<b.z end
+    return a.x<b.x
+  end)
+  local placed,order={},{}
+  local function solid(w)
+    local k=key(w.x,w.y,w.z)
+    if placed[k] then return true end
+    if freed[k] or taken[k] then return false end
+    return walkable(w)
+  end
+  local function touches(it)
+    for _,c in ipairs(cells_of(it)) do
+      local w=vector.add(origin,c)
+      for _,d in ipairs(SIDES) do if solid(vector.add(w,d)) then return true end end
+    end
+  end
+  local progress=true
+  while progress do
+    progress=false
+    for i,it in ipairs(list) do
+      if it and touches(it) then
+        order[#order+1]=it; list[i]=false; progress=true
+        for _,c in ipairs(cells_of(it)) do local w=vector.add(origin,c); placed[key(w.x,w.y,w.z)]=true end
+        break
+      end
+    end
+  end
+  return order
+end
+-- Fills holes with a 2x2 brick in the color most of its neighbors are.
+local function patch_plan(holes)
+  local o={x=math.huge,y=0,z=math.huge}
+  for _,h in ipairs(holes) do o.x,o.z=math.min(o.x,h.x),math.min(o.z,h.z) end
+  local items={}
+  for _,h in ipairs(holes) do
+    local count,best={},nil
+    for _,d in ipairs(SIDES) do
+      local c=color_of(C.get_node(vector.add(h,d)).name)
+      if c then count[c]=(count[c] or 0)+1; if not best or count[c]>count[best] then best=c end end
+    end
+    items[#items+1]={piece="2x2",color=best or (h.ground and "green" or "tan"),x=h.x-o.x,y=h.y,z=h.z-o.z,turn=0}
+  end
+  return order_in_world(items,o),o
+end
+-- The 16 x 16 area in front of a player (its corner at y 0).
+local function area_of(name)
+  local pl=C.get_player_by_name(name)
+  local pos,look=pl:get_pos(),C.yaw_to_dir(pl:get_look_horizontal())
+  return {x=math.floor(pos.x+look.x*4+.5)-8,y=0,z=math.floor(pos.z+look.z*4+.5)-8}
+end
+local function area_box(o) return {x=o.x,y=-1,z=o.z},{x=o.x+15,y=8,z=o.z+15} end
+-- What jms tells Claude about the area, in the area's coordinates.
+local function describe(o)
+  local lines={}
+  local minp,maxp=area_box(o)
+  for y=minp.y,maxp.y do for z=minp.z,maxp.z do for x=minp.x,maxp.x do
+    local name=C.get_node({x=x,y=y,z=z}).name
+    local pc,def=piece_of[name],C.registered_nodes[name]
+    local at=(x-o.x).." "..y.." "..(z-o.z)
+    if pc then lines[#lines+1]=pc.piece.." "..pc.color.." "..at.." "..C.get_node({x=x,y=y,z=z}).param2%4
+    elseif def and def.brickcraft_scenery and y>=0 then lines[#lines+1]=name:gsub("^brickcraft:","").." "..at end
+  end end end
+  for _,h in ipairs(survey(minp,maxp,true)) do
+    lines[#lines+1]=(h.ground and "hole " or "gap ")..(h.x-o.x).." "..h.y.." "..(h.z-o.z)
+  end
+  for _,p in ipairs(players()) do
+    local f=feet_of(p.pos)
+    if f.x>=minp.x and f.x<=maxp.x and f.z>=minp.z and f.z<=maxp.z then
+      lines[#lines+1]="player "..p.label.." "..(f.x-o.x).." "..f.y.." "..(f.z-o.z).." facing "..p.facing
+    end
+  end
+  if #lines>1500 then lines={unpack(lines,1,1500)}; lines[#lines+1]="(more not listed)" end
+  return table.concat(lines,"\n")
+end
+-- Claude's changes: pieces to collect first (only bricks), then pieces to add in place.
+local function edit_jobs(reply,o,title,by)
+  local freed,down={},nil
+  for i,line in ipairs(type(reply.remove)=="table" and reply.remove or {}) do
+    if i>200 then break end
+    local x,y,z=tostring(line):match("^%s*(%-?%d+)[%s,]+(%-?%d+)[%s,]+(%-?%d+)")
+    if x then
+      local pos={x=o.x+x,y=tonumber(y),z=o.z+z}
+      local node=C.get_node(pos)
+      if piece_of[node.name] then
+        down=down or {kind="collect",title="old pieces for the "..title,by=by,list={},i=1,n=0,scaffold={},part=true}
+        down.list[#down.list+1]={pos=pos,name=node.name,param2=node.param2}
+        freed[key(pos.x,pos.y,pos.z)]=true
+        if shapes[piece_of[node.name].piece].long then
+          local d=C.facedir_to_dir(node.param2%4)
+          freed[key(pos.x+d.x,pos.y,pos.z+d.z)]=true
+        end
+      end
+    end
+  end
+  local items={}
+  for _,it in ipairs(plan_lines(reply.lines).pieces) do if it then items[#items+1]=it end end
+  -- Top first when taking pieces away.
+  if down then table.sort(down.list,function(a,b) return a.pos.y>b.pos.y end) end
+  return order_in_world(items,o,freed),down
+end
+local HOLE_WORDS={"hole","holes","gap","gaps","fill","patch","plug","구멍","메워","메꿔","채워"}
+local EDIT_VERBS={fix=1,repair=1,mend=1,finish=1,complete=1,add=1,extend=1,decorate=1,improve=1,change=1,
+  paint=1,replace=1,tidy=1,clean=1,rebuild=1,redo=1}
+local EDIT_KO={"고쳐","수리","완성","추가","꾸며","바꿔","정리","없애","치워"}
+local function about_holes(low)
+  for _,w in ipairs(HOLE_WORDS) do if find_name(low,w) then return true end end
+end
+local function is_edit(low)
+  if about_holes(low) then return true end
+  local first=low:gsub("^please%s+",""):gsub("^can you%s+",""):gsub("^could you%s+",""):match("^%a+")
+  if first and EDIT_VERBS[first] then return true end
+  for _,w in ipairs(EDIT_KO) do if low:find(w,1,true) then return true end end
+end
+-- Idle: the nearest ground holes (nobody dug them in the last few minutes) and the holes
+-- near them become a patch job.
+local function maintain()
+  if not bot_ok() then return false end
+  local now,me=os.time(),bot:get_pos()
+  local holes={}
+  for _,h in ipairs(survey({x=-GROUND,y=-1,z=-GROUND},{x=GROUND,y=-1,z=GROUND},false)) do
+    local k=key(h.x,h.y,h.z)
+    if not gave_up[k] and now-(dug[k] or 0)>=PATCH_AFTER and not player_in(h) then holes[#holes+1]=h end
+  end
+  if #holes==0 then return false end
+  table.sort(holes,function(a,b) return vector.distance(a,me)<vector.distance(b,me) end)
+  local near={}
+  for _,h in ipairs(holes) do if #near<40 and vector.distance(h,holes[1])<=8 then near[#near+1]=h end end
+  local list,o=patch_plan(near)
+  local ok,j=start_job(list,"ground patch",nil,nil,o)
+  if not ok then for _,h in ipairs(near) do gave_up[key(h.x,h.y,h.z)]=true end return false end
+  j.patch=true
+  local h=holes[1]
+  say("I'm filling "..(#list==1 and "a hole" or #list.." holes").." in the ground "..
+    (vector.distance(h,me)<3 and "here" or "to the "..compass(h.x-me.x,h.z-me.z))..".")
+  return true
 end
 
 local SYSTEM=[[You design brick builds for BrickCraft, a toy-brick sandbox a family (kids included) plays together. You are jms, the friendly AI builder who lives in the workshop.
@@ -917,9 +1131,26 @@ do
   if #more>0 then SYSTEM=SYSTEM.."\nMore pieces you can use, by id: "..table.concat(more,", ")..
     ". 1x1 pieces fill one corner of their cell; tiles are smooth plates; an inverted slope has its sloped face underneath, toward -z at turn 0." end
 end
-local function ask_claude(text,name,done)
-  local body={model=MODEL,max_tokens=16000,messages={{role="system",content=SYSTEM},
-    {role="user",content="Build request from "..display_name(name)..": "..text}}}
+
+-- Work on what's already there: jms describes the area in front of the asker, as he sees it.
+local SYSTEM_EDIT=[[You are jms, the friendly AI builder in BrickCraft, a toy-brick sandbox a family (kids included) plays together. Someone asked you to work on what is already built near them: fix, finish, change, decorate or take away part of it. You get the area as a list and answer with the changes.
+
+The area is a grid of cells, one piece per cell: x and z from 0 to 15, y from -1 to 8. x goes east, z goes north, y goes up. y = -1 is the ground layer, solid everywhere except where a "hole" line says it is missing. The list has one line per thing there:
+  "<piece> <color> x y z turn": a piece.
+  "grass|dirt|trunk|leaves x y z": scenery.
+  "hole x y z": a missing ground cell. "gap x y z": an empty cell with bricks on both sides, above and below; often a missing brick, but doors and windows are gaps on purpose.
+  "player <name> x y z facing <direction>": where people stand (two cells high). Never put pieces in their cells.
+
+Answer with one JSON object and nothing else (no prose, no code fence):
+- "say": one short, friendly sentence to the person who asked, in their language.
+- "title": two or three words naming the work, in English.
+- "lines": pieces to add, in the area's coordinates: "<piece> <color> x y z [turn]", "box <color> x1 y1 z1 x2 y2 z2" (solid 2x2 bricks), "walls <color> x1 y1 z1 x2 y2 z2" (only the four side walls). A new piece goes only into an empty cell (or one you remove), and like a player you place each piece against one already there, so every new piece must touch an existing piece, the ground or another new piece. Use y up to 8.
+- "remove": cells to empty, "x y z" each, only to replace or take away what the request asks for.
+Change only what the request is about and keep everything else as it is. Match the colors and pieces already used. Keep it under 300 pieces.
+
+]]..SYSTEM:match("(Pieces:.-)\n\nKeep it under")..(SYSTEM:match("(\nMore pieces.*)$") or "")
+local function ask_claude(system,content,done)
+  local body={model=MODEL,max_tokens=16000,messages={{role="system",content=system},{role="user",content=content}}}
   thinking=thinking+1
   http.fetch({url=URL,method="POST",timeout=300,data=C.write_json(body),
     extra_headers={"Content-Type: application/json"}},
@@ -953,15 +1184,36 @@ local function come_to(name)
     end
   end
 end
+-- Claude's answer to a request about what's already there, at the area's corner `o`.
+local function apply_edit(reply,o,name)
+  local who=display_name(name)
+  local title=reply and tostring(reply.title or "fix"):sub(1,40)
+  local list,down
+  if reply then list,down=edit_jobs(reply,o,title,name) end
+  if not reply or (#list==0 and not down) then say("Sorry "..who..", I couldn't work out what to change there.") return end
+  local j
+  if #list>0 then _,j=start_job(list,title,name,nil,o) end
+  if down then
+    -- Pieces come out before new ones go in.
+    if not j then if job then table.insert(queue,down) else job=down end
+    elseif job==j then job=down; table.insert(queue,1,j)
+    else for i,q in ipairs(queue) do if q==j then table.insert(queue,i,down); break end end end
+    save_state()
+  end
+  say(tostring(reply.say or ("Working on the "..title.."!")):sub(1,200)..
+    ((job==j or job==down) and "" or " (It's next in line.)"))
+end
 local function handle(name,text)
   text=text:gsub("^%s+",""):gsub("%s+$","")
   local low=text:lower()
   local who=display_name(name)
+  idle=0 -- someone's talking to him: not a quiet moment to start something of his own
   if low=="" or low=="help" or low=="?" or low:find("what can you") or low:find("도움") then
     say("Hi "..who.."! Ask me to build anything: \""..NAME..", build a big red castle\". I know "..
       list_blueprints()..(use_claude and ", and I can try anything else you imagine" or "")..
       ". Say \"next to Leona\" to build by someone. Also: \""..NAME..", stop\", \"undo\", \"come here\", "..
-      "\"where is Leona?\", \"who's here?\", \"status\", \"auto off\".")
+      "\"where is Leona?\", \"who's here?\", \"status\", \"auto off\". For what's already built: "..
+      "\"fill the holes here\", \"fix the roof here\", \"maintenance off\".")
     return
   end
   if low:find("^where") or low:find("^who") or low:find("어디") or low:find("누구") then
@@ -1003,7 +1255,15 @@ local function handle(name,text)
       (job.by and " for "..display_name(job.by) or "")..": "..(job.i-1).." of "..#job.list.." pieces."..
       (#queue>0 and " "..#queue.." more waiting." or ""))
     elseif thinking>0 then say("I'm still thinking about a design.")
+    elseif maint_on then say("Just looking after the workshop. Ask me to build or fix something!")
     else say("Just looking around. Ask me to build something!") end
+    return
+  end
+  if low:find("^maint") or low:find("유지") then
+    maint_on=not (low:find("off") or low:find("stop") or low:find("don't") or low:find("끄")) and true or false
+    if maint_on then gave_up={} end
+    say(maint_on and "I'll look after what's already built when it's quiet: holes in the ground first."
+      or "Okay, I'll leave the ground alone unless you ask.")
     return
   end
   if low:find("^auto") or low:find("by yourself") then
@@ -1018,6 +1278,35 @@ local function handle(name,text)
     return
   end
   if #queue>=4 then say("I have a lot to build already. Ask me again in a bit!") return end
+  -- Work on what's already there, in the 16 x 16 area in front of the asker.
+  if is_edit(low) and C.get_player_by_name(name) then
+    local o=area_of(name)
+    local minp,maxp=area_box(o)
+    if math.max(math.abs(o.x+8),math.abs(o.z+8))>GROUND+10 then
+      say("I only look after the Workshop, "..who..". Ask me there!")
+      return
+    end
+    if about_holes(low) then
+      local holes=survey(minp,maxp,true)
+      local list,po=patch_plan(holes)
+      if #list==0 then say("I don't see any holes in front of you, "..who..".") return end
+      local _,j=start_job(list,"patch",name,nil,po)
+      j.patch=true
+      say(j==job and "Sure, "..who.."! Filling "..(#list==1 and "a hole" or #list.." holes").." in front of you."
+        or "Got it, "..who..". I'll fill those holes next.")
+      return
+    end
+    if not use_claude then
+      say("Sorry "..who..", my designer isn't answering, so I can only fill holes: \""..NAME..", fill the holes here\".")
+      return
+    end
+    say("Let me have a look, "..who.."...")
+    ask_claude(SYSTEM_EDIT,"The area in front of "..who..":\n"..describe(o).."\n\nRequest from "..who..": "..text,function(reply)
+      idle=0
+      apply_edit(reply,o,name)
+    end)
+    return
+  end
   -- By default the build goes in front of the asker; "next to Leona" puts it in front of
   -- Leona instead. Either way its front faces that player.
   local by,rest=near_phrase(text,players())
@@ -1036,7 +1325,8 @@ local function handle(name,text)
   end
   if not use_claude then return fallback() end
   say("Hmm, let me think about that, "..who.."...")
-  ask_claude(text,name,function(reply)
+  ask_claude(SYSTEM,"Build request from "..who..": "..text,function(reply)
+    idle=0
     local turns=from and turns_toward(near,from) or 0
     local list=reply and parse_plan(reply.lines,turns)
     if not list or #list==0 then return fallback(" (my design didn't work out)") end
@@ -1077,15 +1367,18 @@ local function finish_job()
   if job.kind=="build" then
     local note=(job.skipped or 0)>0 and " (I couldn't reach "..job.skipped.." pieces.)" or ""
     if job.stop then say("Stopped the "..job.title.."."..note)
+    elseif job.patch then say((job.by and "Done, "..display_name(job.by)..". " or "")..
+      "I filled "..(#job.placed==1 and "the hole" or #job.placed.." holes").."."..note)
     elseif job.by then say("Done! Here's your "..job.title..", "..display_name(job.by).."."..note)
     else say("I finished a "..job.title..". Ask me to build something: \""..NAME..", build ...\""..note) end
     last=job
   else
-    say("I took down the "..job.title.." ("..job.n.." pieces back in my bricks).")
+    if not job.part then say("I took down the "..job.title.." ("..job.n.." pieces back in my bricks).") end
     if last==job.of then last=nil end
   end
+  local part=job.part -- the first half of a fix: the second half follows without a word
   job=table.remove(queue,1); idle=0
-  if job then say("Next up: the "..job.title..(job.by and " for "..display_name(job.by) or "")..".") end
+  if job and not part then say("Next up: the "..job.title..(job.by and " for "..display_name(job.by) or "")..".") end
   save_state()
 end
 local function descend(eye)
@@ -1097,6 +1390,7 @@ end
 local function skip(why)
   job.i=job.i+1; job.skipped=(job.skipped or 0)+1; stats.skipped=stats.skipped+1
   local it=job.list[job.i-1]
+  if job.patch and it and it.x then gave_up[key(job.origin.x+it.x,it.y,job.origin.z+it.z)]=true end
   C.log("action","[ai] skipped a piece: "..why..(it and it.x and (" at "..it.x..","..it.y..","..it.z) or ""))
 end
 local function trapped()
@@ -1170,7 +1464,15 @@ local function work()
   end
   -- Out of reach from here: come down off any scaffold, then walk (or build a pillar).
   if on_scaffold() then return descend(eye) end
+  if job.bad_for~=job.i then job.bad,job.bad_for={},job.i end
+  for k in pairs(job.bad) do avoid[k]=true end
   local stand,p=find_stand(target,avoid,can,inside)
+  if stand and vector.equals(stand,f) then
+    -- Standing there already and it still doesn't work (he's never exactly mid-cell):
+    -- rule the spot out for this piece and look for another.
+    job.bad[key(f.x,f.y,f.z)]=true
+    return
+  end
   if stand then set_path(p); job.unreach=0; return end
   local g,top,p2=find_pillar(target,avoid,can,inside)
   if g then set_path(p2); job.climb={g=g,top=top}; job.unreach=0; return end
@@ -1263,10 +1565,14 @@ C.register_globalstep(function(dt)
   if mode or not grounded then return end -- walking, climbing or in the air
   if job then return work() end
   idle=idle+step
-  if auto_on and auto_count<AUTO_MAX and idle>=IDLE and thinking==0 and #queue==0 then
+  if idle>=IDLE and thinking==0 and #queue==0 then
+    -- A quiet moment: first look after what's already there, then build something new.
     idle=0
-    if not auto_build() then auto_count=AUTO_MAX end -- no room: stop building alone
-    return
+    if maint_on and maintain() then return end
+    if auto_on and auto_count<AUTO_MAX then
+      if not auto_build() then auto_count=AUTO_MAX end -- no room: stop building alone
+      return
+    end
   end
   -- Idle: face the nearest player, or walk back home when nobody is around.
   wander=wander+step
@@ -1291,5 +1597,6 @@ brickcraft.ai={name=NAME,id=ID,handle=handle,parse_request=parse_request,parse_p
   blueprints=blueprints,order=blueprint_order,find_plot=find_plot,cells_of=cells_of,move=move,inventory=inv,stats=stats,
   state=function() return {job=job,queue=queue,last=last,thinking=thinking,auto_count=auto_count,bot=bot_ok() and bot,mode=mode} end,
   set_idle=function(s) IDLE=s end,set_auto=function(on) auto_on=on end,
-  players=players,where=where,near_phrase=near_phrase,player_in=player_in,
+  players=players,where=where,near_phrase=near_phrase,player_in=player_in,survey=survey,is_edit=is_edit,
+  edit_jobs=edit_jobs,apply_edit=apply_edit,set_maintenance=function(on) maint_on=on end,
   set_small_talk=function(on,gap) SMALL_TALK=on; CHAT_GAP=gap or CHAT_GAP end}

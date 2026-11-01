@@ -102,6 +102,47 @@ C.register_on_joinplayer(function(player)
         end)
       end)
     end
+    -- Maintenance: jms inspects what's there. A wall with a missing brick and a hole in the
+    -- floor mosaic in front of Leona; "fill the holes here" patches both, in matching colors.
+    local function maintenance_part(done)
+      assert(ai.is_edit("fill the holes here") and ai.is_edit("please fix the roof") and ai.is_edit("레오나 집 고쳐줘"),"edit requests")
+      assert(not ai.is_edit("build a red house") and not ai.is_edit("write HI"),"build requests aren't edits")
+      for x=-10,-8 do for y=0,1 do C.set_node({x=x,y=y,z=-10},{name="brickcraft:coral"}) end end
+      C.set_node({x=-9,y=0,z=-10},{name="air"})
+      C.set_node({x=0,y=-1,z=-6},{name="air"})
+      player:set_pos({x=-4,y=0,z=-15}); player:set_look_horizontal(0)
+      local o={x=-12,y=0,z=-19} -- the 16 x 16 area in front of her
+      local found={}
+      for _,h in ipairs(ai.survey({x=o.x,y=-1,z=o.z},{x=o.x+15,y=8,z=o.z+15},true)) do found[h.x..","..h.y..","..h.z]=true end
+      assert(found["-9,0,-10"] and found["0,-1,-6"],"survey finds the wall gap and the floor hole")
+      -- Claude-style changes: replace a brick (collect it, put a gold one there); removing
+      -- the baseplate or adding a floating piece is ignored.
+      local list,down=ai.edit_jobs({lines={"2x2 gold 2 1 9","2x2 gold 9 6 9"},remove={"2 1 9","4 -1 4"}},o,"fix",name)
+      assert(#list==1 and list[1].color=="gold" and down and #down.list==1 and
+        vector.equals(down.list[1].pos,{x=-10,y=1,z=-10}),"edit jobs: "..#list.." to add")
+      chat(name,"jms, fill the holes here")
+      wait(function() local jj=ai.state().job; return jj and jj.title=="patch" end,5,"jms starts patching",function()
+        wait(function() return ai.state().job==nil end,120,"jms patches",function()
+          assert(C.get_node({x=-9,y=0,z=-10}).name=="brickcraft:coral","wall gap filled in coral")
+          assert(C.get_node({x=0,y=-1,z=-6}).name~="air","floor hole filled")
+          assert(heard("Filling 2 holes"),"jms says what he fills")
+          -- A Claude-style answer to "make the top of the wall gold": he collects the old
+          -- coral bricks with his separator, then puts gold ones in their place.
+          ai.apply_edit({say="Gold it is!",title="gold wall top",lines={"2x2 gold 2 1 9","2x2 gold 3 1 9","2x2 gold 4 1 9"},
+            remove={"2 1 9","3 1 9","4 1 9"}},o,name)
+          assert(ai.state().job.kind=="collect","old pieces come out first")
+          wait(function() return ai.state().job==nil end,120,"jms makes the wall top gold",function()
+            for x=-10,-8 do
+              assert(C.get_node({x=x,y=1,z=-10}).name=="brickcraft:gold","wall top is gold at "..x)
+              assert(C.get_node({x=x,y=0,z=-10}).name=="brickcraft:coral","bottom row kept")
+            end
+            assert(ai.stats.inside==0,"no walking through blocks while fixing")
+            done()
+          end)
+        end)
+      end)
+    end
+    maintenance_part(function()
     players_part(function()
     -- A real request: jms builds a tower near the asker, through the chat handler. A wall
     -- 3 bricks high stands between his home and the asker, so he has to walk around it.
@@ -159,9 +200,18 @@ C.register_on_joinplayer(function(player)
           for _,it in ipairs(last.placed) do
             assert(C.get_node(it.pos).name=="air","jms took the build down")
           end
-          -- Left alone, jms builds something on its own away from the start spots.
+          -- Left alone, jms first looks after the ground: he fills an old hole but leaves the
+          -- one Leona just dug, then builds something on its own away from the start spots.
+          C.set_node({x=2,y=-1,z=-6},{name="air"})
+          local fresh={x=3,y=-1,z=-5}
+          C.registered_tools["brickcraft:separator"].on_use(inv:get_stack("main",1),player,
+            {type="node",under=fresh,above=vector.offset(fresh,0,1,0)})
+          assert(C.get_node(fresh).name=="air","Leona dug a floor brick")
           ai.set_idle(.5)
-          wait(function() return ai.state().job~=nil end,10,"jms builds alone",function()
+          wait(function() return C.get_node({x=2,y=-1,z=-6}).name~="air" end,120,"jms looks after the ground",function()
+          assert(heard("filling a hole in the ground"),"one hole: the old one")
+          wait(function() local jj=ai.state().job; return jj and not jj.patch end,20,"jms builds alone",function()
+          assert(C.get_node(fresh).name=="air","a fresh dig is left alone")
             local own=ai.state().job
             assert(own.by==nil,"own build")
             local ok,who=C.registered_chatcommands.who.func(name,"")
@@ -170,11 +220,14 @@ C.register_on_joinplayer(function(player)
               (live and "Claude Code designed" or "built-in").." '"..j.title.."' ("..placed.." pieces) built, "..
               "collected, undone by his separator; walked "..
               "around a wall, reach "..string.format("%.1f",st.max_reach)..", "..st.scaffold.." scaffold blocks, "..
-              st.skipped.." skipped; then on its own: "..own.title.."; knows where Leona is and says hi")
+              st.skipped.." skipped; then on its own: ground patch, "..own.title.."; knows where Leona is and says hi; "..
+              "fills holes and gaps on request")
             C.request_shutdown("BrickCraft AI check passed",false,1)
+          end)
           end)
         end)
       end)
+    end)
     end)
     end)
   end)
