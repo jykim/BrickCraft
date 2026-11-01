@@ -21,6 +21,7 @@ fi
 
 LOG="$ROOT/logs/server.log"
 SERVER_PID=""
+POST_PID=""
 if [[ $HEADLESS == 1 ]] && server_running; then
   print "A BrickCraft server is already running for this world. Stop it first (quit the host's game)."
   exit 1
@@ -31,7 +32,7 @@ if ! server_running; then
     --port "$PORT" --logfile "$LOG" >/dev/null 2>&1 &
   SERVER_PID=$!
   # Closing the host's game (or this window) saves the world and stops the server.
-  trap 'print "Stopping the server (saving the world)..."; kill $SERVER_PID 2>/dev/null; wait $SERVER_PID 2>/dev/null || true' EXIT INT TERM
+  trap 'kill $POST_PID 2>/dev/null; print "Stopping the server (saving the world)..."; kill $SERVER_PID 2>/dev/null; wait $SERVER_PID 2>/dev/null || true' EXIT INT TERM
   for i in {1..60}; do
     tail -n +$((START + 1)) "$LOG" 2>/dev/null | grep -q "listening on" && break
     kill -0 $SERVER_PID 2>/dev/null || { print "Server failed to start; see $LOG"; exit 1; }
@@ -55,13 +56,21 @@ if curl -s -m 2 http://127.0.0.1:8099/health >/dev/null 2>&1; then
 else
   print "AI builders use built-in blueprints: the Local AI API (127.0.0.1:8099) is not running."
 fi
+# Bug reports players give their AI builders become GitHub issues while this server runs.
+if [[ -n "$SERVER_PID" && "${BRICKCRAFT_ISSUES:-1}" != 0 ]] && command -v gh >/dev/null && gh auth status -h github.com >/dev/null 2>&1; then
+  ( while kill -0 $SERVER_PID 2>/dev/null; do "$ROOT/tools/post_issues.zsh" "$WORLD" >> "$ROOT/logs/issues.log" 2>&1; sleep 15; done ) &
+  POST_PID=$!
+  print "Bug reports to AI builders (\"report ...\") go to GitHub issues; see logs/issues.log."
+elif [[ -n "$SERVER_PID" ]]; then
+  print "Bug reports to AI builders stay in $WORLD/issues: sign in with \"gh auth login\" to post them to GitHub."
+fi
 if [[ $HEADLESS == 1 ]]; then
   print "Headless: no game window here. Waiting for players; Ctrl-C saves the world and stops the server."
   print ""
   # Who comes and goes, from the server log.
   tail -n 0 -f "$LOG" | grep --line-buffered -E "joins game|leaves game|timed out" | sed -u 's/^.*ACTION\[Server\]: //' &
   TAIL_PID=$!
-  trap 'kill $TAIL_PID 2>/dev/null; print "Stopping the server (saving the world)..."; kill $SERVER_PID 2>/dev/null; wait $SERVER_PID 2>/dev/null || true' EXIT INT TERM
+  trap 'kill $TAIL_PID $POST_PID 2>/dev/null; print "Stopping the server (saving the world)..."; kill $SERVER_PID 2>/dev/null; wait $SERVER_PID 2>/dev/null || true' EXIT INT TERM
   wait $SERVER_PID || true
   exit
 fi

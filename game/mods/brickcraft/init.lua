@@ -73,6 +73,12 @@ local shapes = {
   {id="slope_inv_2x2", suffix="_slope_inv_2x2", label="Inverted Slope 45 2 x 2", part="3660", group="Slopes", cost=1,
    mesh="brickcraft_slope_inv_2x2.obj",
    collision={{-.5,0,-.5,.5,.5,.5},{-.5,-.5,0,.5,0,.5}}},
+  -- Train pieces (trains.lua): track is a node that joins the track next to it; a cart
+  -- goes on track, and a motor and a battery box go on a cart (right click the cart).
+  {id="track", suffix="_track", label="Train Track", part="53401", group="Trains", cost=1, train="track"},
+  {id="cart", suffix="_cart", label="Train Cart", part="92339", group="Trains", cost=2, train="cart"},
+  {id="motor", suffix="_motor", label="Train Motor", part="88002", group="Trains", cost=1, train="motor"},
+  {id="battery", suffix="_battery", label="Battery Box", part="8881", group="Trains", cost=1, train="battery"},
 }
 local shape_by_id = {}
 for i, s in ipairs(shapes) do s.index=i; shape_by_id[s.id]=s end
@@ -144,7 +150,7 @@ end
 
 for i, color in ipairs(colors) do
   local item="brickcraft:"..color
-  for _, s in ipairs(shapes) do
+  for _, s in ipairs(shapes) do if not s.train then
     local nodename=item..s.suffix
     local box={type="fixed",fixed=s.collision or {-.5,-.5,-.5,.5,.5,.5}}
     local def={
@@ -182,7 +188,7 @@ for i, color in ipairs(colors) do
       })
     end
     C.register_node(nodename, def)
-  end
+  end end
 end
 
 local hud={}
@@ -218,6 +224,7 @@ function place_brick(stack,placer,pointed,item)
     C.chat_send_player(name,"A "..s.label.." needs "..s.cost.." bricks of this color.")
     return stack
   end
+  if s.train then return brickcraft.trains.place(s,stack,placer,pointed,item) end
   local pos=(udef and udef.buildable_to) and pointed.under or pointed.above
   local param2=(C.dir_to_facedir(placer:get_look_dir())+get_turn(placer))%4
   local tail=s.long and tail_pos(pos,param2)
@@ -521,7 +528,7 @@ end
 C.after(0,function()
   for _,w in ipairs(worlds) do if not w.built then build_world(w) end end
 end)
--- Train Yard: a world made once for everyone, with a 12 x 12 loop of track on the baseplate
+-- Train Yard: a world made once for everyone, with a 12 x 12 loop of navy track on the baseplate
 -- to the right of the start spots and a train on it: a locomotive, switched off, and two
 -- cars. The train goes on when someone first comes by (its area has to be loaded).
 -- Test worlds skip it (but the train check).
@@ -555,7 +562,7 @@ C.register_globalstep(function(dt)
         local pos=p:get_pos()
         if math.abs(pos.x-w.x)<32 and math.abs(pos.z-w.z)<32 then
           local z=w.z+YARD_B.z
-          local train=brickcraft.trains.put_train({{x=w.x+17,y=0,z=z},{x=w.x+16,y=0,z=z},{x=w.x+15,y=0,z=z}})
+          local train=brickcraft.trains.put_train({{x=w.x+17,y=0,z=z},{x=w.x+16,y=0,z=z},{x=w.x+15,y=0,z=z}},"coral")
           if #train==3 then
             w.train=true; save_worlds()
             C.log("action","BrickCraft Train Yard train put on the track")
@@ -586,15 +593,14 @@ local help_rows={
   {"F or Control+click","Same as right click (trackpad)"},
   {"E or Tab","Next piece"},{"Q","Turn the next brick 90°"},
   {"Left click tree / hill","Harvest a green, brown or tan brick"},{"U or I > Undo","Undo your last build action"},
-  {"TRAINS",""},
-  {"Track (slot 13), right click","Lay track; it joins the track next to it"},
-  {"Cart (slot 14), right click track","Put a cart on; next to another cart it hooks on"},
-  {"Motor (slot 15), right click a cart","Fit it: the cart becomes a locomotive"},
-  {"Battery box (16), right click a cart","Put it on the locomotive"},
-  {"Right click the battery box","Switch: forward, off, back (light green / red / gold)"},
-  {"Right click the cart","Ride it"},{"W / S while riding","Go the way you look / brake"},
-  {"U or right click while riding","Get off"},{"Punch the cart (left click)","Push it (hold anything but the separator)"},
-  {"Separator on track / cart","Collect it (right click turns a track piece)"},
+  {"TRAINS (Tab or I > Trains, then a color)",""},
+  {"Train Track, right click","Lay track; it joins the track next to it"},
+  {"Train Cart, right click a track","Put a cart on; next to another cart it hooks on"},
+  {"Train Motor, right click a cart","Put it on: the cart becomes a locomotive"},
+  {"Battery Box, right click a cart","Put it on the locomotive"},
+  {"Right click (separator) a locomotive","Switch: forward, off, back (light green / red / gold)"},
+  {"Jump onto a cart / Space","Ride along / hop off"},{"Walk into a cart","Push it"},
+  {"Left click (separator) track / cart","Collect it (right click turns a track piece)"},
   {"MENUS",""},
   {"?","This help screen"},
   {"I","Inventory and shape buttons"},{"T","Chat (type a command)"},
@@ -603,6 +609,7 @@ local help_rows={
   {"/keys","This help screen"},{"/guide","Welcome screen"},{"/home","Back to the start of this world"},
   {"/world","Go to another world or make a new one"},
   {"/undo","Undo your last build action"},
+  {"T, then: Lumi, report ...","Your AI builder sends a bug or idea to the game's makers"},
   {"/shape slope_2x2","Pick a piece by name (/shape lists them)"},
 }
 local function show_help(player)
@@ -676,22 +683,6 @@ local function give_starter(inv)
   inv:set_stack("main",1,"brickcraft:separator")
   for i=1,STARTER_COLORS do inv:set_stack("main",i+1,"brickcraft:"..colors[i].." 24") end
 end
--- Train sets came after the first kit: each person gets each set once, in hotbar slots
--- 13-16 (track, carts, motor, battery box), or wherever there's room.
-local TRAIN_KITS={
-  {flag="trains_",items={[13]="brickcraft:track 48",[14]="brickcraft:cart"}},
-  {flag="trains2_",items={[14]="brickcraft:cart 2",[15]="brickcraft:train_motor",[16]="brickcraft:battery_box"}},
-}
-local function give_train_kit(inv,id)
-  for _,kit in ipairs(TRAIN_KITS) do
-    if pstore:get_int(kit.flag..id)~=1 then
-      for slot,item in pairs(kit.items) do
-        if inv:get_stack("main",slot):is_empty() then inv:set_stack("main",slot,item) else inv:add_item("main",item) end
-      end
-      pstore:set_int(kit.flag..id,1)
-    end
-  end
-end
 local function taken_by(player,id)
   for _,p in ipairs(C.get_connected_players()) do
     if p~=player and playing_as(p)==id then return p end
@@ -723,7 +714,6 @@ local function choose_player(player,st)
     end
     history[name]=nil -- an undo must not move bricks between players
   end
-  give_train_kit(player:get_inventory(),st.id)
   local meta=player:get_meta()
   meta:set_string("brickcraft_profile",st.id); meta:set_string("brickcraft_style",st.id)
   meta:set_int("brickcraft_style_chosen",1)
@@ -844,7 +834,7 @@ end
 
 function inventory_formspec(player)
   local current=get_shape(player)
-  local fs="formspec_version[6]size[10.8,11.2]label[.4,.4;BRICKCRAFT / YOUR BRICKS   (Tab or E: next piece)]"
+  local fs="formspec_version[6]size[10.8,12]label[.4,.4;BRICKCRAFT / YOUR BRICKS   (Tab or E: next piece)]"
   -- One row per piece family; the tooltip names the real catalog part.
   local rows,order={}, {}
   for _,s in ipairs(shapes) do
@@ -863,12 +853,12 @@ function inventory_formspec(player)
         "tooltip[shape_"..s.id..";"..C.formspec_escape(s.label.." - part "..s.part.." - uses "..s.cost.." brick"..(s.cost>1 and "s" or "")).."]"
     end
   end
-  return fs.."list[current_player;main;.4,4.1;8,4;]"..
-    "label[.4,9.3;1: Separator | 2-9 0 - =, wheel: Colors | Right click or F: Build | Q: Turn | U: Undo]"..
-    "label[.4,9.8;2 x 4 pieces use 2 bricks of their color. Train set: slots 13-16, ? for keys.]listring[current_player;main]"..
-    "style[undo;bgcolor=#f5872c]button[.4,10.2;2.4,.6;undo;Undo last action]"..
-    "button[2.95,10.2;2.4,.6;look;Switch player]button[5.5,10.2;2.4,.6;world;Switch world]"..
-    "button[8.05,10.2;2.4,.6;help;Help: all keys]"
+  return fs.."list[current_player;main;.4,4.9;8,4;]"..
+    "label[.4,10.1;1: Separator | 2-9 0 - =, wheel: Colors | Right click or F: Build | Q: Turn | U: Undo]"..
+    "label[.4,10.6;2 x 4 pieces and carts use 2 bricks of their color. The others use 1.]listring[current_player;main]"..
+    "style[undo;bgcolor=#f5872c]button[.4,11;2.4,.6;undo;Undo last action]"..
+    "button[2.95,11;2.4,.6;look;Switch player]button[5.5,11;2.4,.6;world;Switch world]"..
+    "button[8.05,11;2.4,.6;help;Help: all keys]"
 end
 C.register_on_player_receive_fields(function(player,formname,fields)
   if formname=="brickcraft:welcome" and fields.help then show_help(player); return true end
@@ -914,8 +904,8 @@ C.register_on_player_receive_fields(function(player,formname,fields)
 end)
 C.register_on_joinplayer(function(player)
   local inv=player:get_inventory(); inv:set_size("main",32)
-  -- 1 separator + 8 starter colors + 3 slots for harvested green/brown/tan bricks + the train set.
-  player:hud_set_hotbar_itemcount(16)
+  -- 1 separator + 8 starter colors + 3 slots for harvested green/brown/tan bricks.
+  player:hud_set_hotbar_itemcount(12)
   player:set_inventory_formspec(inventory_formspec(player))
   apply_style(player)
   player:set_sky({base_color="#93cddd",type="regular",clouds=true})
@@ -1003,8 +993,7 @@ C.register_globalstep(function(dt)
     local name,ctrl=p:get_player_name(),p:get_player_control()
     held[name]=held[name] or {}
     for key,action in pairs(key_actions) do
-      -- A rider's keys drive the cart (trains.lua) instead.
-      if ctrl[key] and not held[name][key] and not p:get_attach() then action(p) end
+      if ctrl[key] and not held[name][key] then action(p) end
       held[name][key]=ctrl[key]
     end
   end
@@ -1015,7 +1004,7 @@ C.register_globalstep(function(dt)
 end)
 
 brickcraft={shapes=shape_by_id,shape_list=shapes,colors=colors,set_shape=set_shape,turn=turn_next,undo=undo_last,styles=style_by_id,
-  remember=remember,help=help_rows,yard=YARD_A,yard_far=YARD_B,
+  remember=remember,help=help_rows,get_shape=get_shape,yard=YARD_A,yard_far=YARD_B,
   get_style=get_style,home_pos=home_pos,playing_as=playing_as,world_at=world_at,worlds=function() return worlds end}
 
 dofile(C.get_modpath("brickcraft").."/trains.lua")

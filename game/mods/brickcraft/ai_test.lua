@@ -26,9 +26,9 @@ C.register_on_joinplayer(function(player)
     local cells=brickcraft.trains.lay_loop({x=-18,y=0,z=-18},{x=-15,y=0,z=-15})
     local cart=C.add_entity({x=-17,y=0,z=-18},"brickcraft:cart")
     local seen=ai.describe({x=-20,y=0,z=-20})
-    assert(seen:find("track curve 2 0 2") and seen:find("track straight 3 0 2"),"builders see track:\n"..seen)
+    assert(seen:find("track curve navy 2 0 2") and seen:find("track straight navy 3 0 2"),"builders see track:\n"..seen)
     assert(seen:find("cart 3 0 2 stopped"),"builders see the cart:\n"..seen)
-    assert(ai.chat_system():find("Punch the cart (left click)",1,true) and ai.chat_system():find("Battery Box",1,true),
+    assert(ai.chat_system():find("Walk into a cart",1,true) and ai.chat_system():find("Battery Box",1,true),
       "builders know the train controls")
     cart:remove()
     for _,c in ipairs(cells) do C.remove_node(c) end
@@ -96,6 +96,18 @@ C.register_on_joinplayer(function(player)
       assert(ai.player_in(f) and ai.player_in(vector.offset(f,0,1,0)),"player's own cells")
       assert(not ai.player_in(vector.offset(f,0,2,0)) and not ai.player_in(vector.offset(f,2,0,0)),"cells clear of the player")
       ai.set_small_talk(false)
+      -- A bug report is queued as an issue; once the poster leaves its link, jms says it.
+      chat(name,"jms, report the cart stops on curves")
+      wait(function() return heard("I wrote it down for the game's makers") end,5,"jms takes the report",function()
+        local dir,id=brickcraft.reports.dir
+        for _,f in ipairs(C.get_dir_list(dir,false)) do if f:find("%.title$") then id=f:gsub("%.title$","") end end
+        assert(id,"report queued in "..dir)
+        C.mkdir(dir.."/sent"); C.safe_file_write(dir.."/sent/"..id..".url","https://example.test/issues/1")
+        wait(function() return heard("example.test/issues/1") end,10,"jms tells the issue link",function()
+          C.log("action","BRICKCRAFT AI report: "..heard("example.test/issues/1"))
+          chat(name,"jms, report trains could whistle") -- stays queued for tools/post_issues.zsh
+        end)
+      end)
       chat(name,"jms, where is Leona?")
       wait(function() return heard("Leona is") or heard("You're") end,5,"jms says where Leona is",function()
         local m=heard("You're")

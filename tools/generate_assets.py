@@ -179,17 +179,4 @@ m.mat('light')
 m.box(.08,.26,-.36,.2,.31,-.2)
 m.box(-.2,.26,-.32,-.04,.29,-.24)  # switch lever
 m.save('brickcraft_battery_box.obj','battery box',flip_x=True)
-# Inventory icons: track from above, the cart from the side.
-png('brickcraft_track_item.png',32,32,lambda x,y:(178,184,192,255) if x in (8,9,10,21,22,23) else
-    (84,88,96,255) if 3<=x<=28 and y%8 in (3,4,5,6) else (0,0,0,0))
-def cart_icon(x,y):
-    if any((x-cx)**2+(y-24)**2<=12 for cx in (9,22)): return (36,38,44,255)
-    if 3<=x<=28 and 12<=y<=17 or y in (9,10,11) and (6<=x<=11 or 20<=x<=25): return (235,93,72,255)
-    if 5<=x<=26 and 18<=y<=21: return (84,88,96,255)
-    return (0,0,0,0)
-png('brickcraft_cart_item.png',32,32,cart_icon)
-png('brickcraft_train_motor_item.png',32,32,lambda x,y:(36,38,44,255) if any((x-cx)**2+(y-23)**2<=12 for cx in (8,23)) else
-    (48,76,110,255) if 4<=x<=27 and 8<=y<=19 else (0,0,0,0))
-png('brickcraft_battery_box_item.png',32,32,lambda x,y:(74,183,147,255) if 18<=x<=24 and 6<=y<=9 else
-    (178,184,192,255) if 6<=x<=14 and 7<=y<=9 else (84,88,96,255) if 4<=x<=27 and 10<=y<=27 else (0,0,0,0))
-print('Generated 29 textures, 3 block person meshes, 5 brick meshes and 5 train meshes')
+print('Generated 25 textures, 3 block person meshes, 5 brick meshes and 5 train meshes')

@@ -370,7 +370,7 @@ local function plan_lines(lines)
       if c[6] and math.abs(c[1]-c[4])<MAX_SPAN and math.abs(c[3]-c[6])<MAX_SPAN and math.abs(c[2]-c[5])<24 then
         box(p,nil,nil,c[1],c[2],c[3],c[4],c[5],c[6])
       elseif n(t[4]) then clear(p,n(t[2]),n(t[3]),n(t[4])) end
-    elseif shapes[t[1] or ""] and C.registered_nodes["brickcraft:"..(t[2] or "")] and n(t[5]) then
+    elseif shapes[t[1] or ""] and not shapes[t[1]].train and C.registered_nodes["brickcraft:"..(t[2] or "")] and n(t[5]) then
       add(p,t[1],t[2],n(t[3]),n(t[4]),n(t[5]),n(t[6]) or 0)
     end
     count=count+1
@@ -396,7 +396,9 @@ local function node_name(it) return "brickcraft:"..it.color..shapes[it.piece].su
 -- Node name -> {piece,color}, for reading what's already built.
 local piece_of={}
 for _,sh in ipairs(brickcraft.shape_list) do
-  for _,color in ipairs(colors) do piece_of["brickcraft:"..color..sh.suffix]={piece=sh.id,color=color} end
+  if not sh.train then -- builders don't build with train pieces (describe lists track itself)
+    for _,color in ipairs(colors) do piece_of["brickcraft:"..color..sh.suffix]={piece=sh.id,color=color} end
+  end
 end
 -- The brick color a node is (scenery is the color it collects as).
 local function color_of(name)
@@ -774,8 +776,8 @@ local function describe(o)
     local at=(x-o.x).." "..y.." "..(z-o.z)
     if pc then lines[#lines+1]=pc.piece.." "..pc.color.." "..at.." "..C.get_node({x=x,y=y,z=z}).param2%4
     elseif def and def.brickcraft_scenery and y>=0 then lines[#lines+1]=name:gsub("^brickcraft:","").." "..at
-    elseif def and def.groups and def.groups.track then
-      lines[#lines+1]="track "..name:match("track_(%a+)$").." "..at.." "..C.get_node({x=x,y=y,z=z}).param2%4
+    elseif def and def.brickcraft_track then
+      lines[#lines+1]="track "..def.brickcraft_track.." "..def.brickcraft_color.." "..at.." "..C.get_node({x=x,y=y,z=z}).param2%4
     end
   end end end
   for _,obj in ipairs(C.get_objects_inside_radius({x=o.x+7.5,y=3,z=o.z+7.5},12)) do
@@ -894,7 +896,7 @@ do
   local described={["2x2"]=1,["1x2"]=1,["2x4"]=1,plate=1,plate_1x2=1,plate_2x4=1,round_2x2=1,slope_2x2=1,slope_2x1=1}
   local more={}
   for _,s in ipairs(brickcraft.shape_list) do
-    if not described[s.id] then more[#more+1]=s.id.." ("..s.label..")" end
+    if not described[s.id] and not s.train then more[#more+1]=s.id.." ("..s.label..")" end
   end
   if #more>0 then SYSTEM=SYSTEM.."\nMore pieces you can use, by id: "..table.concat(more,", ")..
     ". 1x1 pieces fill one corner of their cell; tiles are smooth plates; an inverted slope has its sloped face underneath, toward -z at turn 0." end
@@ -921,7 +923,7 @@ Change only what the request is about and keep everything else as it is. Match t
 -- Talking: a question or remark, answered with what the builder sees in front of the person.
 local SYSTEM_CHAT=[[You are jms, the friendly AI builder in BrickCraft, a toy-brick sandbox a family (kids included) plays together. Someone said something to you in chat that isn't a plain build request: a question, a remark, a thank-you. You get what is in front of them and what you are doing.
 
-The area is a grid: x and z from 0 to 15 (x east, z north), y from -1 (the ground) to 8, one line per thing: "<piece> <color> x y z turn", "grass|dirt|trunk|leaves x y z" (scenery), "hole x y z" (a missing ground cell), "gap x y z" (an empty cell between bricks), "track straight|curve x y z turn" (train track), "cart x y z moving|stopped [ridden by <name>]" (a train cart), "player <name> x y z facing <direction>". You also hear what they are holding and whether they are riding a cart.
+The area is a grid: x and z from 0 to 15 (x east, z north), y from -1 (the ground) to 8, one line per thing: "<piece> <color> x y z turn", "grass|dirt|trunk|leaves x y z" (scenery), "hole x y z" (a missing ground cell), "gap x y z" (an empty cell between bricks), "track straight|curve <color> x y z turn" (train track), "cart x y z moving|stopped [ridden by <name>]" (a train cart), "player <name> x y z facing <direction>". You also hear what they are holding and whether they are riding a cart.
 
 Answer with one JSON object and nothing else (no prose, no code fence):
 - "say": one or two short, friendly sentences back to them, in their language. When they ask about what's around, talk about what you see in the list, in words a kid understands (no coordinates).
@@ -939,8 +941,48 @@ do
 When they ask how to do something in the game, answer from these controls (the game's own help screen) in kid words: name the key or click, and say which item to hold. A "punch" is a left click. Keys and clicks:]]..table.concat(rows,"\n")..[[
 
 
-Trains: track joins the track next to it by itself and curves at corners. A cart moves when someone rides it (right click the cart, then W goes the way you look, S brakes, U gets off), when someone punches it (left click holding anything but the orange separator: it rolls about 7 cells), or by motor. Hold a Train Motor and right click a cart to fit it: the cart becomes a locomotive. Hold a Battery Box and right click the locomotive to put it on. Right click the battery box to move its switch one notch: forward, off, back, off (its light is green for forward, red for off, gold for back). Switched on, the locomotive runs by itself until switched off or the track ends. A cart put on the track next to another cart, or one that runs into another, hooks on and follows. The separator picks a cart up (with its motor and battery box). There is a Train Yard world (I > Switch world) with a loop of track and a train: a locomotive, switched off, and two cars.]]
+Trains: the Train Track, Train Cart, Train Motor and Battery Box are pieces like any other, in the Trains row (Tab, or the buttons in I): pick the piece, hold a color and right click. Track joins the track next to it by itself and curves at corners. A cart goes on a track; put next to another cart it hooks on and follows. Right click a cart with the Train Motor piece to make it a locomotive, and with the Battery Box piece to power it. Right click the locomotive with the orange separator to move the switch one notch: forward, off, back, off (the box's light is green, red or gold). Switched on, it runs by itself until switched off or the track ends. To ride, jump onto a cart; Space hops off. Walking into a cart pushes it. The separator's left click collects track and carts (bricks back), and right click turns a track piece. There is a Train Yard world (I > Switch world) with a loop of track and a train: a locomotive, switched off, and two cars.
+
+If something in the game seems broken, or they wish it did something new, you can't change the game yourself, but tell them to say "<your name>, report <what's wrong>": you'll send it to the people who make the game, to fix later.]]
 end
+
+-- Bug reports and ideas players give their builders go to the game's makers: each is
+-- written into the world's issues folder as <id>.md (the body), <id>.label and <id>.title
+-- (written last), and the host's Admin launcher posts it as a GitHub issue
+-- (tools/post_issues.zsh), leaving issues/sent/<id>.url for the builder to tell the player.
+local REPORTS=C.get_worldpath().."/issues"
+local reports={} -- id -> tell(url), for the builder that took it
+local function queue_report(title,body,label,tell)
+  C.mkdir(REPORTS)
+  local id=os.date("%Y%m%d-%H%M%S").."-"..math.random(1000,9999)
+  C.safe_file_write(REPORTS.."/"..id..".md",body)
+  C.safe_file_write(REPORTS.."/"..id..".label",label)
+  C.safe_file_write(REPORTS.."/"..id..".title",title)
+  reports[id]=tell
+  return id
+end
+local report_timer=0
+C.register_globalstep(function(dt)
+  report_timer=report_timer+dt
+  if report_timer<3 or not next(reports) then return end
+  report_timer=0
+  for id,tell in pairs(reports) do
+    local f=io.open(REPORTS.."/sent/"..id..".url","r")
+    if f then
+      local url=f:read("*l"); f:close()
+      reports[id]=nil
+      if url and url~="" then tell(url) end
+    end
+  end
+end)
+brickcraft.reports={queue=queue_report,dir=REPORTS,system=[[You write GitHub issues for BrickCraft, a toy-brick sandbox game a family (kids included) plays together. A player told their AI builder about something wrong in the game, or an idea for it. Turn their words into an issue the game's developer can act on later.
+
+You get their exact words, where they were and what they held, and the area in front of them as a list (x and z 0-15, y -1 ground to 8; "<piece> <color> x y z turn", "track straight|curve x y z turn", "cart x y z moving|stopped", "player <name> ...").
+
+Answer with one JSON object and nothing else:
+- "title": a short, specific issue title in English (under 70 characters).
+- "kind": "bug" if something doesn't work as it should, "idea" for a wish or new feature.
+- "body": Markdown in English: what happened or what they want, steps to see it if you can tell, and what in the area list looks related. Don't guess at causes in the code. Don't add personal details beyond the in-game name.]]}
 
 -- One Local AI API serves every builder: at most CLAUDE_MAX requests at once, the rest wait.
 local CLAUDE_MAX=tonumber(S:get("brickcraft_ai_parallel")) or 2
@@ -1445,6 +1487,43 @@ local function new_worker(owner)
   end
   local handle -- defined below; talking can lead to work
 
+  -- A bug report or idea for the game's makers (see queue_report): Claude writes it up as
+  -- an issue, with their words quoted and what was around them.
+  local function report(name,text)
+    local who=display_name(name)
+    local words=text:gsub("^[Rr]eport%s*[:,]?%s*",""):gsub("^[Bb]ug%s*[:,]?%s*","")
+    if #words<4 then
+      say("Tell me what's wrong, "..who..": \""..w.name..", report the cart stops on curves\".")
+      return
+    end
+    local pl=C.get_player_by_name(name)
+    local facts="Reported by "..who.." to "..w.name.." (AI builder), "..os.date("!%Y-%m-%d %H:%M UTC")
+    local area=""
+    if pl then
+      local pos=vector.round(pl:get_pos())
+      local held=pl:get_wielded_item():get_short_description()
+      facts=facts.."\nWorld: "..brickcraft.world_at(pos).name..", at "..pos.x..","..pos.y..","..pos.z..
+        "; holding "..(held~="" and held or "nothing")..(pl:get_attach() and "; riding a cart" or "")
+      if same_world(pl:get_pos(),base()) then area=describe(area_of(name)) end
+    end
+    local quote="> "..text:gsub("\n"," ")
+    local function post(title,body,kind)
+      title=title:gsub("[%c]"," "):sub(1,80)
+      local full=body.."\n\n---\n**In the game:**\n\n"..quote.."\n\n"..facts:gsub("\n","  \n")..
+        (area~="" and "\n\n<details><summary>Area in front of them</summary>\n\n```\n"..area.."\n```\n</details>" or "")
+      brickcraft.reports.queue(title,full,kind=="idea" and "enhancement" or "bug",function(url)
+        say("Your report is on GitHub now, "..who..": "..url)
+      end)
+      say("Thanks "..who.."! I wrote it down for the game's makers: \""..title.."\". It goes on GitHub soon.")
+    end
+    if not use_claude then post(words:sub(1,70),"A player reported this from inside the game.","bug") return end
+    say("Okay "..who..", I'm writing that down...")
+    think(brickcraft.reports.system,facts.."\n\nArea in front of them:\n"..area.."\n\n"..who.." says: "..text,function(reply)
+      if reply then post(reply.title,reply.body,reply.kind)
+      else post(words:sub(1,70),"A player reported this from inside the game.","bug") end
+    end,function(r) return type(r.title)=="string" and type(r.body)=="string" end)
+  end
+
   local function come_to(name)
     local pl=C.get_player_by_name(name)
     if not pl or not bot_ok() then return false end
@@ -1531,7 +1610,8 @@ local function new_worker(owner)
     if low=="" or low=="help" or low=="?" or low:find("what can you") or low:find("도움") then
       say("Hi "..who.."! Ask me to build anything: \""..w.name..", build a big red castle\". I know "..
         list_blueprints()..(use_claude and ", and I can try anything else you imagine" or "")..
-        ". Say \"next to Leona\" to build by someone. Also: \""..w.name..", stop\", \"undo\", \"come here\", "..
+        ". Say \"next to Leona\" to build by someone. Something broken, or an idea for the game? \""..w.name..
+        ", report the cart stops on curves\". Also: \""..w.name..", stop\", \"undo\", \"come here\", "..
         "\"where is Leona?\", \"who's here?\", \"status\", \"auto off\". For what's already built: "..
         "\"fill the holes here\", \"fix the roof here\", \"maintenance off\"."..
         (w.jms and "" or " "..style.label.." can rename me: \""..w.name..", your name is ...\" or /botname."))
@@ -1540,6 +1620,11 @@ local function new_worker(owner)
     if is_hello(low) and not asks_for_work(low) then
       say(either("I'm here, "..who.."! What should we build?","Hi "..who.."! Ask me to build or fix something.")..
         " Try \""..w.name..", build a red house\" or \""..w.name..", fill the holes here\".")
+      return
+    end
+    if low:find("^report") or low:find("^bug") or low:find("report th") or low:find("report a ") or
+       low:find("버그") or low:find("신고") or low:find("이슈") then
+      report(name,text)
       return
     end
     local new=text:match("^[Yy]our name is%s+(.+)$") or text:match("^[Cc]all yourself%s+(.+)$") or

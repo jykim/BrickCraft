@@ -42,4 +42,10 @@ finally:
     proc.terminate()
     try: proc.wait(timeout=8)
     except subprocess.TimeoutExpired: proc.kill(); proc.wait()
+# The reports the game queued post in a dry run (nothing goes to GitHub).
+out=subprocess.run(['zsh',str(root/'tools/post_issues.zsh'),str(world)],env={**os.environ,'BRICKCRAFT_ISSUES_DRY':'1'},
+    capture_output=True,text=True).stdout
+print(out.strip(),flush=True)
+assert 'trains could whistle' in out and (world/'issues'/'sent').glob('*.url'),'reports post: '+out
+assert not list((world/'issues').glob('*.title')),'nothing left queued'
 print('PASS')
