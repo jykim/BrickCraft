@@ -370,7 +370,7 @@ local function plan_lines(lines)
       if c[6] and math.abs(c[1]-c[4])<MAX_SPAN and math.abs(c[3]-c[6])<MAX_SPAN and math.abs(c[2]-c[5])<24 then
         box(p,nil,nil,c[1],c[2],c[3],c[4],c[5],c[6])
       elseif n(t[4]) then clear(p,n(t[2]),n(t[3]),n(t[4])) end
-    elseif shapes[t[1] or ""] and not shapes[t[1]].train and C.registered_nodes["brickcraft:"..(t[2] or "")] and n(t[5]) then
+    elseif shapes[t[1] or ""] and not (shapes[t[1]].train or shapes[t[1]].technic) and C.registered_nodes["brickcraft:"..(t[2] or "")] and n(t[5]) then
       add(p,t[1],t[2],n(t[3]),n(t[4]),n(t[5]),n(t[6]) or 0)
     end
     count=count+1
@@ -396,7 +396,7 @@ local function node_name(it) return "brickcraft:"..it.color..shapes[it.piece].su
 -- Node name -> {piece,color}, for reading what's already built.
 local piece_of={}
 for _,sh in ipairs(brickcraft.shape_list) do
-  if not sh.train then -- builders don't build with train pieces (describe lists track itself)
+  if not (sh.train or sh.technic) then -- builders don't build with train or technic pieces (describe lists them)
     for _,color in ipairs(colors) do piece_of["brickcraft:"..color..sh.suffix]={piece=sh.id,color=color} end
   end
 end
@@ -781,6 +781,11 @@ local function describe(o)
     elseif def and def.brickcraft_scenery and y>=0 then lines[#lines+1]=name:gsub("^brickcraft:","").." "..at
     elseif def and def.brickcraft_track then
       lines[#lines+1]="track "..def.brickcraft_track.." "..def.brickcraft_color.." "..at.." "..C.get_node({x=x,y=y,z=z}).param2%4
+    elseif def and def.brickcraft_power then
+      local kind=def.brickcraft_power=="gear" and "gear"..def.brickcraft_teeth or def.brickcraft_power
+      local state=def.brickcraft_power=="battery" and ({[1]="forward",[0]="off",[-1]="back"})[def.brickcraft_state] or
+        (brickcraft.technic.spin({x=x,y=y,z=z})~=0 and "turning" or "still")
+      lines[#lines+1]="machine "..kind.." "..def.brickcraft_color.." "..at.." "..state
     end
   end end end
   for _,obj in ipairs(C.get_objects_inside_radius({x=o.x+7.5,y=3,z=o.z+7.5},12)) do
@@ -899,7 +904,7 @@ do
   local described={["2x2"]=1,["1x2"]=1,["2x4"]=1,plate=1,plate_1x2=1,plate_2x4=1,round_2x2=1,slope_2x2=1,slope_2x1=1}
   local more={}
   for _,s in ipairs(brickcraft.shape_list) do
-    if not described[s.id] and not s.train then more[#more+1]=s.id.." ("..s.label..")" end
+    if not described[s.id] and not (s.train or s.technic) then more[#more+1]=s.id.." ("..s.label..")" end
   end
   if #more>0 then SYSTEM=SYSTEM.."\nMore pieces you can use, by id: "..table.concat(more,", ")..
     ". 1x1 pieces fill one corner of their cell; tiles are smooth plates; an inverted slope has its sloped face underneath, toward -z at turn 0." end
@@ -926,7 +931,7 @@ Change only what the request is about and keep everything else as it is. Match t
 -- Talking: a question or remark, answered with what the builder sees in front of the person.
 local SYSTEM_CHAT=[[You are jms, the friendly AI builder in BrickCraft, a toy-brick sandbox a family (kids included) plays together. Someone said something to you in chat that isn't a plain build request: a question, a remark, a thank-you. You get what is in front of them and what you are doing.
 
-The area is a grid: x and z from 0 to 15 (x east, z north), y from -1 (the ground) to 8, one line per thing: "<piece> <color> x y z turn", "grass|dirt|trunk|leaves x y z" (scenery), "hole x y z" (a missing ground cell), "gap x y z" (an empty cell between bricks), "track straight|curve <color> x y z turn" (train track), "cart x y z moving|stopped [ridden by <name>]" (a train cart), "player <name> x y z facing <direction>". You also hear what they are holding and whether they are riding a cart.
+The area is a grid: x and z from 0 to 15 (x east, z north), y from -1 (the ground) to 8, one line per thing: "<piece> <color> x y z turn", "grass|dirt|trunk|leaves x y z" (scenery), "hole x y z" (a missing ground cell), "gap x y z" (an empty cell between bricks), "track straight|curve <color> x y z turn" (train track), "cart x y z moving|stopped [ridden by <name>]" (a train cart), "machine motor|battery|axle|brick|gear8|gear24|gear40 <color> x y z turning|still|forward|off|back" (technic machine parts), "player <name> x y z facing <direction>". You also hear what they are holding and whether they are riding a cart.
 
 Answer with one JSON object and nothing else (no prose, no code fence):
 - "say": one or two short, friendly sentences back to them, in their language. When they ask about what's around, talk about what you see in the list, in words a kid understands (no coordinates).
@@ -945,6 +950,8 @@ When they ask how to do something in the game, answer from these controls (the g
 
 
 Trains: the Train Track, Train Cart, Train Motor and Battery Box are pieces like any other, in the Trains row (Tab, or the buttons in I): pick the piece, hold a color and right click. Track joins the track next to it by itself and curves at corners. A cart goes on a track; put next to another cart it hooks on and follows. Right click a cart with the Train Motor piece to make it a locomotive, and with the Battery Box piece to power it. Right click the locomotive with the orange separator to move the switch one notch: forward, off, back, off (the box's light is green, red or gold). Switched on, it runs by itself until switched off or the track ends. To ride, jump onto a cart; Space hops off. Walking into a cart pushes it. The separator's left click collects track and carts (bricks back), and right click turns a track piece. There is a Train Yard world (I > Switch world) with a loop of track and a train: a locomotive, switched off, and two cars.
+
+Technic: the Technic row has the Technic Brick (a brick with an axle through it), the Axle and Gears with 8, 24 and 40 teeth; pick one, hold a color and right click, and an axle or gear points the way you look. A Train Motor and Battery Box from the Trains row put on the ground make a machine: the motor turns what's in front of it when the battery box next to it is switched on (right click the box with the separator: forward, off, back). Turning goes along axles, gears and technic bricks in a line, and from a gear to a gear in the next cell (same direction axles): it turns the other way, and a small gear turns a big one slower (8 teeth to 24: a third as fast). Two motors turning one machine different ways jam it; switching one the other way frees it. The separator's right click points an axle or gear another way. There is a Technic Lab world (I > Switch world) with a gear train, a windmill and a jammed machine to fix.
 
 If something in the game seems broken, or they wish it did something new, you can't change the game yourself, but tell them to say "<your name>, report <what's wrong>": you'll send it to the people who make the game, to fix later.]]
 end

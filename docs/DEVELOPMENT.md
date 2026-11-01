@@ -82,6 +82,13 @@
 - War Lab은 Train Yard처럼 `make_world`로 한 번 만들며(`lab`, `lab_built`), 기사는 저장되지 않으므로 누군가 그 세계에 있을 때 다시 세웁니다(`_lab`). 검사 세계에서는 `brickcraft_war_test`일 때만 만듭니다.
 - 검사: `python3 tools/test_war.py`(전용 서버 30014 + 클라이언트 2개): 평화(전쟁 아닌 사람은 안 맞음), 칼·발차기·밀기의 실제 클라이언트 밀림, 대포, 녹아웃·보호, 기사, 브릭 복원, War Lab.
 
+## 4e. 테크닉 기계(technic.lua)
+
+- 부품은 `shapes`의 `technic=` 항목과, 바닥에 놓은 `train=motor/battery`입니다. 축·기어는 모델의 y축이 회전축이고 facedir의 축 방향(param2 ÷ 4)으로 눕힙니다. 테크닉 브릭·모터·배터리 박스는 param2 % 4로 돕니다.
+- 회전 계산(`solve`): 켜진 모터마다 출력 칸에서 시작해 같은 축의 축·기어·테크닉 브릭으로 같은 빠르기를, 옆 칸의 평행한 기어로 −잇수비를 전달합니다. 한 칸에 다른 값이 오면 걸림(그 기계 전체 0). 부품을 놓기·회수·돌리기·스위치할 때와 2초마다, 플레이어 80칸 안의 모터만 계산합니다(모터 위치는 mod storage `technic_motors`).
+- 도는 부품은 보이지 않는 짝 노드(`_spin`, 그룹 `technic_spin`)로 바꾸고 그 자리에 `brickcraft:spinner` 엔티티를 둡니다. 엔티티는 `vector.dir_to_rotation`으로 모델 y축을 회전축에 맞추고 `automatic_rotate`(초당 회전 × 2π)로 클라이언트에서 돌아 네트워크 부담이 없습니다. 저장하지 않으며, 블록을 다시 읽을 때 LBM이 짝 노드를 원래대로 돌려놓고 다음 계산이 다시 돌립니다.
+- Technic Lab 세계는 `init.lua`가 만들고(Train Yard와 같은 방식) `technic.lua`의 `build_lab`이 기계를 놓습니다.
+
 ## 4. 실행과 개발 반복
 
 ```sh

@@ -223,4 +223,37 @@ m.box(-.14,.23,.42,.14,.51,.52)  # muzzle ring
 m.box(-.05,.32,-.42,.05,.42,-.34)  # cascabel knob
 m.box(-.34,.06,-.17,.34,.1,.13)  # axles
 m.save('brickcraft_cannon.obj','war cannon')
+# Technic: axles and gears are drawn around the y axis (a turning copy spins about its own
+# y axis; pieces lie any way by facedir). Every gear has its axle through it. Gears are
+# sized so neighboring gears touch (real ones need exact spacing). Machine blocks face +z.
+def axle(m):
+    m.box(-.05,-.5,-.13,.05,.5,.13); m.box(-.13,-.5,-.05,.13,.5,.05)
+def gear(name,teeth,r):
+    m=Mesh(); axle(m)
+    root,tip=r-.07,r
+    pts=[]
+    for i in range(teeth):
+        a=2*math.pi*i/teeth; w=math.pi/teeth
+        for da,rr in ((-w*.5,root),(-w*.25,tip),(w*.25,tip),(w*.5,root)):
+            pts.append((rr*math.cos(a+da),rr*math.sin(a+da)))
+    y0,y1=-.08,.08
+    for (xa,za),(xb,zb) in zip(pts,pts[1:]+pts[:1]):
+        m.poly([(0,y1,0),(xb,y1,zb),(xa,y1,za)]); m.poly([(0,y0,0),(xa,y0,za),(xb,y0,zb)])
+        m.poly([(xb,y0,zb),(xb,y1,zb),(xa,y1,za),(xa,y0,za)])
+    m.save(name,f'gear, {teeth} teeth')
+m=Mesh(); axle(m); m.save('brickcraft_axle.obj','technic axle')
+gear('brickcraft_gear8.obj',8,.28)
+gear('brickcraft_gear24.obj',24,.45)
+gear('brickcraft_gear40.obj',40,.56)
+# Machine blocks (textures: body, then the battery's switch light or the motor's axle stub).
+m=Mesh(); m.mat('body')
+m.box(-.3,-.5,-.34,.3,.1,.3)
+for x in (-.15,.15):
+    for z in (-.17,.13): m.box(x-.1,.1,z-.1,x+.1,.18,z+.1)
+m.mat('light'); m.box(-.22,.1,.22,-.06,.16,.3)
+m.save('brickcraft_battery_node.obj','battery box on the ground')
+m=Mesh(); m.mat('body')
+m.box(-.32,-.5,-.4,.32,.14,.3); m.box(-.22,.14,-.3,.22,.24,.2)
+m.mat('stub'); m.box(-.05,-.18,.3,.05,.06,.5); m.box(-.12,-.11,.3,.12,-.01,.5)
+m.save('brickcraft_motor_node.obj','train motor on the ground')
 print('Generated 33 textures, 3 block person meshes, 5 brick meshes, 5 train meshes and a cannon')

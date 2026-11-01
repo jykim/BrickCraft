@@ -80,7 +80,16 @@ local shapes = {
   {id="cart", suffix="_cart", label="Train Cart", part="92339", group="Trains", cost=2, train="cart"},
   {id="motor", suffix="_motor", label="Train Motor", part="88002", group="Trains", cost=1, train="motor"},
   {id="battery", suffix="_battery", label="Battery Box", part="8881", group="Trains", cost=1, train="battery"},
+  -- Technic (technic.lua): axles and gears turned by a Train Motor and Battery Box put on
+  -- the ground.
+  {id="technic_brick", suffix="_technic_brick", label="Technic Brick", part="32064", group="Technic", cost=1, technic="brick"},
+  {id="axle", suffix="_axle", label="Axle", part="3705", group="Technic", cost=1, technic="axle"},
+  {id="gear8", suffix="_gear8", label="Gear 8", part="3647", group="Technic", cost=1, technic="gear8"},
+  {id="gear24", suffix="_gear24", label="Gear 24", part="3648", group="Technic", cost=1, technic="gear24"},
+  {id="gear40", suffix="_gear40", label="Gear 40", part="3649", group="Technic", cost=1, technic="gear40"},
 }
+local technic_test=C.settings:get_bool("brickcraft_technic_test",false)
+testing=testing or technic_test
 local shape_by_id = {}
 for i, s in ipairs(shapes) do s.index=i; shape_by_id[s.id]=s end
 
@@ -151,7 +160,7 @@ end
 
 for i, color in ipairs(colors) do
   local item="brickcraft:"..color
-  for _, s in ipairs(shapes) do if not s.train then
+  for _, s in ipairs(shapes) do if not (s.train or s.technic) then
     local nodename=item..s.suffix
     local box={type="fixed",fixed=s.collision or {-.5,-.5,-.5,.5,.5,.5}}
     local def={
@@ -226,6 +235,7 @@ function place_brick(stack,placer,pointed,item)
     return stack
   end
   if s.train then return brickcraft.trains.place(s,stack,placer,pointed,item) end
+  if s.technic then return brickcraft.technic.place(s,stack,placer,pointed,item) end
   local pos=(udef and udef.buildable_to) and pointed.under or pointed.above
   local param2=(C.dir_to_facedir(placer:get_look_dir())+get_turn(placer))%4
   local tail=s.long and tail_pos(pos,param2)
@@ -248,6 +258,7 @@ local function turn_placed(pos,node,player)
   pos,node=primary_of(pos,node)
   local def=C.registered_nodes[node.name]
   if not def or not def.brickcraft_shape then return end
+  if def.brickcraft_turn then return def.brickcraft_turn(pos,node,player) end
   local param2=(node.param2+1)%4
   local old_tail,new_tail
   if def.brickcraft_long then
@@ -615,6 +626,27 @@ C.after(0,function()
   if w then w.yard=true; save_worlds() end
 end)
 
+-- Technic Lab: a world made once for everyone with machines running (technic.lua builds
+-- them). Test worlds skip it (but the technic check).
+C.after(0,function()
+  if testing and not technic_test then return end
+  for _,w in ipairs(worlds) do
+    if w.technic then
+      if w.built and not w.machines then
+        C.emerge_area({x=w.x+8,y=-1,z=w.z-4},{x=w.x+22,y=6,z=w.z+8},function(_,_,left)
+          if left==0 then brickcraft.technic.build_lab(w); w.machines=true; save_worlds() end
+        end)
+      end
+      return
+    end
+  end
+  local w=make_world("Technic Lab","BrickCraft",function(w)
+    brickcraft.technic.build_lab(w); w.machines=true; save_worlds()
+  end)
+  C.log("action","BrickCraft Technic Lab "..(w and "being made at "..w.x..","..w.z or "has no room"))
+  if w then w.technic=true; save_worlds() end
+end)
+
 local yard_timer=0
 C.register_globalstep(function(dt)
   yard_timer=yard_timer+dt
@@ -670,7 +702,13 @@ local help_rows={
   {"2 – 9 / mouse wheel","Choose a color"},{"0  -  =","Harvested green, brown, tan"},{"B / N","Previous / next hotbar slot (no wheel needed)"},{"Right click (color)","Place a brick"},
   {"F or Control+click","Same as right click (trackpad)"},
   {"E or Tab","Next piece"},{"Q","Turn the next brick 90°"},
-  {"Left click tree / hill","Harvest a green, brown or tan brick"},{"U or I > Undo","Undo your last build action"},
+  {"Left click tree / hill","Harvest a green, brown or tan brick"},
+  {"TECHNIC (Tab or I > Technic, then a color)",""},
+  {"Axle / Gear 8, 24, 40, right click","Put one pointing the way you look"},
+  {"Technic Brick, right click","A brick with an axle through it"},
+  {"Train Motor / Battery Box on the ground","The motor turns what's in front when the box next to it is on"},
+  {"Right click (separator) a battery box","Switch: forward, off, back"},
+  {"Right click (separator) an axle or gear","Point it another way"},{"U or I > Undo","Undo your last build action"},
   {"TRAINS (Tab or I > Trains, then a color)",""},
   {"Train Track, right click","Lay track; it joins the track next to it"},
   {"Train Cart, right click a track","Put a cart on; next to another cart it hooks on"},
@@ -932,12 +970,12 @@ function inventory_formspec(player)
     table.insert(rows[s.group],s)
   end
   for r,group in ipairs(order) do
-    local y=.8+(r-1)*.8
-    fs=fs.."label[.4,"..(y+.3)..";"..C.formspec_escape(group).."]"
+    local y=.8+(r-1)*.68
+    fs=fs.."label[.4,"..(y+.28)..";"..C.formspec_escape(group).."]"
     for i,s in ipairs(rows[group]) do
-      local x=2.2+(i-1)*2.1
+      local x=2.2+(i-1)*1.72
       fs=fs.."style[shape_"..s.id..";bgcolor="..(s==current and "#f5872c" or "#3a5566").."]"..
-        "button["..x..","..y..";2,.6;shape_"..s.id..";"..
+        "button["..x..","..y..";1.66,.56;shape_"..s.id..";"..
         C.formspec_escape((s.label:gsub("^Brick ",""):gsub("^Plate ",""):gsub("^Round Brick","Round")
           :gsub("^Inverted Slope 45","Inverted"):gsub("^Slope 45","Slope"))).."]"..
         "tooltip[shape_"..s.id..";"..C.formspec_escape(s.label.." - part "..s.part.." - uses "..s.cost.." brick"..(s.cost>1 and "s" or "")).."]"

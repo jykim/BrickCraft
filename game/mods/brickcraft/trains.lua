@@ -474,8 +474,8 @@ local function put_cart(pos,color)
 end
 
 -- Right click with a color and a train piece (place_brick in init.lua sends them here):
--- track is laid, a cart goes on the track. Motors and battery boxes go on a cart, so a
--- right click on the cart itself fits them.
+-- track is laid, a cart goes on the track. Motors and battery boxes go on a cart by a right
+-- click on the cart itself; on the ground they become machine blocks (technic.lua).
 local function place(s,stack,placer,pointed,item)
   local name=placer:get_player_name()
   local color=item:match("^brickcraft:(.+)$")
@@ -502,8 +502,8 @@ local function place(s,stack,placer,pointed,item)
     stack:take_item(s.cost)
     return stack
   end
-  C.chat_send_player(name,"Right click a cart to put the "..s.label.." on it.")
-  return stack
+  -- A motor or battery box put on the ground drives machines (technic.lua).
+  return brickcraft.technic.place(s,stack,placer,pointed,item)
 end
 
 -- A locomotive (motor and battery box, switched off) in a color with cars hooked on
@@ -535,3 +535,6 @@ end
 
 brickcraft.trains={lay=lay,lay_loop=lay_loop,ends=track_ends,joined=joined,exit_of=exit_of,centerline=centerline,
   gap=gap,place=place,put_cart=put_cart,put_train=put_train,switch=switch,hop_off=hop_off,carts=carts}
+
+-- Motors and battery boxes on the ground drive machines of axles and gears.
+dofile(C.get_modpath("brickcraft").."/technic.lua")
