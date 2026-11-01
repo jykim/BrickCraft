@@ -21,7 +21,9 @@ local EDGE=24 -- the baseplate
 C.log("action","BrickCraft AI builder "..NAME..": "..(use_claude and "Claude Code ("..MODEL..") via "..URL or
   "built-in blueprints"..(http and "" or " (no HTTP access: add brickcraft to secure.http_mods)")))
 
+local quiet=0 -- seconds since anyone (jms included) said something in chat
 local function say(text)
+  quiet=0
   C.chat_send_all(C.colorize("#f5872c","<"..NAME.."> ")..text)
   C.log("action","[ai] "..NAME..": "..text)
 end
@@ -393,11 +395,11 @@ local function is_free(pos)
 end
 local function walkable(pos) local def=def_of(pos); return not def or def.walkable end
 local function node_name(it) return "brickcraft:"..it.color..shapes[it.piece].suffix end
+-- The player whose body (.3 around their feet, 1.75 high) is partly inside the cell, if any.
 local function player_in(pos)
   for _,pl in ipairs(C.get_connected_players()) do
     local pp=pl:get_pos()
-    if math.floor(pp.x+.5)==pos.x and math.floor(pp.z+.5)==pos.z and
-       pos.y>=math.floor(pp.y+.5)-1 and pos.y<=math.floor(pp.y+.5)+1 then return true end
+    if math.abs(pp.x-pos.x)<.8 and math.abs(pp.z-pos.z)<.8 and pos.y+.5>pp.y and pos.y-.5<pp.y+1.75 then return pl end
   end
 end
 -- Finds the free baseplate spot nearest to `near` for a w x d footprint with a 1-cell
@@ -415,7 +417,10 @@ local function find_plot(w,d,near,avoid_spawn)
     end
   end end
   for _,pl in ipairs(C.get_connected_players()) do
-    local pp=vector.round(pl:get_pos()); taken[pp.x..","..pp.z]=true
+    local pp=pl:get_pos()
+    for _,dx in ipairs({-.3,.3}) do for _,dz in ipairs({-.3,.3}) do
+      taken[math.floor(pp.x+dx+.5)..","..math.floor(pp.z+dz+.5)]=true
+    end end
   end
   local best,bd
   for z0=-EDGE+1,EDGE-d do for x0=-EDGE+1,EDGE-w do
@@ -746,6 +751,93 @@ do
   if st then job,queue,last=st.job,st.queue or {},st.last end
 end
 
+-- The other players, as jms sees them (like their nametags on screen): who they play,
+-- where they stand and face, and how far and which way from him. +z is north. Connections
+-- still at "Who's playing?" aren't anyone yet, so they aren't listed.
+local COMPASS={"north","north-east","east","south-east","south","south-west","west","north-west"}
+local function compass(dx,dz)
+  return COMPASS[math.floor(math.deg((math.atan2 or math.atan)(dx,dz))/45+.5)%8+1]
+end
+local function players()
+  local me=bot_ok() and bot:get_pos()
+  local list={}
+  for _,pl in ipairs(C.get_connected_players()) do
+    local id,name=brickcraft.playing_as(pl),pl:get_player_name()
+    if id and name~=ID then
+      local pos,look=pl:get_pos(),C.yaw_to_dir(pl:get_look_horizontal())
+      local p={name=name,id=id,label=brickcraft.styles[id].label,pos=pos,look=look,facing=compass(look.x,look.z)}
+      if me then p.dist,p.dir,p.up=vector.distance(me,pos),compass(pos.x-me.x,pos.z-me.z),pos.y-me.y end
+      list[#list+1]=p
+    end
+  end
+  table.sort(list,function(a,b) return (a.dist or 0)<(b.dist or 0) end)
+  return list
+end
+-- Words that name a player: their label, nicknames, then the connection name.
+local NICKNAMES={dad={"daddy","아빠"},daughter={"레오나"},builder={"빌더"},explorer={"탐험가"}}
+local function names_of(p)
+  local words={p.label:lower()}
+  for _,w in ipairs(NICKNAMES[p.id] or {}) do words[#words+1]=w end
+  words[#words+1]=p.name:lower()
+  return words
+end
+-- A name as a whole word ("dad" isn't in "daddy"); Korean particles join the name directly.
+local function find_name(low,w)
+  if not w:find("^[%w _%-]+$") then return low:find(w,1,true) end
+  local i=1
+  while true do
+    local s,e=low:find(w,i,true)
+    if not s then return end
+    if not low:sub(s-1,s-1):find("[%w_]") and not low:sub(e+1,e+1):find("[%w_]") then return s,e end
+    i=s+1
+  end
+end
+local function named_in(text,list)
+  local low=text:lower()
+  for _,p in ipairs(list) do
+    for _,w in ipairs(names_of(p)) do if find_name(low,w) then return p end end
+  end
+end
+-- "near Leona", "for Dad", "레오나 옆에": the player a build should go by, and the request
+-- without those words.
+local NEAR_WORDS={"next to","in front of","near","beside","by","for","facing","toward","towards","around"}
+local NEAR_KO={"옆","앞","근처","한테","에게","위해"}
+local function near_phrase(text,list)
+  local low=text:lower()
+  for _,p in ipairs(list) do
+    for _,w in ipairs(names_of(p)) do
+      local phrases={}
+      for _,n in ipairs(NEAR_WORDS) do phrases[#phrases+1]=n.." "..w end
+      for _,k in ipairs(NEAR_KO) do phrases[#phrases+1]=w.." "..k; phrases[#phrases+1]=w..k end
+      for _,ph in ipairs(phrases) do
+        local s,e=find_name(low,ph)
+        if s then
+          local rest=(text:sub(1,s-1)..text:sub(e+1)):gsub("^[%s,]+",""):gsub("[%s,]+$",""):gsub("%s%s+"," ")
+          return p,rest
+        end
+      end
+    end
+  end
+end
+local function blocks(n)
+  n=math.floor(n+.5)
+  return n==1 and "1 block" or n.." blocks"
+end
+-- "Leona is 9 blocks north-east of me (4 blocks west of you), facing south."
+local function where(p,asker)
+  local s=(p.name==asker and "You're" or p.label.." is")
+  if not p.dist then return s.." somewhere, facing "..p.facing.."." end
+  s=s..(p.dist<2.5 and " right next to me" or " "..blocks(p.dist).." "..p.dir.." of me")
+  if p.up>2.5 then s=s..", "..blocks(p.up).." up" elseif p.up< -2.5 then s=s..", "..blocks(-p.up).." down" end
+  local a=asker~=p.name and C.get_player_by_name(asker)
+  if a then
+    local ap=a:get_pos()
+    local d=vector.distance(ap,p.pos)
+    s=s..(d<2.5 and " (right next to you)" or " ("..blocks(d).." "..compass(p.pos.x-ap.x,p.pos.z-ap.z).." of you)")
+  end
+  return s..", facing "..p.facing.."."
+end
+
 local function front_of(name)
   local pl=C.get_player_by_name(name)
   if not pl then return {x=0,z=0},0 end
@@ -868,7 +960,24 @@ local function handle(name,text)
   if low=="" or low=="help" or low=="?" or low:find("what can you") or low:find("도움") then
     say("Hi "..who.."! Ask me to build anything: \""..NAME..", build a big red castle\". I know "..
       list_blueprints()..(use_claude and ", and I can try anything else you imagine" or "")..
-      ". Also: \""..NAME..", stop\", \"undo\", \"come here\", \"status\", \"auto off\".")
+      ". Say \"next to Leona\" to build by someone. Also: \""..NAME..", stop\", \"undo\", \"come here\", "..
+      "\"where is Leona?\", \"who's here?\", \"status\", \"auto off\".")
+    return
+  end
+  if low:find("^where") or low:find("^who") or low:find("어디") or low:find("누구") then
+    local list=players()
+    local p=named_in(text,list)
+    if not p and (find_word(low,"am i") or find_word(low,"나 ")) then
+      for _,q in ipairs(list) do if q.name==name then p=q end end
+    end
+    if p then say(where(p,name)) return end
+    local others={}
+    for _,q in ipairs(list) do
+      if q.name~=name then
+        others[#others+1]=q.label.." "..(q.dist and (q.dist<2.5 and "right next to me" or blocks(q.dist).." "..q.dir) or "somewhere")
+      end
+    end
+    say(#others==0 and "It's just you and me here, "..who.."." or "I can see "..table.concat(others,", ")..".")
     return
   end
   if low:find("^stop") or low:find("^cancel") or low:find("그만") then
@@ -909,16 +1018,20 @@ local function handle(name,text)
     return
   end
   if #queue>=4 then say("I have a lot to build already. Ask me again in a bit!") return end
-  local near,from=front_of(name)
+  -- By default the build goes in front of the asker; "next to Leona" puts it in front of
+  -- Leona instead. Either way its front faces that player.
+  local by,rest=near_phrase(text,players())
+  local near,from=front_of(by and by.name or name)
+  local by_note=by and by.name~=name and " next to "..by.label or ""
   local function fallback(reason)
-    local list,title=plan_for(text,name,near,from)
+    local list,title=plan_for(rest or text,name,near,from)
     if not list then
       say("Sorry "..who..", I don't know how to build that"..(reason or "")..". I can build "..list_blueprints()..".")
       return
     end
     local ok,j=start_job(list,title,name,near)
     if not ok then say("There's no room left on the baseplate for a "..title..". Take something down first.") return end
-    say(j==job and ("Sure, "..who.."! Building a "..title.." ("..#list.." pieces).")
+    say(j==job and ("Sure, "..who.."! Building a "..title..by_note.." ("..#list.." pieces).")
       or ("Got it, "..who..". The "..title.." is next in line."))
   end
   if not use_claude then return fallback() end
@@ -930,12 +1043,13 @@ local function handle(name,text)
     local title=tostring(reply.title or "build"):sub(1,40)
     local ok,j=start_job(list,title,name,near)
     if not ok then say("There's no room left on the baseplate for that. Take something down first.") return end
-    say(tostring(reply.say or ("Building a "..title.."!")):sub(1,200)..
+    say(tostring(reply.say or ("Building a "..title..by_note.."!")):sub(1,200)..
       (j==job and "" or " (It's next in line.)"))
   end)
 end
 
 C.register_on_chat_message(function(name,message)
+  quiet=0
   local low=message:lower()
   for _,prefix in ipairs({"@"..LNAME,"hey "..LNAME,LNAME}) do
     if low:sub(1,#prefix)==prefix and not low:sub(#prefix+1,#prefix+1):find("[%w_]") then
@@ -1012,8 +1126,11 @@ local function work()
     for _,c in ipairs(cells_of(it)) do cells[#cells+1]=vector.add(o,c) end
     for _,c in ipairs(cells) do if not is_free(c) then return skip("taken") end end
     for _,c in ipairs(cells) do
-      if player_in(c) then
+      local pl=player_in(c)
+      if pl then
         job.waits=job.waits+1
+        -- Like a player would, he asks once instead of building into someone.
+        if job.waits==8 then say(display_name(pl:get_player_name())..", could you step aside? I need to put a piece where you're standing.") end
         if job.waits>40 then job.waits=0; return skip("a player stays there") end
         return
       end
@@ -1076,11 +1193,70 @@ local function auto_build()
   return ok
 end
 
-local acc,wander=0,0
+-- Small talk: jms says hi when someone comes over and chats a little while they stay
+-- near, at most once per CHAT_GAP seconds each, and only once chat has been quiet a while
+-- so he never talks over people.
+local SMALL_TALK=S:get_bool("brickcraft_ai_small_talk",true)
+local CHAT_GAP=tonumber(S:get("brickcraft_ai_chat_gap")) or 240
+local QUIET=8      -- quiet seconds before he says hi; lingering chat waits for 4x that
+local NEARBY=6
+local met={}       -- connection name -> {near=, t=when jms last talked to them}
+local function either(...) local t={...}; return t[math.random(#t)] end
+local function names(list)
+  local labels={}
+  for _,p in ipairs(list) do labels[#labels+1]=p.label end
+  if #labels<=2 then return table.concat(labels," and ") end
+  return table.concat(labels,", ",1,#labels-1)..", and "..labels[#labels]
+end
+local function small_talk()
+  if not SMALL_TALK or not bot_ok() then return end
+  local now=C.get_us_time()/1e6
+  local hello,linger={},nil
+  for _,p in ipairs(players()) do
+    local m=met[p.name] or {t=-math.huge}
+    met[p.name]=m
+    local near=p.dist<=NEARBY
+    if near and not m.near then
+      if now-m.t>=CHAT_GAP then hello[#hello+1]=p else m.near=true end
+    elseif near and now-m.t>=CHAT_GAP and not linger then linger=p
+    elseif p.dist>NEARBY+4 then m.near=false end -- a few blocks of slack before "came over" again
+  end
+  local talk_to=#hello>0 and quiet>=QUIET and hello or linger and quiet>=QUIET*4 and {linger}
+  if not talk_to then return end
+  for _,p in ipairs(talk_to) do met[p.name].t,met[p.name].near=now,true end
+  local who,p=names(talk_to),talk_to[1]
+  if not mode and grounded and not job then bot:set_yaw(C.dir_to_yaw(vector.direction(bot:get_pos(),p.pos))) end
+  if #hello>0 then
+    if job then
+      say(either("Hi "..who.."! I'm building a "..job.title..(job.by and " for "..display_name(job.by) or "")..".",
+        "Hey "..who.."! Come watch, the "..job.title.." is coming along."))
+    else
+      say(either("Hi "..who.."! Want me to build something? Say \""..NAME..", build ...\".",
+        "Hey "..who.."! Nice to see you over here.","Oh, hi "..who.."! What are you building today?"))
+    end
+    return
+  end
+  if job and job.kind=="build" then
+    say(p.label..", the "..job.title.." is "..math.floor((job.i-1)/#job.list*100).."% done.")
+    return
+  end
+  local around=#C.find_nodes_in_area(vector.offset(p.pos,-4,-1,-4),vector.offset(p.pos,4,6,4),{"group:brick"})
+  if around>=20 then say(either(p.label..", that's looking great! I count "..around.." bricks around you.",
+    "Wow, "..p.label..". Can I help? Say \""..NAME..", build a tree next to "..p.label.."\"."))
+  elseif around>0 then say(either("Nice bricks, "..p.label.."! What's it going to be?",
+    p.label..", I like the colors you picked."))
+  else say(either(p.label..", want me to build something right here? Try \""..NAME..", build a house next to "..p.label.."\".",
+    "It's a good day for building, isn't it, "..p.label.."?")) end
+end
+
+local acc,wander,talk_t=0,0,0
 C.register_globalstep(function(dt)
   local players=C.get_connected_players()
   if #players==0 then return end
   if not bot_ok() then spawn_bot() end
+  quiet=quiet+dt
+  talk_t=talk_t+dt
+  if talk_t>=1 then talk_t=0; small_talk() end
   acc=acc+dt
   if acc<STEP then return end
   local step=acc; acc=0
@@ -1114,4 +1290,6 @@ end)
 brickcraft.ai={name=NAME,id=ID,handle=handle,parse_request=parse_request,parse_plan=parse_plan,blueprint=blueprint,
   blueprints=blueprints,order=blueprint_order,find_plot=find_plot,cells_of=cells_of,move=move,inventory=inv,stats=stats,
   state=function() return {job=job,queue=queue,last=last,thinking=thinking,auto_count=auto_count,bot=bot_ok() and bot,mode=mode} end,
-  set_idle=function(s) IDLE=s end,set_auto=function(on) auto_on=on end}
+  set_idle=function(s) IDLE=s end,set_auto=function(on) auto_on=on end,
+  players=players,where=where,near_phrase=near_phrase,player_in=player_in,
+  set_small_talk=function(on,gap) SMALL_TALK=on; CHAT_GAP=gap or CHAT_GAP end}

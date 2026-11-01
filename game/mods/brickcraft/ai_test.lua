@@ -52,17 +52,69 @@ C.register_on_joinplayer(function(player)
     local n,long=0,false
     for _,it in ipairs(plan) do n=n+1; if it.piece=="2x4" then long=true end end
     assert(n==14*3-2+2 and long,"parsed plan has "..n.." pieces")
+    -- "next to Leona", "for Dad", "레오나 옆에" name who a build goes by and drop out of the request.
+    local fake={{name="MPDad",id="dad",label="Dad"},{name="Kid1",id="daughter",label="Leona"}}
+    local by,rest=ai.near_phrase("build a red tower next to Leona",fake)
+    assert(by and by.label=="Leona" and rest=="build a red tower","near phrase: "..tostring(rest))
+    by,rest=ai.near_phrase("write HI for daddy",fake)
+    assert(by and by.label=="Dad" and rest=="write HI","nickname phrase: "..tostring(rest))
+    by,rest=ai.near_phrase("레오나 옆에 빨간 탑 만들어줘",fake)
+    assert(by and by.label=="Leona" and ai.parse_request(rest)=="tower","korean near phrase")
+    assert(ai.near_phrase("build a red tower",fake)==nil,"no player named")
+    -- Who's around: a connection that hasn't picked anyone isn't listed; once it plays Leona it is.
+    assert(#ai.players()==0,"nobody picked yet")
+    for _,handler in ipairs(C.registered_on_player_receive_fields) do
+      if handler(player,"brickcraft:style",{style_daughter="x"}) then break end
+    end
+    assert(brickcraft.playing_as(player)=="daughter","playing Leona")
+    local said={}
+    local send=C.chat_send_all
+    C.chat_send_all=function(msg) said[#said+1]=C.strip_colors(msg); return send(msg) end
+    local function heard(pattern) for _,m in ipairs(said) do if m:find(pattern) then return m end end end
+    local function players_part(done)
+      local bp=ai.state().bot:get_pos()
+      player:set_pos({x=bp.x,y=bp.y,z=bp.z+10}); player:set_look_horizontal(math.pi)
+      local list=ai.players()
+      assert(#list==1 and list[1].label=="Leona" and list[1].name==name,"players list has Leona only")
+      assert(math.abs(list[1].dist-10)<1.5 and list[1].dir=="north" and list[1].facing=="south",
+        "Leona's distance and direction: "..list[1].dist.." "..list[1].dir.." facing "..list[1].facing)
+      -- Bricks never go into a player's space: feet and head cells, and the cell beside a body.
+      local pp=player:get_pos()
+      local f={x=math.floor(pp.x+.5),y=math.floor(pp.y+.51),z=math.floor(pp.z+.5)}
+      assert(ai.player_in(f) and ai.player_in(vector.offset(f,0,1,0)),"player's own cells")
+      assert(not ai.player_in(vector.offset(f,0,2,0)) and not ai.player_in(vector.offset(f,2,0,0)),"cells clear of the player")
+      ai.set_small_talk(false)
+      chat(name,"jms, where is Leona?")
+      wait(function() return heard("Leona is") or heard("You're") end,5,"jms says where Leona is",function()
+        local m=heard("You're")
+        assert(m and m:find("10 blocks north of me") and m:find("facing south"),"where: "..tostring(m))
+        chat(name,"jms, who's here?")
+        wait(function() return heard("just you and me") end,5,"jms says who's here",function()
+          -- Leona walks over: jms says hi to her by name.
+          ai.set_small_talk(true,1)
+          player:set_pos({x=bp.x+2,y=bp.y,z=bp.z})
+          local hi="<jms> [OoHh][hie,y ]+Leona!"
+          wait(function() return heard(hi) end,30,"jms says hi",function()
+            C.log("action","BRICKCRAFT AI small talk: "..heard(hi))
+            ai.set_small_talk(false)
+            done()
+          end)
+        end)
+      end)
+    end
+    players_part(function()
     -- A real request: jms builds a tower near the asker, through the chat handler. A wall
     -- 3 bricks high stands between his home and the asker, so he has to walk around it.
     for x=-15,15 do for y=0,2 do C.set_node({x=x,y=y,z=-1},{name="brickcraft:navy"}) end end
     player:set_pos({x=0,y=0,z=-12}); player:set_look_horizontal(0)
     local inv_ai=ai.inventory
     assert(inv_ai:get_stack("main",1):get_name()=="brickcraft:separator","jms has a player's inventory")
-    local request=live and "jms, please build a small red lighthouse" or "jms, build a red tower"
+    local request=live and "jms, please build a small red lighthouse" or "jms, build a red tower next to Leona"
     chat(name,request)
     wait(function() return ai.state().job~=nil end,live and 300 or 5,"jms starts building",function()
       local j=ai.state().job
       local o=j.origin
+      assert(live or j.title=="coral tower","the request without \"next to Leona\": "..j.title)
       C.log("action","BRICKCRAFT AI building "..j.title.." ("..#j.list.." pieces) at "..o.x..","..o.z)
       assert(ai.state().bot,"jms is in the world")
       assert(ai.state().bot:get_properties().nametag:find("jms"),"jms has a nametag")
@@ -118,11 +170,12 @@ C.register_on_joinplayer(function(player)
               (live and "Claude Code designed" or "built-in").." '"..j.title.."' ("..placed.." pieces) built, "..
               "collected, undone by his separator; walked "..
               "around a wall, reach "..string.format("%.1f",st.max_reach)..", "..st.scaffold.." scaffold blocks, "..
-              st.skipped.." skipped; then on its own: "..own.title)
+              st.skipped.." skipped; then on its own: "..own.title.."; knows where Leona is and says hi")
             C.request_shutdown("BrickCraft AI check passed",false,1)
           end)
         end)
       end)
+    end)
     end)
   end)
 end)
