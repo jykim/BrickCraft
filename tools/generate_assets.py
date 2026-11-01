@@ -92,24 +92,31 @@ class Mesh:
         lines=['# Original BrickCraft '+title]+['v %g %g %g'%p for p in self.v]+['vt %g %g'%p for p in self.vt]
         lines+=['vn %g %g %g'%p for p in self.vn]+self.f
         (root/'models'/name).write_text('\n'.join(lines)+'\n')
-def slope(name,x0,x1,stud_xs,title):
+def slope(name,x0,x1,stud_xs,title,inverted=False):
     # Side profile (z,y): flat top over the back stud row, 45-degree face down to a low front lip.
+    # Inverted flips it: full top, the 45-degree face underneath rising from a back base.
     m=Mesh(); lip=-.39
     prof=[(-.5,-.5),(.5,-.5),(.5,.5),(0,.5),(-.5,lip)]
+    if inverted: prof=[(z,-y) for z,y in reversed(prof)]
     m.poly([(x0,y,z) for z,y in prof])                       # left side
     m.poly([(x1,y,z) for z,y in reversed(prof)])             # right side
     for (za,ya),(zb,yb) in zip(prof,prof[1:]+prof[:1]):     # bottom, back, top, slope, lip
         m.poly([(x1,ya,za),(x1,yb,zb),(x0,yb,zb),(x0,ya,za)])
-    for x in stud_xs: m.stud(x,.25)
+    for x in stud_xs:
+        for z in ((-.25,.25) if inverted else (.25,)): m.stud(x,z)
     m.save(name,title)
 slope('brickcraft_slope_2x2.obj',-.5,.5,(-.25,.25),'45-degree slope 2 x 2')
 slope('brickcraft_slope_2x1.obj',-.5,0,(-.25,),'45-degree slope 2 x 1')
-m=Mesh(); N=24; r=.49
-ring=[(r*math.cos(2*math.pi*i/N),r*math.sin(2*math.pi*i/N)) for i in range(N)]
-for (xa,za),(xb,zb) in zip(ring,ring[1:]+ring[:1]):
-    m.poly([(xa,-.5,za),(xa,.5,za),(xb,.5,zb),(xb,-.5,zb)])
-m.poly([(x,.5,z) for x,z in reversed(ring)]); m.poly([(x,-.5,z) for x,z in ring])
-for x in (-.25,.25):
-    for z in (-.25,.25): m.stud(x,z)
-m.save('brickcraft_round_2x2.obj','round brick 2 x 2')
-print('Generated 21 textures, 3 block person meshes and 3 brick meshes')
+slope('brickcraft_slope_inv_2x2.obj',-.5,.5,(-.25,.25),'inverted 45-degree slope 2 x 2',inverted=True)
+def round_brick(name,cx,cz,r,stud_at,title):
+    m=Mesh(); N=24
+    ring=[(cx+r*math.cos(2*math.pi*i/N),cz+r*math.sin(2*math.pi*i/N)) for i in range(N)]
+    for (xa,za),(xb,zb) in zip(ring,ring[1:]+ring[:1]):
+        m.poly([(xa,-.5,za),(xa,.5,za),(xb,.5,zb),(xb,-.5,zb)])
+    m.poly([(x,.5,z) for x,z in reversed(ring)]); m.poly([(x,-.5,z) for x,z in ring])
+    for x,z in stud_at: m.stud(x,z)
+    m.save(name,title)
+round_brick('brickcraft_round_2x2.obj',0,0,.49,[(x,z) for x in (-.25,.25) for z in (-.25,.25)],'round brick 2 x 2')
+# The 1 x 1 sits in the same quarter cell as the 1 x 1 brick (x and z -0.5..0).
+round_brick('brickcraft_round_1x1.obj',-.25,-.25,.24,[(-.25,-.25)],'round brick 1 x 1')
+print('Generated 21 textures, 3 block person meshes and 5 brick meshes')

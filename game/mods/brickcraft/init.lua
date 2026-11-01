@@ -35,6 +35,9 @@ local shapes = {
    collision={-.5,-.5,-.5,0,.5,.5}},
   {id="2x4", suffix="_2x4", label="Brick 2 x 4", part="3001", group="Bricks", cost=2, long=true,
    boxes=studs({{-.5,-.5,-.5,.5,.5,1.5}},{-.25,.25},{-.25,.25,.75,1.25},.5,.64)},
+  {id="1x1", suffix="_1x1", label="Brick 1 x 1", part="3005", group="Bricks", cost=1,
+   boxes=studs({{-.5,-.5,-.5,0,.5,0}},{-.25},{-.25},.5,.64),
+   collision={-.5,-.5,-.5,0,.5,0}},
   {id="plate", suffix="_plate", label="Plate 2 x 2", part="3022", group="Plates", cost=1,
    boxes=plate(.5,.5,{-.25,.25},{-.25,.25}),
    collision={-.5,-.5,-.5,.5,PLATE_TOP,.5}},
@@ -44,14 +47,31 @@ local shapes = {
   {id="plate_2x4", suffix="_plate_2x4", label="Plate 2 x 4", part="3020", group="Plates", cost=2, long=true,
    boxes=plate(.5,1.5,{-.25,.25},{-.25,.25,.75,1.25}),
    collision={-.5,-.5,-.5,.5,PLATE_TOP,.5}},
-  {id="round_2x2", suffix="_round_2x2", label="Round Brick 2 x 2", part="3941", group="Round & Slopes", cost=1,
+  {id="plate_1x1", suffix="_plate_1x1", label="Plate 1 x 1", part="3024", group="Plates", cost=1,
+   boxes=plate(0,0,{-.25},{-.25}),
+   collision={-.5,-.5,-.5,0,PLATE_TOP,0}},
+  -- Tiles are smooth plates: no studs, a flat finish for floors and roof ridges.
+  {id="tile_2x2", suffix="_tile_2x2", label="Tile 2 x 2", part="3068", group="Tiles & Round", cost=1,
+   boxes=plate(.5,.5,{},{}),
+   collision={-.5,-.5,-.5,.5,PLATE_TOP,.5}},
+  {id="tile_1x2", suffix="_tile_1x2", label="Tile 1 x 2", part="3069", group="Tiles & Round", cost=1,
+   boxes=plate(0,.5,{},{}),
+   collision={-.5,-.5,-.5,0,PLATE_TOP,.5}},
+  {id="round_2x2", suffix="_round_2x2", label="Round Brick 2 x 2", part="3941", group="Tiles & Round", cost=1,
    mesh="brickcraft_round_2x2.obj"},
-  {id="slope_2x2", suffix="_slope_2x2", label="Slope 45 2 x 2", part="3039", group="Round & Slopes", cost=1,
+  {id="round_1x1", suffix="_round_1x1", label="Round Brick 1 x 1", part="3062", group="Tiles & Round", cost=1,
+   mesh="brickcraft_round_1x1.obj",
+   collision={-.5,-.5,-.5,0,.5,0}},
+  {id="slope_2x2", suffix="_slope_2x2", label="Slope 45 2 x 2", part="3039", group="Slopes", cost=1,
    mesh="brickcraft_slope_2x2.obj",
    collision={{-.5,-.5,-.5,.5,0,.5},{-.5,0,0,.5,.5,.5}}},
-  {id="slope_2x1", suffix="_slope_2x1", label="Slope 45 2 x 1", part="3040", group="Round & Slopes", cost=1,
+  {id="slope_2x1", suffix="_slope_2x1", label="Slope 45 2 x 1", part="3040", group="Slopes", cost=1,
    mesh="brickcraft_slope_2x1.obj",
    collision={{-.5,-.5,-.5,0,0,.5},{-.5,0,0,0,.5,.5}}},
+  -- Inverted: full studded top, the 45-degree face underneath toward the builder.
+  {id="slope_inv_2x2", suffix="_slope_inv_2x2", label="Inverted Slope 45 2 x 2", part="3660", group="Slopes", cost=1,
+   mesh="brickcraft_slope_inv_2x2.obj",
+   collision={{-.5,0,-.5,.5,.5,.5},{-.5,-.5,0,.5,0,.5}}},
 }
 local shape_by_id = {}
 for i, s in ipairs(shapes) do s.index=i; shape_by_id[s.id]=s end
@@ -588,7 +608,7 @@ end
 
 function inventory_formspec(player)
   local current=get_shape(player)
-  local fs="formspec_version[6]size[10.8,10.4]label[.4,.4;BRICKCRAFT / YOUR BRICKS   (Tab or E: next piece)]"
+  local fs="formspec_version[6]size[10.8,11.2]label[.4,.4;BRICKCRAFT / YOUR BRICKS   (Tab or E: next piece)]"
   -- One row per piece family; the tooltip names the real catalog part.
   local rows,order={}, {}
   for _,s in ipairs(shapes) do
@@ -599,18 +619,19 @@ function inventory_formspec(player)
     local y=.8+(r-1)*.8
     fs=fs.."label[.4,"..(y+.3)..";"..C.formspec_escape(group).."]"
     for i,s in ipairs(rows[group]) do
-      local x=2.5+(i-1)*2.75
+      local x=2.2+(i-1)*2.1
       fs=fs.."style[shape_"..s.id..";bgcolor="..(s==current and "#f5872c" or "#3a5566").."]"..
-        "button["..x..","..y..";2.6,.6;shape_"..s.id..";"..
-        C.formspec_escape(s.label:gsub("^Brick ",""):gsub("^Plate ",""):gsub("^Round Brick","Round")).."]"..
+        "button["..x..","..y..";2,.6;shape_"..s.id..";"..
+        C.formspec_escape((s.label:gsub("^Brick ",""):gsub("^Plate ",""):gsub("^Round Brick","Round")
+          :gsub("^Inverted Slope 45","Inverted"):gsub("^Slope 45","Slope"))).."]"..
         "tooltip[shape_"..s.id..";"..C.formspec_escape(s.label.." - part "..s.part.." - uses "..s.cost.." brick"..(s.cost>1 and "s" or "")).."]"
     end
   end
-  return fs.."list[current_player;main;.4,3.3;8,4;]"..
-    "label[.4,8.5;1: Separator | 2-9, wheel: Colors | Right click or F: Build | Q: Turn | U: Undo]"..
-    "label[.4,9;2 x 4 pieces use 2 bricks of their color. The others use 1.]listring[current_player;main]"..
-    "style[undo;bgcolor=#f5872c]button[1.6,9.4;2.8,.6;undo;Undo last action]"..
-    "button[4.6,9.4;2.8,.6;look;Switch player]button[7.6,9.4;2.8,.6;help;Help: all keys]"
+  return fs.."list[current_player;main;.4,4.1;8,4;]"..
+    "label[.4,9.3;1: Separator | 2-9, wheel: Colors | Right click or F: Build | Q: Turn | U: Undo]"..
+    "label[.4,9.8;2 x 4 pieces use 2 bricks of their color. The others use 1.]listring[current_player;main]"..
+    "style[undo;bgcolor=#f5872c]button[1.6,10.2;2.8,.6;undo;Undo last action]"..
+    "button[4.6,10.2;2.8,.6;look;Switch player]button[7.6,10.2;2.8,.6;help;Help: all keys]"
 end
 C.register_on_player_receive_fields(function(player,formname,fields)
   if formname=="brickcraft:welcome" and fields.help then show_help(player); return true end
@@ -697,7 +718,11 @@ end})
 C.register_chatcommand("shape",{params="<piece>",description="Choose the piece to build with",
   func=function(name,param)
     local p,s=C.get_player_by_name(name),shape_by_id[param]
-    if not s then return false,"Pieces: 2x2, 1x2, 2x4, plate, plate_1x2, plate_2x4, round_2x2, slope_2x2, slope_2x1" end
+    if not s then
+      local ids={}
+      for _,sh in ipairs(shapes) do ids[#ids+1]=sh.id end
+      return false,"Pieces: "..table.concat(ids,", ")
+    end
     if p then set_shape(p,s) end
     return true,"Shape: "..s.label
   end})
@@ -726,7 +751,6 @@ end)
 
 brickcraft={shapes=shape_by_id,shape_list=shapes,colors=colors,set_shape=set_shape,turn=turn_next,undo=undo_last,styles=style_by_id,
   get_style=get_style,home_pos=home_pos,playing_as=playing_as}
-
 -- Opt-in integration checks execute actual engine callbacks, in a disposable world.
 if C.settings:get_bool("brickcraft_integration_test",false) then
   dofile(C.get_modpath("brickcraft").."/integration.lua")
