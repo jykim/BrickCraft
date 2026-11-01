@@ -13,6 +13,14 @@ local colors={}
 for _,color in ipairs(brickcraft.colors) do colors[color]=true end
 -- Cells per second, and cells per second each second.
 local MAX_SPEED,ACCEL,FRICTION,MOTOR_SPEED=5,3,.6,3
+-- A locomotive's gearbox: the motor's gear drives the gear on the drive wheels' axle, so
+-- the wheels turn motor_teeth/wheel_teeth as fast as the motor. The motor turns
+-- MOTOR_RPS times a second and a drive wheel is WHEEL_R cells in radius, so 24 to 24 runs
+-- at MOTOR_SPEED, 8 to 24 at a third of it and 24 to 8 at three times (up to GEARED_MAX).
+-- The gears are drawn at GEAR_SCALE of their real size on the locomotive's left side.
+local WHEEL_R,GEAR_SCALE,GEARED_MAX=.2,.3,7
+local MOTOR_RPS=MOTOR_SPEED/(2*math.pi*WHEEL_R)
+local AXLE={x=-.5,y=-.12,z=-.15} -- the wheel gear's center, in the cart's frame (front +z)
 
 local function D(r) return C.facedir_to_dir(r%4) end
 local function same(a,b) return a.x==b.x and a.z==b.z end
@@ -193,25 +201,90 @@ local LIGHT={[1]="brickcraft_mint.png",[0]="brickcraft_coral.png",[-1]="brickcra
 local SWITCH_WORDS={[1]="forward",[0]="off",[-1]="back"}
 -- Carts and parts from before trains were pieces had no color.
 local function color_of(v,default) return type(v)=="string" and v or default end
+local function geared(self) return self._gear_m and self._gear_w end
+local function gear_r(teeth) return teeth/32*GEAR_SCALE end
 local function show_parts(self)
   self._parts=self._parts or {}
-  for kind,on in pairs({motor=self._motor,battery=self._battery}) do
+  local box=geared(self)
+  for kind,on in pairs({motor=self._motor,battery=self._battery,coach=self._coach,
+      gear_m=box,gear_w=box,wheel_l=box,wheel_r=box}) do
     local part=self._parts[kind]
     if on and not (part and part:get_pos()) then
       part=C.add_entity(self.object:get_pos(),PART)
-      if part then part:set_attach(self.object); self._parts[kind]=part end
+      if part then
+        -- Gears and drive wheels lie across the cart (their y axis along its x).
+        local at,rot={x=0,y=0,z=0},{x=0,y=0,z=0}
+        if kind=="gear_w" then at,rot=AXLE,{x=0,y=0,z=90}
+        elseif kind=="gear_m" then
+          at,rot={x=AXLE.x,y=AXLE.y,z=AXLE.z+gear_r(self._gear_m.teeth)+gear_r(self._gear_w.teeth)},{x=0,y=0,z=90}
+        elseif kind=="wheel_l" or kind=="wheel_r" then
+          at,rot={x=kind=="wheel_l" and -.42 or .42,y=AXLE.y,z=AXLE.z},{x=0,y=0,z=90}
+        end
+        part:set_attach(self.object,"",vector.multiply(at,10),rot)
+        self._parts[kind]=part
+        self._spun=nil
+      end
     end
     if part and part:get_pos() then
       if not on then part:remove()
       elseif kind=="motor" then
         part:set_properties({mesh="brickcraft_train_motor.obj",textures={"brickcraft_"..color_of(on,"navy")..".png"},pointable=false})
-      else
+      elseif kind=="battery" then
         part:set_properties({mesh="brickcraft_battery_box.obj",
           textures={"brickcraft_"..color_of(on,"navy")..".png",LIGHT[self._power or 0]},pointable=true,
           selectionbox={-.28,-.02,-.44,.28,.31,-.12,rotate=true}})
+      elseif kind=="coach" then
+        part:set_properties({mesh="brickcraft_coach.obj",textures={"brickcraft_"..color_of(on,"sky")..".png","brickcraft_cream.png"},pointable=false})
+      elseif kind=="gear_m" or kind=="gear_w" then
+        local teeth=kind=="gear_m" and self._gear_m.teeth or self._gear_w.teeth
+        part:set_properties({mesh="brickcraft_gear"..teeth..".obj",textures={"brickcraft_"..(kind=="gear_m" and self._gear_m or self._gear_w).color..".png"},
+          visual_size={x=10*GEAR_SCALE,y=10*GEAR_SCALE,z=10*GEAR_SCALE},pointable=false})
+      else
+        part:set_properties({mesh="brickcraft_wheel.obj",textures={"brickcraft_cart_wheel.png"},
+          visual_size={x=20*WHEEL_R,y=20*WHEEL_R,z=20*WHEEL_R},pointable=false})
       end
     end
   end
+end
+-- The gearbox turns with the wheels: the drive wheels and their gear at the wheels' speed,
+-- the motor's gear the other way, wheel_teeth/motor_teeth as fast. Sent only on a change.
+local function spin_gearbox(self,front)
+  if not geared(self) then return end
+  local wheel=front/(2*math.pi*WHEEL_R)*2*math.pi -- radians per second
+  if self._spun and math.abs(self._spun-wheel)<.02 then return end
+  self._spun=wheel
+  local p=self._parts
+  for _,k in ipairs({"wheel_l","wheel_r","gear_w"}) do
+    if p[k] and p[k]:get_pos() then p[k]:set_properties({automatic_rotate=wheel}) end
+  end
+  if p.gear_m and p.gear_m:get_pos() then
+    p.gear_m:set_properties({automatic_rotate=-wheel*self._gear_w.teeth/self._gear_m.teeth})
+  end
+end
+-- How fast a switched-on locomotive goes: straight from the motor, or through its gears.
+local function motor_speed(self)
+  if not geared(self) then return MOTOR_SPEED end
+  return math.min(GEARED_MAX,MOTOR_RPS*self._gear_m.teeth/self._gear_w.teeth*2*math.pi*WHEEL_R)
+end
+-- A Gear piece on a locomotive: the first goes on the motor, the second on the wheels.
+local function fit_gear(self,player,s,color)
+  local name=player:get_player_name()
+  if not self._motor then C.chat_send_player(name,"Put a Train Motor on first: the gears go between the motor and the wheels."); return end
+  if geared(self) then C.chat_send_player(name,"This locomotive has both its gears. Collect it to change them."); return end
+  local stack=player:get_wielded_item()
+  if stack:get_count()<s.cost then return end
+  stack:take_item(s.cost); player:set_wielded_item(stack)
+  local gear={teeth=tonumber(s.technic:match("%d+")),color=color}
+  if not self._gear_m then
+    self._gear_m=gear
+    C.chat_send_player(name,"A "..gear.teeth.." on the motor. Now a gear for the wheels (right click again with a Gear).")
+    return
+  end
+  self._gear_w=gear
+  show_parts(self)
+  local a,b=self._gear_m.teeth,self._gear_w.teeth
+  C.chat_send_player(name,("Gearbox: %d on the motor drives %d on the wheels, so the wheels turn %s as fast: %.1f cells a second."):format(
+    a,b,a==b and "just" or (a<b and ("1/"..math.floor(b/a+.5)) or tostring(math.floor(a/b+.5)).." times"),motor_speed(self)))
 end
 -- Puts a motor or battery box piece (shape s) in a color on the cart, from the held stack.
 local function fit(self,player,s,color)
@@ -247,7 +320,8 @@ local function collect(self,player)
     local left=inv:add_item("main","brickcraft:"..color.." "..n)
     if not left:is_empty() then C.add_item(self.object:get_pos(),left) end
   end
-  give(color_of(self._color,"coral"),brickcraft.shapes.cart.cost)
+  give(color_of(self._color,"coral"),self._coach and brickcraft.shapes.coach.cost or brickcraft.shapes.cart.cost)
+  for _,g in ipairs({self._gear_m,self._gear_w}) do give(g.color,1) end
   if self._motor then give(color_of(self._motor,"navy"),brickcraft.shapes.motor.cost) end
   if self._battery then give(color_of(self._battery,"navy"),brickcraft.shapes.battery.cost) end
   self.object:remove()
@@ -325,7 +399,7 @@ C.register_entity(CART,{
   get_staticdata=function(self)
     return C.serialize({id=self._id,cell=self._cell,from=self._from,s=self._s,v=self._v,flip=self._flip,
       cruise=self._cruise,color=self._color,motor=self._motor,battery=self._battery,power=self._power,
-      last=self._last,leader=self._leader})
+      last=self._last,leader=self._leader,coach=self._coach,gear_m=self._gear_m,gear_w=self._gear_w})
   end,
   on_activate=function(self,staticdata)
     self.object:set_armor_groups({immortal=1})
@@ -336,6 +410,7 @@ C.register_entity(CART,{
     self._from=d.from or (e and e[1])
     self._s,self._v,self._flip,self._cruise,self._color=d.s,d.v or 0,d.flip,d.cruise,d.color
     self._motor,self._battery,self._power,self._last,self._leader=d.motor,d.battery,d.power or 0,d.last,d.leader
+    self._coach,self._gear_m,self._gear_w=d.coach,d.gear_m,d.gear_w
     carts[self._id]=self.object
   end,
   on_deactivate=function(self)
@@ -357,6 +432,7 @@ C.register_entity(CART,{
     local s=brickcraft.get_shape(clicker)
     if color and colors[color] then
       if s.train=="motor" or s.train=="battery" then fit(self,clicker,s,color)
+      elseif s.technic and s.technic:find("^gear") then fit_gear(self,clicker,s,color)
       elseif s.train=="cart" then C.chat_send_player(name,"Put the new cart on the track next to this one: it hooks on.")
       else C.chat_send_player(name,"Pick the Train Motor or Battery Box piece (Tab) to put it on this cart.") end
     end
@@ -411,7 +487,7 @@ C.register_entity(CART,{
       v=math.max(-MAX_SPEED-1,math.min(MAX_SPEED+1,v))
     else
       -- The motor drives it; otherwise someone pushing it, or it rolls to a stop.
-      local front=(self._motor and self._battery and (self._power or 0)~=0) and self._power*MOTOR_SPEED or self._cruise
+      local front=(self._motor and self._battery and (self._power or 0)~=0) and self._power*motor_speed(self) or self._cruise
       if front then v=approach(v,front*(self._flip and -1 or 1),ACCEL*dtime)
       elseif pushed then v=math.max(-MAX_SPEED,math.min(MAX_SPEED,pushed))
       else v=approach(v,0,FRICTION*dtime) end
@@ -447,6 +523,7 @@ C.register_entity(CART,{
     p,tan=centerline(self._cell,self._from,b,s)
     self._tan=tan
     local yaw=C.dir_to_yaw(self._flip and neg(tan) or tan)
+    spin_gearbox(self,self._flip and -v or v)
     local off=vector.subtract(p,obj:get_pos())
     if v==0 then
       if vector.length(off)>.01 then obj:set_pos(p) end
@@ -463,8 +540,8 @@ C.register_entity(CART,{
 })
 
 -- Puts a cart of a color on the track at pos; it hooks on behind a car next to it.
-local function put_cart(pos,color)
-  local obj=C.add_entity(pos,CART,C.serialize({color=color}))
+local function put_cart(pos,color,coach)
+  local obj=C.add_entity(pos,CART,C.serialize({color=color,coach=coach and color or nil}))
   local ent=obj and obj:get_luaentity()
   if not ent then return end
   for _,other in ipairs(near(ent,GAP+.6)) do
@@ -489,14 +566,14 @@ local function place(s,stack,placer,pointed,item)
     brickcraft.remember(placer,{kind="place",pos=vector.copy(pos),node=node,drop=item.." "..s.cost})
     return stack
   end
-  if s.train=="cart" then
+  if s.train=="cart" or s.train=="coach" then
     local pos=track_ends(pointed.under) and pointed.under or pointed.above
     if not track_ends(pos) then C.chat_send_player(name,"Put the cart on a track."); return stack end
     for _,o in ipairs(C.get_objects_inside_radius(pos,.6)) do
       local ent=o:get_luaentity()
       if ent and ent.name==CART then C.chat_send_player(name,"There's a cart here already."); return stack end
     end
-    local ent=put_cart(pos,color)
+    local ent=put_cart(pos,color,s.train=="coach")
     if not ent then return stack end
     if ent._leader then C.chat_send_player(name,"Hooked on!") end
     stack:take_item(s.cost)
@@ -508,13 +585,19 @@ end
 
 -- A locomotive (motor and battery box, switched off) in a color with cars hooked on
 -- behind it, along cells (the first is the locomotive's). Returns their entities.
-local function put_train(cells,color)
+local function put_train(cells,color,opts)
+  opts=opts or {}
   local out={}
   for i,pos in ipairs(cells) do
-    local obj=C.add_entity(pos,CART,C.serialize({color=color}))
+    local car=i>1 and opts.coach or nil
+    local obj=C.add_entity(pos,CART,C.serialize({color=car or color,coach=car}))
     local ent=obj and obj:get_luaentity()
     if not ent then return out end
-    if i==1 then ent._motor,ent._battery="navy","navy" else ent._leader=out[i-1]._id end
+    if i==1 then
+      ent._motor,ent._battery="navy","navy"
+      if opts.gears then ent._gear_m,ent._gear_w={teeth=opts.gears[1],color="gold"},{teeth=opts.gears[2],color="gold"} end
+      if opts.on then ent._power,ent._last=1,1 end
+    else ent._leader=out[i-1]._id end
     out[i]=ent
   end
   return out
@@ -534,7 +617,8 @@ local function lay_loop(a,b,color)
 end
 
 brickcraft.trains={lay=lay,lay_loop=lay_loop,ends=track_ends,joined=joined,exit_of=exit_of,centerline=centerline,
-  gap=gap,place=place,put_cart=put_cart,put_train=put_train,switch=switch,hop_off=hop_off,carts=carts}
+  gap=gap,place=place,put_cart=put_cart,put_train=put_train,switch=switch,hop_off=hop_off,carts=carts,
+  motor_speed=motor_speed}
 
 -- Motors and battery boxes on the ground drive machines of axles and gears.
 dofile(C.get_modpath("brickcraft").."/technic.lua")

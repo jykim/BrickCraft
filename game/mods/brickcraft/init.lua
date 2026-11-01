@@ -78,6 +78,7 @@ local shapes = {
   -- goes on track, and a motor and a battery box go on a cart (right click the cart).
   {id="track", suffix="_track", label="Train Track", part="53401", group="Trains", cost=1, train="track"},
   {id="cart", suffix="_cart", label="Train Cart", part="92339", group="Trains", cost=2, train="cart"},
+  {id="coach", suffix="_coach", label="Passenger Car", part="92339", group="Trains", cost=3, train="coach"},
   {id="motor", suffix="_motor", label="Train Motor", part="88002", group="Trains", cost=1, train="motor"},
   {id="battery", suffix="_battery", label="Battery Box", part="8881", group="Trains", cost=1, train="battery"},
   -- Technic (technic.lua): axles and gears turned by a Train Motor and Battery Box put on
@@ -632,16 +633,18 @@ C.after(0,function()
   if testing and not technic_test then return end
   for _,w in ipairs(worlds) do
     if w.technic then
-      if w.built and not w.machines then
-        C.emerge_area({x=w.x+8,y=-1,z=w.z-4},{x=w.x+22,y=6,z=w.z+8},function(_,_,left)
-          if left==0 then brickcraft.technic.build_lab(w); w.machines=true; save_worlds() end
+      -- An older lab (w.machines true is version 1) is rebuilt once.
+      local built=tonumber(w.machines) or (w.machines and 1 or 0)
+      if w.built and built<brickcraft.technic.lab_version then
+        C.emerge_area({x=w.x+8,y=-1,z=w.z-4},{x=w.x+23,y=7,z=w.z+8},function(_,_,left)
+          if left==0 then w.machines=brickcraft.technic.build_lab(w); save_worlds() end
         end)
       end
       return
     end
   end
   local w=make_world("Technic Lab","BrickCraft",function(w)
-    brickcraft.technic.build_lab(w); w.machines=true; save_worlds()
+    w.machines=brickcraft.technic.build_lab(w); save_worlds()
   end)
   C.log("action","BrickCraft Technic Lab "..(w and "being made at "..w.x..","..w.z or "has no room"))
   if w then w.technic=true; save_worlds() end
@@ -708,7 +711,8 @@ local help_rows={
   {"Technic Brick, right click","A brick with an axle through it"},
   {"Train Motor / Battery Box on the ground","The motor turns what's in front when the box next to it is on"},
   {"Right click (separator) a battery box","Switch: forward, off, back"},
-  {"Right click (separator) an axle or gear","Point it another way"},{"U or I > Undo","Undo your last build action"},
+  {"Right click (separator) an axle or gear","Point it another way"},
+  {"Gear, right click a locomotive (twice)","Gearbox: motor gear, then wheel gear; the ratio sets its speed"},{"U or I > Undo","Undo your last build action"},
   {"TRAINS (Tab or I > Trains, then a color)",""},
   {"Train Track, right click","Lay track; it joins the track next to it"},
   {"Train Cart, right click a track","Put a cart on; next to another cart it hooks on"},

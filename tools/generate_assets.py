@@ -224,13 +224,15 @@ m.box(-.05,.32,-.42,.05,.42,-.34)  # cascabel knob
 m.box(-.34,.06,-.17,.34,.1,.13)  # axles
 m.save('brickcraft_cannon.obj','war cannon')
 # Technic: axles and gears are drawn around the y axis (a turning copy spins about its own
-# y axis; pieces lie any way by facedir). Every gear has its axle through it. Gears are
-# sized so neighboring gears touch (real ones need exact spacing). Machine blocks face +z.
+# y axis; pieces lie any way by facedir). Every gear has its axle through it. Gears have
+# their real size: a cell is 2 studs and a gear's pitch radius is teeth/16 studs, so
+# teeth/32 cells (8: 1/4, 24: 3/4, 40: 1 1/4); a tooth sits at angle 0 (and every quarter
+# turn, as 8, 24 and 40 divide by 4). Machine blocks face +z.
 def axle(m):
     m.box(-.05,-.5,-.13,.05,.5,.13); m.box(-.13,-.5,-.05,.13,.5,.05)
-def gear(name,teeth,r):
+def gear(name,teeth):
     m=Mesh(); axle(m)
-    root,tip=r-.07,r
+    r=teeth/32; root,tip=r-.05,r+.05
     pts=[]
     for i in range(teeth):
         a=2*math.pi*i/teeth; w=math.pi/teeth
@@ -242,9 +244,9 @@ def gear(name,teeth,r):
         m.poly([(xb,y0,zb),(xb,y1,zb),(xa,y1,za),(xa,y0,za)])
     m.save(name,f'gear, {teeth} teeth')
 m=Mesh(); axle(m); m.save('brickcraft_axle.obj','technic axle')
-gear('brickcraft_gear8.obj',8,.28)
-gear('brickcraft_gear24.obj',24,.45)
-gear('brickcraft_gear40.obj',40,.56)
+gear('brickcraft_gear8.obj',8)
+gear('brickcraft_gear24.obj',24)
+gear('brickcraft_gear40.obj',40)
 # Machine blocks (textures: body, then the battery's switch light or the motor's axle stub).
 m=Mesh(); m.mat('body')
 m.box(-.3,-.5,-.34,.3,.1,.3)
@@ -256,4 +258,21 @@ m=Mesh(); m.mat('body')
 m.box(-.32,-.5,-.4,.32,.14,.3); m.box(-.22,.14,-.3,.22,.24,.2)
 m.mat('stub'); m.box(-.05,-.18,.3,.05,.06,.5); m.box(-.12,-.11,.3,.12,-.01,.5)
 m.save('brickcraft_motor_node.obj','train motor on the ground')
+# A locomotive's drive wheel (radius 1/2, about y like a gear; scaled down on the cart),
+# and a passenger car's cabin on a cart deck: corner posts, benches and a roof (textures:
+# body, roof). The cabin is drawn in the cart's frame, front +z.
+m=Mesh(); N=20
+rim=[(.5*math.cos(2*math.pi*i/N),.5*math.sin(2*math.pi*i/N)) for i in range(N)]
+for (xa,za),(xb,zb) in zip(rim,rim[1:]+rim[:1]):
+    m.poly([(0,.06,0),(xb,.06,zb),(xa,.06,za)]); m.poly([(0,-.06,0),(xa,-.06,za),(xb,-.06,zb)])
+    m.poly([(xb,-.06,zb),(xb,.06,zb),(xa,.06,za),(xa,-.06,za)])
+m.box(-.05,-.1,-.45,.05,.1,.45)  # a spoke shows it turning
+m.save('brickcraft_wheel.obj','drive wheel')
+m=Mesh(); m.mat('body')
+for x in (-.36,.36):
+    for z in (-.42,.42): m.box(x-.04,-.02,z-.04,x+.04,.95,z+.04)
+for z in (-.24,.24): m.box(-.3,-.02,z-.08,.3,.16,z+.08)
+m.box(-.38,-.02,-.46,.38,.3,-.4); m.box(-.38,-.02,.4,.38,.3,.46)  # end walls
+m.mat('roof'); m.box(-.44,.95,-.5,.44,1.03,.5)
+m.save('brickcraft_coach.obj','passenger car cabin',flip_x=True)
 print('Generated 33 textures, 3 block person meshes, 5 brick meshes, 5 train meshes and a cannon')
