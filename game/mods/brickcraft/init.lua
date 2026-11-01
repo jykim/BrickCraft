@@ -447,7 +447,7 @@ local function welcome(player)
     "formspec_version[6]size[10,7.6]bgcolor[#142936;true]"..
     "label[.6,.6;BRICKCRAFT / BUILD TOGETHER]"..
     "textarea[.6,1.3;8.8,5.4;;Welcome to your brick workshop!;"..
-    C.formspec_escape("WASD / arrows: move    Mouse: look    Space: jump\n1: orange separator / left click to collect\n2–9 / mouse wheel: choose a color / right click to place\nTab / E: next piece    Q: turn    U: undo\nSeparator right click: turn a placed brick\nI: inventory    C: see your brick person    ?: all keys\nEsc: pause / Quit to Menu saves and closes world\n\nCollect the colored stacks, trees and hills, then build a tiny home!\n/home returns you safely to the workshop.")..
+    C.formspec_escape("WASD / arrows: move    Mouse: look    Space: jump\n1: orange separator / left click to collect\n2–9, 0, -, = / B, N / wheel: choose a color / right click to place\nTab / E: next piece    Q: turn    U: undo\nSeparator right click: turn a placed brick\nI: inventory    C: see your brick person    ?: all keys\nEsc: pause / Quit to Menu saves and closes world\n\nCollect the colored stacks, trees and hills, then build a tiny home!\n/home returns you safely to the workshop.")..
     "]button_exit[1.2,6.7;3.6,.6;go;Let's build!]button[5.2,6.7;3.6,.6;help;Keys and commands]")
 end
 -- One list feeds the help screen; keep it in sync with the controls above.
@@ -457,7 +457,7 @@ local help_rows={
   {"BUILD",""},
   {"1","Orange separator"},{"Left click (separator)","Collect a brick"},
   {"Right click (separator)","Turn a placed brick"},
-  {"2 – 9 / mouse wheel","Choose a color (harvested colors sit after 9)"},{"Right click (color)","Place a brick"},
+  {"2 – 9 / mouse wheel","Choose a color"},{"0  -  =","Harvested green, brown, tan"},{"B / N","Previous / next hotbar slot (no wheel needed)"},{"Right click (color)","Place a brick"},
   {"F or Control+click","Same as right click (trackpad)"},
   {"E or Tab","Next piece"},{"Q","Turn the next brick 90°"},
   {"Left click tree / hill","Harvest a green, brown or tan brick"},{"U or I > Undo","Undo your last build action"},
@@ -629,7 +629,7 @@ function inventory_formspec(player)
     end
   end
   return fs.."list[current_player;main;.4,4.1;8,4;]"..
-    "label[.4,9.3;1: Separator | 2-9, wheel: Colors | Right click or F: Build | Q: Turn | U: Undo]"..
+    "label[.4,9.3;1: Separator | 2-9 0 - =, wheel: Colors | Right click or F: Build | Q: Turn | U: Undo]"..
     "label[.4,9.8;2 x 4 pieces use 2 bricks of their color. The others use 1.]listring[current_player;main]"..
     "style[undo;bgcolor=#f5872c]button[1.6,10.2;2.8,.6;undo;Undo last action]"..
     "button[4.6,10.2;2.8,.6;look;Switch player]button[7.6,10.2;2.8,.6;help;Help: all keys]"
@@ -664,7 +664,7 @@ C.register_on_joinplayer(function(player)
   player:set_sky({base_color="#93cddd",type="regular",clouds=true})
   player:set_sun({visible=true}); player:set_moon({visible=false})
   player:hud_add({type="text",position={x=.5,y=0},offset={x=0,y=28},
-    text="BRICKCRAFT   |   1 Collect   2-9 Colors   Right click Build   Tab Piece   Q Turn   U Undo   ? Help",number=0xffffff,alignment={x=0,y=0},scale={x=100,y=20}})
+    text="BRICKCRAFT   |   1 Collect   2-9 0 - = Colors   Right click Build   Tab Piece   Q Turn   U Undo   ? Help",number=0xffffff,alignment={x=0,y=0},scale={x=100,y=20}})
   update_hud(player)
   if player:get_meta():get_int("brickcraft_started")==0 then
     give_starter(inv)
