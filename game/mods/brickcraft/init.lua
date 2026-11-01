@@ -312,6 +312,13 @@ local function undo_last(player)
   return true
 end
 
+-- The railway causeway's railing: a low studded wall you can't step over or collect.
+C.register_node("brickcraft:bridge_rail", {
+  description="Bridge Railing", tiles={"brickcraft_cream.png"}, drawtype="nodebox", paramtype="light",
+  node_box={type="fixed",fixed=studs({{-.5,-.5,-.5,.5,0,.5}},{-.25,.25},{-.25,.25},0,.14)},
+  collision_box={type="fixed",fixed={-.5,-.5,-.5,.5,1,.5}},selection_box={type="fixed",fixed={-.5,-.5,-.5,.5,0,.5}},
+  groups={}, diggable=false, is_ground_content=false, sunlight_propagates=true,
+})
 C.register_node("brickcraft:baseplate", {
   description="Workshop Baseplate", tiles={"brickcraft_baseplate.png"},
   groups={}, diggable=false, is_ground_content=false,
@@ -533,16 +540,72 @@ end)
 -- cars. The train goes on when someone first comes by (its area has to be loaded).
 -- Test worlds skip it (but the train check).
 local YARD_A,YARD_B={x=9,z=-4},{x=20,z=7}
+-- The Train Yard line: a level causeway of navy track from the Workshop's west side to
+-- Train Yard's east side, its long middle stretch in the empty strip between worlds
+-- (x -65, outside every world's square, so worlds made later never grow hills over it).
+-- It cuts through the hills (scenery only: builds are left alone), and over the gap has a
+-- protected deck, railings and piers. A shuttle train waits at the Workshop end.
+local function line_path(yard)
+  local path={}
+  for x=-25,-65,-1 do path[#path+1]={x=x,y=0,z=0} end
+  for z=-1,yard.z,-1 do path[#path+1]={x=-65,y=0,z=z} end
+  for x=-66,yard.x+25,-1 do path[#path+1]={x=x,y=0,z=yard.z} end
+  return path
+end
+local building_line=false
+local function build_line(yard)
+  if building_line or yard.line or not yard.track then return end
+  if yard.x~=-128 or yard.z~=-128 then return end -- the route assumes the first square out
+  building_line=true
+  local path=line_path(yard)
+  C.emerge_area({x=yard.x+20,y=-8,z=yard.z-4},{x=-20,y=30,z=4},function(_,_,remaining)
+    if remaining>0 then return end
+    -- Every cell within 2 of the track, with how far it is from it.
+    local band={}
+    for _,p in ipairs(path) do
+      for dz=-2,2 do for dx=-2,2 do
+        local k=(p.x+dx)..","..(p.z+dz)
+        local d=math.max(math.abs(dx),math.abs(dz))
+        if not band[k] or d<band[k].d then band[k]={x=p.x+dx,z=p.z+dz,d=d} end
+      end end
+    end
+    for _,c in pairs(band) do
+      for y=0,26 do
+        local pos={x=c.x,y=y,z=c.z}
+        if C.get_item_group(C.get_node(pos).name,"scenery")>0 then C.remove_node(pos) end
+      end
+      local floor={x=c.x,y=-1,z=c.z}
+      if C.get_node(floor).name=="air" then
+        C.set_node(floor,{name="brickcraft:baseplate"})
+        if c.d==2 then C.set_node({x=c.x,y=0,z=c.z},{name="brickcraft:bridge_rail"}) end
+      end
+    end
+    for i,p in ipairs(path) do
+      if i%12==0 and C.get_node({x=p.x,y=-2,z=p.z}).name=="air" then
+        for y=-6,-2 do C.set_node({x=p.x,y=y,z=p.z},{name="brickcraft:baseplate"}) end
+      end
+    end
+    local laid=0
+    for i,p in ipairs(path) do
+      local nxt=path[i+1] or path[i-1]
+      local look=vector.subtract(nxt,p)
+      if C.get_node(p).name=="air" then brickcraft.trains.lay(p,look,"navy"); laid=laid+1 end
+    end
+    yard.line=true; save_worlds(); building_line=false
+    C.log("action","BrickCraft Train Yard line built: "..laid.." of "..#path.." pieces")
+  end)
+end
 local function lay_train_yard(w)
   brickcraft.trains.lay_loop({x=w.x+YARD_A.x,y=0,z=w.z+YARD_A.z},{x=w.x+YARD_B.x,y=0,z=w.z+YARD_B.z})
   w.track=true; save_worlds()
   C.log("action","BrickCraft Train Yard track laid at "..w.x..","..w.z)
+  build_line(w)
 end
 C.after(0,function()
   if testing and not C.settings:get_bool("brickcraft_train_test",false) then return end
   for _,w in ipairs(worlds) do
     if w.yard then
-      if w.built and not w.track then lay_train_yard(w) end
+      if w.built and not w.track then lay_train_yard(w) else build_line(w) end
       return
     end
   end
@@ -566,6 +629,20 @@ C.register_globalstep(function(dt)
           if #train==3 then
             w.train=true; save_worlds()
             C.log("action","BrickCraft Train Yard train put on the track")
+          end
+          break
+        end
+      end
+    end
+    -- The shuttle on the line: a locomotive and a car at the Workshop end.
+    if w.yard and w.line and not w.shuttle then
+      for _,p in ipairs(C.get_connected_players()) do
+        local pos=p:get_pos()
+        if math.abs(pos.x+27)<32 and math.abs(pos.z)<32 then
+          local train=brickcraft.trains.put_train({{x=-28,y=0,z=0},{x=-27,y=0,z=0}},"sky")
+          if #train==2 then
+            w.shuttle=true; save_worlds()
+            C.log("action","BrickCraft Train Yard shuttle put on the line")
           end
           break
         end
@@ -1004,7 +1081,7 @@ C.register_globalstep(function(dt)
 end)
 
 brickcraft={shapes=shape_by_id,shape_list=shapes,colors=colors,set_shape=set_shape,turn=turn_next,undo=undo_last,styles=style_by_id,
-  remember=remember,help=help_rows,get_shape=get_shape,yard=YARD_A,yard_far=YARD_B,
+  remember=remember,help=help_rows,get_shape=get_shape,line_path=line_path,yard=YARD_A,yard_far=YARD_B,
   get_style=get_style,home_pos=home_pos,playing_as=playing_as,world_at=world_at,worlds=function() return worlds end}
 
 dofile(C.get_modpath("brickcraft").."/trains.lua")

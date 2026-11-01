@@ -18,10 +18,10 @@ config.write_text((root/'brickcraft.conf').read_text()+'\nbrickcraft_train_test 
 env=os.environ.copy();env['LUANTI_USER_PATH']=str(user)
 log=test/'trains.log'
 proc=subprocess.Popen([str(root/'runtime/luanti.app/Contents/MacOS/luanti'),'--go','--gameid','brickcraft',
-    '--world',str(world),'--config',str(config),'--name','Builder','--port','30012','--logfile',str(log)],
+    '--world',str(world),'--config',str(config),'--name','Builder','--port','30013','--logfile',str(log)],
     env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 try:
-    deadline=time.time()+150
+    deadline=time.time()+300
     while True:
         content=log.read_text() if log.exists() else ''
         if 'BRICKCRAFT TRAIN PASS' in content:

@@ -206,9 +206,50 @@ C.register_on_joinplayer(function(player)
                         end
                         assert(found==3,"Train Yard train: "..found.." cars")
                         log("YARD TRAIN: a locomotive and 2 cars on the Train Yard loop")
-                        player:set_pos({x=14.5,y=0,z=-3}); player:set_look_horizontal(0); player:set_look_vertical(.45)
-                        log("PASS: train pieces placed like any piece; ride, gap, undo, collect, locomotive, switch and coupled cars all work")
-                        C.after(6,function() C.request_shutdown("BrickCraft trains checked",false,1) end)
+                        -- The line from the Workshop to Train Yard: one track all the way, two
+                        -- curves; the shuttle waits at the Workshop end and rides across.
+                        wait(60,function() return yard.line end,function()
+                          local path=brickcraft.line_path(yard)
+                          C.load_area({x=yard.x+20,y=-1,z=yard.z-4},{x=-20,y=1,z=4})
+                          local bends=0
+                          for i,pos in ipairs(path) do
+                            assert(T.ends(pos),"line track at "..key(pos))
+                            if #T.joined(pos)~=((i==1 or i==#path) and 1 or 2) then
+                              local around={}
+                              for dx=-1,1 do for dz=-1,1 do
+                                local n=C.get_node({x=pos.x+dx,y=0,z=pos.z+dz})
+                                around[#around+1]=(pos.x+dx)..","..(pos.z+dz).."="..n.name:gsub("brickcraft:","").."/"..n.param2
+                              end end
+                              error("line joined "..#T.joined(pos).." at "..key(pos)..": "..table.concat(around," "))
+                            end
+                            if C.get_node(pos).name=="brickcraft:navy_track_curve" then bends=bends+1 end
+                          end
+                          assert(bends==2,"the line has 2 curves, got "..bends)
+                          log(("LINE: %d pieces from the Workshop to Train Yard, %d curves"):format(#path,bends))
+                          player:set_pos({x=-22,y=0,z=0})
+                          wait(20,function() return yard.shuttle end,function()
+                            C.after(1,function()
+                              local shuttle=cart_at({x=-28,y=0,z=0})
+                              assert(shuttle and shuttle._motor,"shuttle locomotive at the Workshop end")
+                              local sp=shuttle.object:get_pos()
+                              player:set_pos({x=sp.x,y=sp.y+.15,z=sp.z})
+                              wait(5,function() return player:get_attach()==shuttle.object end,function()
+                                -- Head west (toward Train Yard) at full speed.
+                                shuttle._from,shuttle._flip,shuttle._cruise={x=1,y=0,z=0},false,5
+                                local stop=path[#path]
+                                wait(120,function() return shuttle._v==0 and vector.distance(shuttle._cell,stop)<=1 and shuttle._s end,function()
+                                  local w=brickcraft.world_at(player:get_pos())
+                                  assert(w.name=="Train Yard","rode into Train Yard, got "..w.name)
+                                  log("RIDE: rode the shuttle from the Workshop to the end of the line in Train Yard")
+                                  T.hop_off(shuttle,player)
+                                  player:set_pos({x=14.5,y=0,z=-3}); player:set_look_horizontal(0); player:set_look_vertical(.45)
+                                  log("PASS: train pieces placed like any piece; ride, gap, undo, collect, locomotive, switch, coupled cars and the line to Train Yard all work")
+                                  C.after(6,function() C.request_shutdown("BrickCraft trains checked",false,1) end)
+                                end,function() return "shuttle at "..key(shuttle._cell).." v "..shuttle._v end)
+                              end,function() return "not on the shuttle" end)
+                            end)
+                          end,function() return "shuttle not put on" end)
+                        end,function() return "line not built" end)
                       end)
                     end,function() return "Train Yard train not put on" end)
                   end,function() return "Train Yard not built: "..(yard and "track missing" or "no world") end)
