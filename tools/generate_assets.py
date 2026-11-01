@@ -32,6 +32,8 @@ styles=dict(
     explorer=dict(shirt=(74,183,147),pants=(238,229,199),hair=(232,190,92)),
     # jms, the AI builder: orange work shirt and a yellow hard-hat-colored cap.
     jms=dict(shirt=(245,135,44),pants=(48,76,110),hair=(249,193,65)),
+    # Brick Knight, war mode's practice target: armor gray, with a steel helmet.
+    knight=dict(shirt=(170,176,188),pants=(90,94,104),hair=(140,146,158)),
 )
 for name,st in styles.items():
     rows=[(245,196,134),st['shirt'],st['pants'],(35,38,48),st['hair'] or (35,38,48)]
@@ -179,4 +181,46 @@ m.mat('light')
 m.box(.08,.26,-.36,.2,.31,-.2)
 m.box(-.2,.26,-.32,-.04,.29,-.24)  # switch lever
 m.save('brickcraft_battery_box.obj','battery box',flip_x=True)
-print('Generated 25 textures, 3 block person meshes, 5 brick meshes and 5 train meshes')
+# War mode (war.lua). Item icons are 32 x 32 pixel art; the sword runs corner to corner.
+def sword(x,y):
+    t,d=(x-y+31)/2,abs(x+y-31)  # along the blade from the bottom-left corner, and off it
+    if 11<=t<=30 and d<=2: return (236,240,246,255) if x+y<31 else (178,186,198,255)
+    if 9<=t<11 and d<=6: return (249,193,65,255)
+    if 3<=t<9 and d<=1: return (118,80,52,255)
+    if t<3 and d<=2: return (249,193,65,255)
+    return (0,0,0,0)
+png('brickcraft_sword.png',32,32,sword)
+def boot(x,y):
+    if 26<=y<=28 and 8<=x<=28: return (54,40,34,255)  # sole
+    if (10<=x<=19 and 4<=y<26) or (10<=x<=28 and 17<=y<26):
+        return (196,92,60,255) if y>7 else (226,128,92,255)
+    return (0,0,0,0)
+png('brickcraft_boot.png',32,32,boot)
+def cannon_icon(x,y):
+    if (x-11)**2+(y-22)**2<=36: return (36,38,44,255) if (x-11)**2+(y-22)**2>=9 else (118,80,52,255)
+    if 4<=x<=27 and 9<=y<=16: return (70,74,84,255) if y>10 else (110,116,128,255)
+    if 26<=x<=29 and 8<=y<=17: return (52,56,64,255)
+    if 6<=x<=24 and 15<=y<=20: return (118,80,52,255)
+    return (0,0,0,0)
+png('brickcraft_cannon.png',32,32,cannon_icon)
+def knight_icon(x,y):  # a shield with a coral cross
+    inside=4<=x<=27 and 3<=y<=28 and (y<=17 or abs(x-15.5)<=(28-y)*1.1)
+    if not inside: return (0,0,0,0)
+    if 13<=x<=18 or 11<=y<=15: return (235,93,72,255)
+    return (170,176,188,255)
+png('brickcraft_knight.png',32,32,knight_icon)
+png('brickcraft_cannonball.png',16,16,lambda x,y:(0,0,0,0) if (x-7.5)**2+(y-7.5)**2>56 else (120,124,134,255) if (x-5)**2+(y-5)**2<5 else (40,42,48,255))
+png('brickcraft_smoke.png',16,16,lambda x,y:(235,232,226,max(0,int(230-((x-7.5)**2+(y-7.5)**2)*4.1))))
+png('brickcraft_cannon_metal.png',16,16,lambda x,y:(64,68,78,255))
+# A cannon on a wooden carriage, barrel along +z, standing at y 0 (textures: wood, metal).
+m=Mesh(); m.mat('wood')
+m.box(-.22,.1,-.36,.22,.28,.3)
+for x in (-.3,.3):
+    for z in (-.22,.18): m.box(x-.05,0,z-.12,x+.05,.24,z+.12)
+m.mat('metal')
+m.box(-.11,.26,-.34,.11,.48,.5)
+m.box(-.14,.23,.42,.14,.51,.52)  # muzzle ring
+m.box(-.05,.32,-.42,.05,.42,-.34)  # cascabel knob
+m.box(-.34,.06,-.17,.34,.1,.13)  # axles
+m.save('brickcraft_cannon.obj','war cannon')
+print('Generated 33 textures, 3 block person meshes, 5 brick meshes, 5 train meshes and a cannon')

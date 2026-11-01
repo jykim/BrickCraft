@@ -74,6 +74,14 @@
 
 - 빌더의 `report`가 `brickcraft.reports.queue`로 `<world>/issues/<id>.md`·`.label`·`.title`(마지막에 씀)을 남깁니다. Luanti 모드는 셸을 못 쓰므로 Admin 실행기가 서버를 띄운 동안 15초마다 `tools/post_issues.zsh <world>`를 돌려 `gh issue create`로 올리고 `issues/sent/<id>.url`을 남깁니다. 빌더는 3초마다 그 파일을 보고 링크를 말합니다. `BRICKCRAFT_ISSUES_DRY=1`이면 올리지 않고 출력만 하며, AI 검사가 이것으로 확인합니다.
 
+## 4e. 전쟁 모드(war.lua)
+
+- 켜기·끄기는 `start`/`stop`(`/war`, 인벤토리 `war` 버튼). 켜면 `main`을 `war_stash` 목록으로 옮기고 `main`에 도구 4개를 넣습니다. `init.lua`의 `save_bricks`는 `war_stash`가 있으면 그것을 저장하고, `choose_player`는 바꾸기 전에 `brickcraft.war.stop`을 부릅니다. 접속 시 `war_stash`가 남아 있으면(서버 종료 등) 브릭을 되돌립니다. 켤 때 되돌리기 기록(`brickcraft.forget`)을 지워 브릭이 도구 칸으로 가지 않게 합니다.
+- 하트는 모드 자체 값(`war[name].hp`, 반 칸 단위 10)과 statbar HUD입니다. `enable_damage = false`는 그대로입니다. `hit(target, attacker, move, dir)`가 모든 공격의 한 경로이며 `MOVES` 표가 피해·밀림·쿨다운을 정합니다. 플레이어 밀림은 `add_velocity`라 클라이언트가 움직이고, 땅 마찰이 커서 값이 큽니다(칼 7 → 약 1칸).
+- 대포알은 엔진 물리 없이 매 단계 지난 구간을 `core.raycast`로 확인하고, 단단한 노드나 사람·기사에 닿으면 둘레 `BLAST`(1.6) 안의 대상을 맞힙니다. 쏜 사람은 맞지 않습니다. 대포·기사·대포알은 `static_save = false`이며 주인이 전쟁을 끝내면 지웁니다.
+- War Lab은 Train Yard처럼 `make_world`로 한 번 만들며(`lab`, `lab_built`), 기사는 저장되지 않으므로 누군가 그 세계에 있을 때 다시 세웁니다(`_lab`). 검사 세계에서는 `brickcraft_war_test`일 때만 만듭니다.
+- 검사: `python3 tools/test_war.py`(전용 서버 30014 + 클라이언트 2개): 평화(전쟁 아닌 사람은 안 맞음), 칼·발차기·밀기의 실제 클라이언트 밀림, 대포, 녹아웃·보호, 기사, 브릭 복원, War Lab.
+
 ## 4. 실행과 개발 반복
 
 ```sh

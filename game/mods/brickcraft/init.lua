@@ -2,7 +2,8 @@ local C = core
 -- Automated checks skip the welcome and look pickers.
 local testing = C.settings:get_bool("brickcraft_integration_test",false) or
   C.settings:get_bool("brickcraft_multiplayer_test",false) or C.settings:get_bool("brickcraft_house_test",false) or
-  C.settings:get_bool("brickcraft_ai_test",false) or C.settings:get_bool("brickcraft_train_test",false)
+  C.settings:get_bool("brickcraft_ai_test",false) or C.settings:get_bool("brickcraft_train_test",false) or
+  C.settings:get_bool("brickcraft_war_test",false)
 -- The first 8 colors are the starter kit; the last 3 come from harvesting the landscape.
 local colors = {"coral", "gold", "mint", "sky", "violet", "cream", "navy", "rose", "green", "brown", "tan"}
 local labels = {"Coral", "Gold", "Mint", "Sky", "Violet", "Cream", "Navy", "Rose", "Green", "Brown", "Tan"}
@@ -678,6 +679,15 @@ local help_rows={
   {"Right click (separator) a locomotive","Switch: forward, off, back (light green / red / gold)"},
   {"Jump onto a cart / Space","Ride along / hop off"},{"Walk into a cart","Push it"},
   {"Left click (separator) track / cart","Collect it (right click turns a track piece)"},
+  {"WAR MODE (/war or I > War mode)",""},
+  {"/war","Start or stop: only players in war can be hit, builds are safe"},
+  {"1 Sword, left click","Strike (1 heart)"},
+  {"2 Cannon, right click the ground","Set up a cannon (left click it to take it back)"},
+  {"Right click a cannon","Aim where you look and fire (1½ hearts)"},
+  {"3 Boot, left click","Kick: half a heart, sends them flying"},
+  {"Right click a player (war kit)","Shove them away"},
+  {"4 Brick Knight, right click the ground","Put up a target to practice on"},
+  {"Out of hearts","Knocked out: back to your start spot, hearts refilled"},
   {"MENUS",""},
   {"?","This help screen"},
   {"I","Inventory and shape buttons"},{"T","Chat (type a command)"},
@@ -744,7 +754,9 @@ local function save_bricks(player)
   local id=playing_as(player)
   if not id then return end
   local items={}
-  for i,stack in ipairs(player:get_inventory():get_list("main")) do items[i]=stack:to_string() end
+  -- In war mode the bricks wait in war_stash (war.lua) and main holds the war kit.
+  local inv=player:get_inventory()
+  for i,stack in ipairs(inv:get_list(inv:get_size("war_stash")>0 and "war_stash" or "main")) do items[i]=stack:to_string() end
   pstore:set_string("bricks_"..id,C.serialize(items))
 end
 local function load_bricks(player,id)
@@ -782,6 +794,7 @@ local function choose_player(player,st)
   local current=playing_as(player)
   local fresh=false
   if current~=st.id then
+    brickcraft.war.stop(player) -- the war kit and stashed bricks belong to who was playing
     save_bricks(player)
     if not load_bricks(player,st.id) then
       -- A player's first time: a new connection keeps the starter kit it just got,
@@ -911,7 +924,7 @@ end
 
 function inventory_formspec(player)
   local current=get_shape(player)
-  local fs="formspec_version[6]size[10.8,12]label[.4,.4;BRICKCRAFT / YOUR BRICKS   (Tab or E: next piece)]"
+  local fs="formspec_version[6]size[10.8,12.8]label[.4,.4;BRICKCRAFT / YOUR BRICKS   (Tab or E: next piece)]"
   -- One row per piece family; the tooltip names the real catalog part.
   local rows,order={}, {}
   for _,s in ipairs(shapes) do
@@ -935,7 +948,10 @@ function inventory_formspec(player)
     "label[.4,10.6;2 x 4 pieces and carts use 2 bricks of their color. The others use 1.]listring[current_player;main]"..
     "style[undo;bgcolor=#f5872c]button[.4,11;2.4,.6;undo;Undo last action]"..
     "button[2.95,11;2.4,.6;look;Switch player]button[5.5,11;2.4,.6;world;Switch world]"..
-    "button[8.05,11;2.4,.6;help;Help: all keys]"
+    "button[8.05,11;2.4,.6;help;Help: all keys]"..
+    "style[war;bgcolor=#b8402c]button[.4,11.8;2.4,.6;war;"..
+      (brickcraft.war.on(player) and "Stop war" or "War mode").."]"..
+    "label[3,12.1;Cannons, swords, kicks: only players in war mode can be hit]"
 end
 C.register_on_player_receive_fields(function(player,formname,fields)
   if formname=="brickcraft:welcome" and fields.help then show_help(player); return true end
@@ -1081,10 +1097,13 @@ C.register_globalstep(function(dt)
 end)
 
 brickcraft={shapes=shape_by_id,shape_list=shapes,colors=colors,set_shape=set_shape,turn=turn_next,undo=undo_last,styles=style_by_id,
-  remember=remember,help=help_rows,get_shape=get_shape,line_path=line_path,yard=YARD_A,yard_far=YARD_B,
-  get_style=get_style,home_pos=home_pos,playing_as=playing_as,world_at=world_at,worlds=function() return worlds end}
+  remember=remember,forget=function(name) history[name]=nil end,
+  refresh_inventory=function(p) p:set_inventory_formspec(inventory_formspec(p)) end,help=help_rows,get_shape=get_shape,line_path=line_path,yard=YARD_A,yard_far=YARD_B,
+  get_style=get_style,home_pos=home_pos,playing_as=playing_as,world_at=world_at,worlds=function() return worlds end,
+  make_world=make_world,save_worlds=save_worlds,testing=testing}
 
 dofile(C.get_modpath("brickcraft").."/trains.lua")
+dofile(C.get_modpath("brickcraft").."/war.lua")
 
 -- AI builders (one per player, and jms) live on the shared server (server.conf) only.
 if C.settings:get_bool("brickcraft_ai_builder",false) then
@@ -1107,4 +1126,7 @@ if C.settings:get_bool("brickcraft_house_test",false) then
 end
 if C.settings:get_bool("brickcraft_train_test",false) then
   dofile(C.get_modpath("brickcraft").."/train_test.lua")
+end
+if C.settings:get_bool("brickcraft_war_test",false) then
+  dofile(C.get_modpath("brickcraft").."/war_test.lua")
 end
