@@ -51,7 +51,41 @@ C.register_on_joinplayer(function()
     assert(inv_dad:get_stack("main",2):get_count()==25,"leona's bricks follow her to another computer")
     choose_look(dad,"dad")
     assert(inv_dad:get_stack("main",2):get_count()==23,"dad's bricks come back")
-    C.log("action","BRICKCRAFT MULTIPLAYER PASS: two network clients, own spots and looks, shared building, "..who)
-    C.request_shutdown("BrickCraft multiplayer check passed",false,1)
+    -- Worlds: Dad makes his own through the real "Which world?" form, Leona goes there,
+    -- then back to the Workshop. Each world is a fresh workshop in its own square.
+    local function world_form(player,fields)
+      for _,handler in ipairs(C.registered_on_player_receive_fields) do
+        if handler(player,"brickcraft:world",fields) then return end
+      end
+    end
+    assert(brickcraft.world_at(dad:get_pos()).id==0,"everyone starts in the Workshop")
+    world_form(dad,{new="x",name="Dad's Fort"})
+    local tries=0
+    local function check_worlds()
+      local w=brickcraft.worlds()[1]
+      tries=tries+1
+      if not (w and w.built and brickcraft.world_at(dad:get_pos())==w) then
+        assert(tries<40,"new world built and entered")
+        return C.after(.5,check_worlds)
+      end
+      assert(w.name=="Dad's Fort" and w.owner=="dad" and (w.x~=0 or w.z~=0),"world saved with its owner")
+      assert(C.get_node({x=w.x+1,y=-1,z=w.z+2}).name=="brickcraft:baseplate","new world has its baseplate")
+      assert(C.get_node({x=w.x-18,y=1,z=w.z+11}).name=="brickcraft:coral","new world has full stacks")
+      assert(C.get_node({x=w.x+26,y=-1,z=w.z}).name=="brickcraft:grass","new world has its hills")
+      assert(C.get_node({x=w.x+10,y=0,z=w.z-2}).name=="air","new world starts empty")
+      local home=brickcraft.home_pos(dad)
+      assert(home.x-w.x==a.x and home.z-w.z==a.z,"/home is Dad's spot in his world")
+      -- Leona's computer (now Builder) picks Dad's world from the list: Workshop is item 1.
+      assert(C.registered_chatcommands.world.func(KID,""),"/world opens the picker")
+      world_form(kid,{world="CHG:2"}); world_form(kid,{go="x"})
+      assert(brickcraft.world_at(kid:get_pos())==w,"leona entered dad's world")
+      local _,who2=C.registered_chatcommands.who.func(KID,"")
+      assert(who2:find("in Dad's Fort"),"/who shows the world")
+      world_form(kid,{world="DCL:1"})
+      assert(brickcraft.world_at(kid:get_pos()).id==0,"double click goes back to the Workshop")
+      C.log("action","BRICKCRAFT MULTIPLAYER PASS: two network clients, own spots and looks, shared building, new world, "..who)
+      C.request_shutdown("BrickCraft multiplayer check passed",false,1)
+    end
+    check_worlds()
   end)
 end)

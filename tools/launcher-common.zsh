@@ -32,6 +32,11 @@ creative_mode = false
 enable_damage = false
 WORLDMT
   fi
+  # Worlds players make sit beside the workshop in the same map, so the map has to reach
+  # past ±64, the limit the workshop was first made with. Luanti reads it at start.
+  if [[ -f "$WORLD/map_meta.txt" ]] && grep -q '^mapgen_limit = 64$' "$WORLD/map_meta.txt"; then
+    sed -i '' 's/^mapgen_limit = 64$/mapgen_limit = 1024/' "$WORLD/map_meta.txt"
+  fi
 }
 
 # A world must only be open in one process: the shared server or single-player.

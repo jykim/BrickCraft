@@ -128,7 +128,9 @@ python3 tools/test_integration.py
 
 ### 언덕과 나무
 
-`init.lua`의 `build_landscape`가 서버 시작 후 `core.emerge_area`로 ±46 영역을 불러와 한 번만 씁니다. 모드 저장소의 `landscape_version`이 `LANDSCAPE_VERSION`보다 작을 때만 실행하므로 기존 세계에도 추가되며, 공기 칸만 채워 저장된 건축물을 보존합니다. 지형을 바꾸면 버전을 올리세요. 이미 쓰인 잔디·나무는 지우지 않고 빈 칸만 채웁니다. 기존 workshop 세계는 `mapgen_limit = 64`로 만들어져 블록이 약 -48..63에만 있으므로 지형 범위를 ±46으로 제한했습니다. 경치 노드(`grass`, `dirt`, `trunk`, `leaves`)는 `brick` 그룹이라 세퍼레이터로 수확하며, `drop`으로 일반 브릭(`green`·`tan`·`brown`·`green`) 1개를 줍니다. 언덕 전체를 그려도 가볍도록 노드 자체는 돌기 없는 정육면체로 두었고, 저장된 이름도 그대로라 마이그레이션이 필요 없습니다. 언덕 아래 y = -2에는 캘 수 없는 `brickcraft:baseplate` 바닥이 있습니다. `LANDSCAPE_VERSION` 2에서 추가했으며, v1 세계에는 바닥만 더하고 언덕·나무는 다시 채우지 않으므로 수확한 칸이 되살아나지 않습니다.
+`init.lua`의 `build_landscape`가 서버 시작 후 `core.emerge_area`로 ±46 영역을 불러와 한 번만 씁니다. 모드 저장소의 `landscape_version`이 `LANDSCAPE_VERSION`보다 작을 때만 실행하므로 기존 세계에도 추가되며, 공기 칸만 채워 저장된 건축물을 보존합니다. 지형을 바꾸면 버전을 올리세요. 이미 쓰인 잔디·나무는 지우지 않고 빈 칸만 채웁니다. 기존 workshop 세계는 `mapgen_limit = 64`로 만들어져 블록이 약 -48..63에만 있으므로 지형 범위를 ±46으로 제한했습니다. 플레이어가 만드는 세계 때문에 실행기(`init_world`)가 그런 세계의 `map_meta.txt`를 `mapgen_limit = 1024`로 올리고, `brickcraft.conf`도 1024입니다.
+
+**세계(Which world?):** 서버에는 Luanti 세계가 하나뿐이므로, 플레이어가 만드는 세계는 같은 지도에서 원점의 Workshop 둘레 고리 모양 자리(`SPACING` = 128칸 간격, ±`EDGE` 언덕이 겹치지 않음)에 놓인 작업장 복사본입니다. 모드 저장소 `worlds`에 `{id, name, owner, x, z, built}`로 저장합니다. `make_world`가 `emerge_area` 후 `build_landscape(0, 중심, true)`로 베이스플레이트·수집 더미·아치·모자이크(`workshop_node`)와 바닥·언덕·나무를 공기 칸에만 씁니다. 짓다가 종료되면 다음 시작에 마저 짓습니다(`built=false`). 지금 있는 세계는 위치로 정합니다(`world_at`: 그 128칸 칸을 쓰는 세계, 없으면 Workshop). `home_pos`·`/home`·추락 복귀·리스폰은 그 세계의 중심 + 시작 자리입니다. 사람별 마지막 세계는 `world_<id>`에 저장해 목록에서 미리 고릅니다. jms(`ai_builder.lua`)는 원점 기준(±24)이라 Workshop에서만 짓습니다. `tools/test_multiplayer.py`가 *Make new world*·목록 선택·더블 클릭 경로를 확인합니다. 경치 노드(`grass`, `dirt`, `trunk`, `leaves`)는 `brick` 그룹이라 세퍼레이터로 수확하며, `drop`으로 일반 브릭(`green`·`tan`·`brown`·`green`) 1개를 줍니다. 언덕 전체를 그려도 가볍도록 노드 자체는 돌기 없는 정육면체로 두었고, 저장된 이름도 그대로라 마이그레이션이 필요 없습니다. 언덕 아래 y = -2에는 캘 수 없는 `brickcraft:baseplate` 바닥이 있습니다. `LANDSCAPE_VERSION` 2에서 추가했으며, v1 세계에는 바닥만 더하고 언덕·나무는 다시 채우지 않으므로 수확한 칸이 되살아나지 않습니다.
 
 ### 배치와 회수
 

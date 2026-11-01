@@ -324,30 +324,42 @@ C.register_tool("brickcraft:separator", {
   on_drop=function(stack,dropper) turn_next(dropper); return stack end,
 })
 
+-- The workshop's own pieces at x, z -24..24 and y -1..4, relative to its center:
+-- base is the baseplate's content id, ids the colors'. nil where it is air.
+local function workshop_node(x,y,z,base,ids)
+  local id=nil
+  if y== -1 then id=base end
+  -- Eight finite collection stacks behind the workshop.
+  for i=1,8 do
+    local cx=-18+(i-1)*5
+    if math.abs(x-cx)<=1 and z>=10 and z<=12 and y>=0 and y<=2 then id=ids[i] end
+  end
+  -- A small open arch and a welcoming mosaic.
+  if z== -7 and ((math.abs(x)==4 and y<=2 and y>=0) or (math.abs(x)<=4 and y==3)) then
+    id=ids[y==3 and 2 or 1]
+  end
+  if z>= -8 and z<= -5 and math.abs(x)<=3 and y== -1 then id=ids[(x-z)%8+1] end
+  return id
+end
+local function workshop_ids()
+  local ids={}
+  for i,color in ipairs(colors) do ids[i]=C.get_content_id("brickcraft:"..color) end
+  return C.get_content_id("brickcraft:baseplate"),ids
+end
+
 -- Deterministic generation runs only for new mapblocks: saved construction wins.
+-- Only the shared workshop at the origin is generated; worlds players make are built
+-- when they are made (make_world).
 C.register_on_generated(function(minp,maxp)
   if minp.y>4 or maxp.y< -1 or minp.x>24 or maxp.x< -24 or minp.z>24 or maxp.z< -24 then return end
   local vm,emin,emax=C.get_mapgen_object("voxelmanip")
   local area=VoxelArea:new({MinEdge=emin,MaxEdge=emax})
   local data=vm:get_data()
-  local base=C.get_content_id("brickcraft:baseplate")
-  local ids={}
-  for i,color in ipairs(colors) do ids[i]=C.get_content_id("brickcraft:"..color) end
+  local base,ids=workshop_ids()
   for z=math.max(minp.z,-24),math.min(maxp.z,24) do
     for x=math.max(minp.x,-24),math.min(maxp.x,24) do
       for y=math.max(minp.y,-1),math.min(maxp.y,4) do
-        local id=nil
-        if y== -1 then id=base end
-        -- Eight finite collection stacks behind the workshop.
-        for i=1,8 do
-          local cx=-18+(i-1)*5
-          if math.abs(x-cx)<=1 and z>=10 and z<=12 and y>=0 and y<=2 then id=ids[i] end
-        end
-        -- A small open arch and a welcoming mosaic.
-        if z== -7 and ((math.abs(x)==4 and y<=2 and y>=0) or (math.abs(x)<=4 and y==3)) then
-          id=ids[y==3 and 2 or 1]
-        end
-        if z>= -8 and z<= -5 and math.abs(x)<=3 and y== -1 then id=ids[(x-z)%8+1] end
+        local id=workshop_node(x,y,z,base,ids)
         if id then data[area:index(x,y,z)]=id end
       end
     end
@@ -382,8 +394,11 @@ local function hill_height(x,z)
   local h=d*.55+2.5*math.sin(x*.21)+2*math.cos(z*.17)+1.5*math.sin((x+z)*.11)
   return math.max(-1,math.min(18,math.floor(h)-1))
 end
-local function build_landscape(from)
-  local minp,maxp={x=-EDGE,y=-2,z=-EDGE},{x=EDGE,y=26,z=EDGE}
+-- c is the world's center (the workshop's is the origin); with core, the workshop's
+-- baseplate, stacks, arch and mosaic are written too, for a world made in play.
+local function build_landscape(from,c,core)
+  c=c or {x=0,z=0}
+  local minp,maxp={x=c.x-EDGE,y=-2,z=c.z-EDGE},{x=c.x+EDGE,y=26,z=c.z+EDGE}
   local vm=C.get_voxel_manip()
   local emin,emax=vm:read_from_map(minp,maxp)
   local area=VoxelArea:new({MinEdge=emin,MaxEdge=emax})
@@ -392,10 +407,18 @@ local function build_landscape(from)
   local grass,dirt=C.get_content_id("brickcraft:grass"),C.get_content_id("brickcraft:dirt")
   local trunk,leaves=C.get_content_id("brickcraft:trunk"),C.get_content_id("brickcraft:leaves")
   local floor=C.get_content_id("brickcraft:baseplate")
+  -- x and z are relative to the center.
   local function put(x,y,z,id)
     if math.abs(x)>EDGE or math.abs(z)>EDGE or y>maxp.y then return end
-    local i=area:index(x,y,z)
+    local i=area:index(c.x+x,y,c.z+z)
     if data[i]==air then data[i]=id end
+  end
+  if core then
+    local base,ids=workshop_ids()
+    for z=-24,24 do for x=-24,24 do for y=-1,4 do
+      local id=workshop_node(x,y,z,base,ids)
+      if id then put(x,y,z,id) end
+    end end end
   end
   for z=-EDGE,EDGE do
     for x=-EDGE,EDGE do
@@ -442,12 +465,69 @@ C.after(0,function()
   end)
 end)
 
+-- Worlds: the shared Workshop at the origin, plus worlds players make. Each is a fresh
+-- copy of the workshop with its own hills, in its own square of the one map, SPACING
+-- apart so their hills (±EDGE) never meet. Saved in mod storage as
+-- {id, name, owner (player id), x, z (center), built}.
+local SPACING=128
+local WORKSHOP={id=0,name="Workshop",x=0,z=0,built=true}
+local worlds=C.deserialize(storage:get_string("worlds")) or {}
+local function save_worlds() storage:set_string("worlds",C.serialize(worlds)) end
+local function world_by_id(id)
+  if id==0 then return WORKSHOP end
+  for _,w in ipairs(worlds) do if w.id==id then return w end end
+end
+-- The world whose square holds pos; the Workshop for squares no world uses.
+local function world_at(pos)
+  local x,z=math.floor(pos.x/SPACING+.5)*SPACING,math.floor(pos.z/SPACING+.5)*SPACING
+  for _,w in ipairs(worlds) do if w.x==x and w.z==z and w.built then return w end end
+  return WORKSHOP
+end
+-- Squares in rings around the workshop, as far as the map reaches (mapgen_limit; worlds
+-- made before worlds existed had 64, which the launchers raise).
+local function free_center()
+  local limit=tonumber(C.get_mapgen_setting("mapgen_limit")) or 31007
+  local used={}
+  for _,w in ipairs(worlds) do used[w.x..","..w.z]=true end
+  for r=1,math.floor((limit-EDGE-16)/SPACING) do
+    for gz=-r,r do for gx=-r,r do
+      local x,z=gx*SPACING,gz*SPACING
+      if math.max(math.abs(gx),math.abs(gz))==r and not used[x..","..z] then return {x=x,z=z} end
+    end end
+  end
+end
+local function build_world(w,done)
+  local c={x=w.x,z=w.z}
+  C.emerge_area({x=c.x-EDGE,y=-2,z=c.z-EDGE},{x=c.x+EDGE,y=26,z=c.z+EDGE},function(_,_,remaining)
+    if remaining>0 then return end
+    build_landscape(0,c,true)
+    w.built=true; save_worlds()
+    C.log("action","BrickCraft world "..w.id.." ("..w.name..") built at "..c.x..","..c.z)
+    if done then done(w) end
+  end)
+end
+-- Makes a world for owner; done(world) runs once it is built. nil when the map is full.
+local function make_world(name,owner,done)
+  local c=free_center()
+  if not c then return nil end
+  local id=1
+  for _,w in ipairs(worlds) do id=math.max(id,w.id+1) end
+  local w={id=id,name=name,owner=owner,x=c.x,z=c.z,built=false}
+  worlds[#worlds+1]=w; save_worlds()
+  build_world(w,done)
+  return w
+end
+-- A world left half-built by a shutdown is finished on the next start.
+C.after(0,function()
+  for _,w in ipairs(worlds) do if not w.built then build_world(w) end end
+end)
+
 local function welcome(player)
   C.show_formspec(player:get_player_name(),"brickcraft:welcome",
     "formspec_version[6]size[10,7.6]bgcolor[#142936;true]"..
     "label[.6,.6;BRICKCRAFT / BUILD TOGETHER]"..
     "textarea[.6,1.3;8.8,5.4;;Welcome to your brick workshop!;"..
-    C.formspec_escape("WASD / arrows: move    Mouse: look    Space: jump\n1: orange separator / left click to collect\n2–9, 0, -, = / B, N / wheel: choose a color / right click to place\nTab / E: next piece    Q: turn    U: undo\nSeparator right click: turn a placed brick\nI: inventory    C: see your brick person    ?: all keys\nEsc: pause / Quit to Menu saves and closes world\n\nCollect the colored stacks, trees and hills, then build a tiny home!\n/home returns you safely to the workshop.")..
+    C.formspec_escape("WASD / arrows: move    Mouse: look    Space: jump\n1: orange separator / left click to collect\n2–9, 0, -, = / B, N / wheel: choose a color / right click to place\nTab / E: next piece    Q: turn    U: undo\nSeparator right click: turn a placed brick\nI: inventory    C: see your brick person    ?: all keys\nEsc: pause / Quit to Menu saves and closes world\n\nCollect the colored stacks, trees and hills, then build a tiny home!\n/home takes you back to the start of your world.")..
     "]button_exit[1.2,6.7;3.6,.6;go;Let's build!]button[5.2,6.7;3.6,.6;help;Keys and commands]")
 end
 -- One list feeds the help screen; keep it in sync with the controls above.
@@ -466,7 +546,8 @@ local help_rows={
   {"I","Inventory and shape buttons"},{"T","Chat (type a command)"},
   {"Esc","Pause / Exit to Menu saves the world"},{"F1 / F2","Hide HUD / chat"},
   {"COMMANDS",""},
-  {"/keys","This help screen"},{"/guide","Welcome screen"},{"/home","Back to the workshop"},
+  {"/keys","This help screen"},{"/guide","Welcome screen"},{"/home","Back to the start of this world"},
+  {"/world","Go to another world or make a new one"},
   {"/undo","Undo your last build action"},
   {"/shape slope_2x2","Pick a piece by name (/shape lists them)"},
 }
@@ -592,9 +673,11 @@ end
 
 -- Each new player gets their own free spot so friends don't spawn inside each other.
 local spots={{x=0,z=4},{x=-3,z=4},{x=3,z=4},{x=-6,z=4},{x=6,z=4},{x=-3,z=1},{x=3,z=1},{x=0,z=1}}
-local function home_pos(player)
+-- The spot is the same in every world, around that world's center.
+local function home_pos(player,world)
+  local w=world or world_at(player:get_pos())
   local s=spots[player:get_meta():get_int("brickcraft_spot")] or spots[1]
-  return {x=s.x,y=2,z=s.z}
+  return {x=w.x+s.x,y=2,z=w.z+s.z}
 end
 local function claim_spot(player)
   local used={}
@@ -605,6 +688,79 @@ local function claim_spot(player)
     if not used[i] then player:get_meta():set_int("brickcraft_spot",i); return end
   end
   player:get_meta():set_int("brickcraft_spot",1)
+end
+
+-- "Which world?" comes right after "Who's playing?": go to the Workshop or any world
+-- someone made, or make a new one. Each player's last world is picked to start with.
+local picker_ids,picked,welcome_after={},{},{}
+local function owner_label(w)
+  if w.id==0 then return "everyone" end
+  return style_by_id[w.owner] and style_by_id[w.owner].label or w.owner
+end
+local function new_world_name(player)
+  local id=playing_as(player)
+  local who=id and style_by_id[id].label or player:get_player_name()
+  local n=1
+  for _,w in ipairs(worlds) do if w.owner==(id or who) then n=n+1 end end
+  return who.."'s World"..(n>1 and " "..n or "")
+end
+local function show_world_picker(player)
+  local name=player:get_player_name()
+  local here=world_at(player:get_pos())
+  local last=tonumber(pstore:get_string("world_"..(playing_as(player) or name)))
+  local counts={}
+  for _,p in ipairs(C.get_connected_players()) do
+    local w=world_at(p:get_pos()).id; counts[w]=(counts[w] or 0)+1
+  end
+  if not world_by_id(picked[name] or -1) then picked[name]=world_by_id(last or -1) and last or here.id end
+  local ids,items,sel={},{},1
+  for i=0,#worlds do
+    local w=i==0 and WORKSHOP or worlds[i]
+    if w.built then
+      ids[#ids+1]=w.id
+      if w.id==picked[name] then sel=#ids end
+      local n=counts[w.id] or 0
+      items[#items+1]=(w.id==0 and "#f5872c" or "")..C.formspec_escape(w.name.."  ("..owner_label(w)..")"..
+        (n>0 and "   "..n.." here" or "")..(w==here and "   < you are here" or ""))
+    end
+  end
+  picker_ids[name]=ids
+  local who=playing_as(player)
+  C.show_formspec(name,"brickcraft:world","formspec_version[6]size[11,8.2]bgcolor[#142936;true]"..
+    "label[.6,.6;BRICKCRAFT / WHICH WORLD?]"..
+    "label[.6,1.1;"..C.formspec_escape((who and style_by_id[who].label..", g" or "G")..
+      "o to a world, or make a new one of your own.").."]"..
+    "textlist[.6,1.5;9.8,3.6;world;"..table.concat(items,",")..";"..sel..";false]"..
+    "style[go;bgcolor=#f5872c]button[.6,5.3;4.6,.7;go;Go to this world]"..
+    "field[.6,6.6;6.4,.7;name;New world;"..C.formspec_escape(new_world_name(player)).."]"..
+    "field_close_on_enter[name;false]button[7.2,6.6;3.2,.7;new;Make new world]"..
+    "label[.6,7.7;Switch later: I > Switch world, or /world]")
+end
+local function after_world(player)
+  local name=player:get_player_name()
+  if welcome_after[name] then welcome_after[name]=nil; welcome(player)
+  else C.close_formspec(name,"brickcraft:world") end
+end
+-- Staying in the world you are already in keeps your place; another world starts at your spot.
+local function enter_world(player,w)
+  pstore:set_string("world_"..(playing_as(player) or player:get_player_name()),tostring(w.id))
+  if world_at(player:get_pos())~=w then
+    player:set_pos(home_pos(player,w)); player:set_look_horizontal(0)
+  end
+end
+local function new_world(player,title)
+  local name=player:get_player_name()
+  title=(title or ""):gsub("[%c,;#%[%]\\]",""):gsub("^%s+",""):gsub("%s+$",""):sub(1,30)
+  if title=="" then title=new_world_name(player) end
+  local w=make_world(title,playing_as(player) or name,function(w)
+    local p=C.get_player_by_name(name)
+    if not p then return end
+    enter_world(p,w)
+    C.chat_send_player(name,"Welcome to "..w.name.."! Your own fresh workshop. /world goes back.")
+  end)
+  if not w then C.chat_send_player(name,"There's no room for another world on this map."); return false end
+  C.chat_send_player(name,"Making "..w.name.."...")
+  return true
 end
 
 function inventory_formspec(player)
@@ -631,8 +787,9 @@ function inventory_formspec(player)
   return fs.."list[current_player;main;.4,4.1;8,4;]"..
     "label[.4,9.3;1: Separator | 2-9 0 - =, wheel: Colors | Right click or F: Build | Q: Turn | U: Undo]"..
     "label[.4,9.8;2 x 4 pieces use 2 bricks of their color. The others use 1.]listring[current_player;main]"..
-    "style[undo;bgcolor=#f5872c]button[1.6,10.2;2.8,.6;undo;Undo last action]"..
-    "button[4.6,10.2;2.8,.6;look;Switch player]button[7.6,10.2;2.8,.6;help;Help: all keys]"
+    "style[undo;bgcolor=#f5872c]button[.4,10.2;2.4,.6;undo;Undo last action]"..
+    "button[2.95,10.2;2.4,.6;look;Switch player]button[5.5,10.2;2.4,.6;world;Switch world]"..
+    "button[8.05,10.2;2.4,.6;help;Help: all keys]"
 end
 C.register_on_player_receive_fields(function(player,formname,fields)
   if formname=="brickcraft:welcome" and fields.help then show_help(player); return true end
@@ -641,9 +798,29 @@ C.register_on_player_receive_fields(function(player,formname,fields)
       if fields["style_"..st.id] then
         local ok,fresh=choose_player(player,st)
         if not ok then show_style_picker(player)
-        elseif fresh and not testing then welcome(player)
-        else C.close_formspec(player:get_player_name(),formname) end
+        elseif testing then C.close_formspec(player:get_player_name(),formname)
+        else
+          -- A player's first time is followed by the welcome, after picking a world.
+          welcome_after[player:get_player_name()]=fresh or nil
+          picked[player:get_player_name()]=nil
+          show_world_picker(player)
+        end
       end
+    end
+    return true
+  end
+  if formname=="brickcraft:world" then
+    local name=player:get_player_name()
+    local ev=fields.world and C.explode_textlist_event(fields.world)
+    if ev and ev.type~="INV" then picked[name]=(picker_ids[name] or {})[ev.index] end
+    if fields.go or (ev and ev.type=="DCL") then
+      local w=world_by_id(picked[name] or 0)
+      if w then enter_world(player,w) end
+      after_world(player)
+    elseif fields.new or fields.key_enter_field=="name" then
+      if new_world(player,fields.name) then after_world(player) end
+    elseif fields.quit then
+      if welcome_after[name] then after_world(player) end
     end
     return true
   end
@@ -651,6 +828,7 @@ C.register_on_player_receive_fields(function(player,formname,fields)
   if fields.undo then undo_last(player); return true end
   if fields.help then show_help(player); return true end
   if fields.look then show_style_picker(player); return true end
+  if fields.world then picked[player:get_player_name()]=nil; show_world_picker(player); return true end
   for _,s in ipairs(shapes) do
     if fields["shape_"..s.id] then set_shape(player,s); return true end
   end
@@ -685,7 +863,7 @@ C.register_on_shutdown(function()
   for _,p in ipairs(C.get_connected_players()) do save_bricks(p) end
 end)
 C.register_on_respawnplayer(function(player) player:set_pos(home_pos(player)); return true end)
-C.register_chatcommand("home",{description="Return to the workshop",func=function(name)
+C.register_chatcommand("home",{description="Back to the start of this world",func=function(name)
   local p=C.get_player_by_name(name); if p then p:set_pos(home_pos(p)) end
   return true,"Welcome home!"
 end})
@@ -699,11 +877,17 @@ for _,cmd in ipairs({"player","look"}) do
     return true
   end})
 end
+C.register_chatcommand("world",{description="Go to another world or make a new one",func=function(name)
+  local p=C.get_player_by_name(name)
+  if p then picked[name]=nil; show_world_picker(p) end
+  return true
+end})
 C.register_chatcommand("who",{description="List the builders here",func=function()
   local names={}
   for _,p in ipairs(C.get_connected_players()) do
     local id=playing_as(p)
-    names[#names+1]=(id and style_by_id[id].label or "Not picked yet").." (on "..p:get_player_name()..")"
+    names[#names+1]=(id and style_by_id[id].label or "Not picked yet").." (on "..p:get_player_name()..
+      ", in "..world_at(p:get_pos()).name..")"
   end
   return true,"Builders here: "..table.concat(names,", ")
 end})
@@ -751,7 +935,7 @@ C.register_globalstep(function(dt)
 end)
 
 brickcraft={shapes=shape_by_id,shape_list=shapes,colors=colors,set_shape=set_shape,turn=turn_next,undo=undo_last,styles=style_by_id,
-  get_style=get_style,home_pos=home_pos,playing_as=playing_as}
+  get_style=get_style,home_pos=home_pos,playing_as=playing_as,world_at=world_at,worlds=function() return worlds end}
 
 -- jms, the host's AI builder, lives on the shared server (server.conf) only.
 if C.settings:get_bool("brickcraft_ai_builder",false) then
