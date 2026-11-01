@@ -19,7 +19,7 @@ user=test/'user'
 (user/'games'/'brickcraft').symlink_to(root/'game',target_is_directory=True)
 config=test/'test.conf'
 config.write_text((root/'brickcraft.conf').read_text()+'\nbrickcraft_ai_test = true\nbrickcraft_ai_builder = true\n'
-    'brickcraft_ai_step = 0.03\nbrickcraft_ai_idle = 100000\nsecure.http_mods = brickcraft\n'
+    'brickcraft_ai_jms = true\nbrickcraft_ai_step = 0.03\nbrickcraft_ai_idle = 100000\nsecure.http_mods = brickcraft\n'
     f'brickcraft_ai_llm = {"true" if live else "false"}\nscreen_w = 1024\nscreen_h = 720\nwindow_maximized = false\n')
 env=os.environ.copy();env['LUANTI_USER_PATH']=str(user)
 log=test/'ai.log'

@@ -937,7 +937,7 @@ end)
 brickcraft={shapes=shape_by_id,shape_list=shapes,colors=colors,set_shape=set_shape,turn=turn_next,undo=undo_last,styles=style_by_id,
   get_style=get_style,home_pos=home_pos,playing_as=playing_as,world_at=world_at,worlds=function() return worlds end}
 
--- jms, the host's AI builder, lives on the shared server (server.conf) only.
+-- AI builders (one per player, and jms) live on the shared server (server.conf) only.
 if C.settings:get_bool("brickcraft_ai_builder",false) then
   -- Luanti only hands out HTTP from init.lua's main scope (secure.http_mods = brickcraft).
   brickcraft.http=C.request_http_api and C.request_http_api()

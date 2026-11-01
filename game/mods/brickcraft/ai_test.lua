@@ -1,5 +1,6 @@
--- Opt-in check for jms, the AI builder (tools/test_ai_builder.py). Requests go through the
--- real chat handler and jms places the pieces on the real build loop.
+-- Opt-in check for the AI builders (tools/test_ai_builder.py): jms, switched on for the test,
+-- and Leona's own builder. Requests go through the real chat handler and builders place the
+-- pieces on the real build loop.
 local C=core
 local ai=brickcraft.ai
 local live=C.settings:get_bool("brickcraft_ai_llm",false)
@@ -20,6 +21,7 @@ end
 C.register_on_joinplayer(function(player)
   C.after(2,function()
     local name=player:get_player_name()
+    local jms=ai.get("jms")
     -- Every built-in blueprint makes a valid plan: known pieces, no overlaps, on the ground.
     local o={size=2,color="coral",accent="navy",text="HI LEONA"}
     for _,id in ipairs(ai.order) do
@@ -72,9 +74,9 @@ C.register_on_joinplayer(function(player)
     C.chat_send_all=function(msg) said[#said+1]=C.strip_colors(msg); return send(msg) end
     local function heard(pattern) for _,m in ipairs(said) do if m:find(pattern) then return m end end end
     local function players_part(done)
-      local bp=ai.state().bot:get_pos()
+      local bp=jms.state().bot:get_pos()
       player:set_pos({x=bp.x,y=bp.y,z=bp.z+10}); player:set_look_horizontal(math.pi)
-      local list=ai.players()
+      local list=ai.players(bp)
       assert(#list==1 and list[1].label=="Leona" and list[1].name==name,"players list has Leona only")
       assert(math.abs(list[1].dist-10)<1.5 and list[1].dir=="north" and list[1].facing=="south",
         "Leona's distance and direction: "..list[1].dist.." "..list[1].dir.." facing "..list[1].facing)
@@ -121,22 +123,22 @@ C.register_on_joinplayer(function(player)
       assert(#list==1 and list[1].color=="gold" and down and #down.list==1 and
         vector.equals(down.list[1].pos,{x=-10,y=1,z=-10}),"edit jobs: "..#list.." to add")
       chat(name,"jms, fill the holes here")
-      wait(function() local jj=ai.state().job; return jj and jj.title=="patch" end,5,"jms starts patching",function()
-        wait(function() return ai.state().job==nil end,120,"jms patches",function()
+      wait(function() local jj=jms.state().job; return jj and jj.title=="patch" end,5,"jms starts patching",function()
+        wait(function() return jms.state().job==nil end,120,"jms patches",function()
           assert(C.get_node({x=-9,y=0,z=-10}).name=="brickcraft:coral","wall gap filled in coral")
           assert(C.get_node({x=0,y=-1,z=-6}).name~="air","floor hole filled")
           assert(heard("Filling 2 holes"),"jms says what he fills")
           -- A Claude-style answer to "make the top of the wall gold": he collects the old
           -- coral bricks with his separator, then puts gold ones in their place.
-          ai.apply_edit({say="Gold it is!",title="gold wall top",lines={"2x2 gold 2 1 9","2x2 gold 3 1 9","2x2 gold 4 1 9"},
+          jms.apply_edit({say="Gold it is!",title="gold wall top",lines={"2x2 gold 2 1 9","2x2 gold 3 1 9","2x2 gold 4 1 9"},
             remove={"2 1 9","3 1 9","4 1 9"}},o,name)
-          assert(ai.state().job.kind=="collect","old pieces come out first")
-          wait(function() return ai.state().job==nil end,120,"jms makes the wall top gold",function()
+          assert(jms.state().job.kind=="collect","old pieces come out first")
+          wait(function() return jms.state().job==nil end,120,"jms makes the wall top gold",function()
             for x=-10,-8 do
               assert(C.get_node({x=x,y=1,z=-10}).name=="brickcraft:gold","wall top is gold at "..x)
               assert(C.get_node({x=x,y=0,z=-10}).name=="brickcraft:coral","bottom row kept")
             end
-            assert(ai.stats.inside==0,"no walking through blocks while fixing")
+            assert(jms.stats.inside==0,"no walking through blocks while fixing")
             done()
           end)
         end)
@@ -148,21 +150,21 @@ C.register_on_joinplayer(function(player)
     -- 3 bricks high stands between his home and the asker, so he has to walk around it.
     for x=-15,15 do for y=0,2 do C.set_node({x=x,y=y,z=-1},{name="brickcraft:navy"}) end end
     player:set_pos({x=0,y=0,z=-12}); player:set_look_horizontal(0)
-    local inv_ai=ai.inventory
+    local inv_ai=jms.inventory
     assert(inv_ai:get_stack("main",1):get_name()=="brickcraft:separator","jms has a player's inventory")
     local request=live and "jms, please build a small red lighthouse" or "jms, build a red tower next to Leona"
     chat(name,request)
-    wait(function() return ai.state().job~=nil end,live and 300 or 5,"jms starts building",function()
-      local j=ai.state().job
+    wait(function() return jms.state().job~=nil end,live and 300 or 5,"jms starts building",function()
+      local j=jms.state().job
       local o=j.origin
       assert(live or j.title=="coral tower","the request without \"next to Leona\": "..j.title)
       C.log("action","BRICKCRAFT AI building "..j.title.." ("..#j.list.." pieces) at "..o.x..","..o.z)
-      assert(ai.state().bot,"jms is in the world")
-      assert(ai.state().bot:get_properties().nametag:find("jms"),"jms has a nametag")
-      wait(function() return ai.state().job==nil end,300,"jms finishes",function()
-        local last=ai.state().last
+      assert(jms.state().bot,"jms is in the world")
+      assert(jms.state().bot:get_properties().nametag:find("jms"),"jms has a nametag")
+      wait(function() return jms.state().job==nil end,300,"jms finishes",function()
+        local last=jms.state().last
         local placed=#last.placed
-        local st=ai.stats
+        local st=jms.stats
         assert(placed>=#last.list*.9,"placed "..placed.." of "..#last.list)
         -- The rules: never inside a block, never beyond reach, scaffold dug back down.
         assert(st.inside==0,"jms walked through blocks "..st.inside.." times")
@@ -191,12 +193,12 @@ C.register_on_joinplayer(function(player)
         chat(name,"jms, undo")
         local down
         wait(function()
-          local jj=ai.state().job
+          local jj=jms.state().job
           if jj and jj.kind=="collect" then down=true end
           return down and jj==nil
         end,300,"jms takes it down",function()
           assert(bricks("coral")>before,"collected bricks went back into his inventory")
-          assert(ai.stats.inside==0,"no walking through blocks while taking down")
+          assert(jms.stats.inside==0,"no walking through blocks while taking down")
           for _,it in ipairs(last.placed) do
             assert(C.get_node(it.pos).name=="air","jms took the build down")
           end
@@ -210,19 +212,48 @@ C.register_on_joinplayer(function(player)
           ai.set_idle(.5)
           wait(function() return C.get_node({x=2,y=-1,z=-6}).name~="air" end,120,"jms looks after the ground",function()
           assert(heard("filling a hole in the ground"),"one hole: the old one")
-          wait(function() local jj=ai.state().job; return jj and not jj.patch end,20,"jms builds alone",function()
+          wait(function() local jj=jms.state().job; return jj and not jj.patch end,20,"jms builds alone",function()
           assert(C.get_node(fresh).name=="air","a fresh dig is left alone")
-            local own=ai.state().job
+            local own=jms.state().job
             assert(own.by==nil,"own build")
             local ok,who=C.registered_chatcommands.who.func(name,"")
             assert(who:find("jms"),"/who lists jms")
-            C.log("action","BRICKCRAFT AI PASS: "..#ai.order.." blueprints valid in 4 turns, requests parsed, "..
-              (live and "Claude Code designed" or "built-in").." '"..j.title.."' ("..placed.." pieces) built, "..
-              "collected, undone by his separator; walked "..
-              "around a wall, reach "..string.format("%.1f",st.max_reach)..", "..st.scaffold.." scaffold blocks, "..
-              st.skipped.." skipped; then on its own: ground patch, "..own.title.."; knows where Leona is and says hi; "..
-              "fills holes and gaps on request")
-            C.request_shutdown("BrickCraft AI check passed",false,1)
+            -- Leona's own builder: out since she picked Leona, named by her, and only she
+            -- can stop it. "bot, ..." goes to it, and its plot never overlaps jms's build.
+            local mine=ai.get("daughter")
+            assert(mine.name=="Leona bot" and mine.state().bot,"Leona's builder is out as Leona bot")
+            assert(who:find("Leona bot"),"/who lists Leona's builder")
+            assert(ai.name_problem("Dad","daughter") and ai.name_problem("jms","daughter") and
+              ai.name_problem("bot","daughter") and ai.name_problem("Lu:mi","daughter"),"names that are taken or odd")
+            assert(not ai.name_problem("Lumi","daughter") and not ai.name_problem("루미","daughter"),"good names")
+            local renamed,msg=C.registered_chatcommands.botname.func(name,"Lumi")
+            assert(renamed and mine.name=="Lumi","/botname: "..tostring(msg))
+            assert(mine.state().bot:get_properties().nametag=="Lumi (AI)","nametag follows the name")
+            mine.handle("Visitor","stop")
+            assert(heard("<Lumi> Only Leona can stop me"),"only the owner stops it")
+            chat(name,"bot, build a gold tower")
+            wait(function() return mine.state().job~=nil end,live and 300 or 5,"Lumi starts building",function()
+              local mj=mine.state().job
+              assert(live or mj.title=="gold tower","Lumi builds the request: "..mj.title)
+              local function rect(jj) return jj.origin,vector.add(jj.origin,jj.size or {x=0,y=0,z=0}) end
+              local a1,a2=rect(mj)
+              local b1,b2=rect(own)
+              assert(a2.x<b1.x or b2.x<a1.x or a2.z<b1.z or b2.z<a1.z,"Lumi's plot and jms's plot don't overlap")
+              wait(function() return mine.state().job==nil end,300,"Lumi finishes",function()
+                local ml=mine.state().last
+                assert(#ml.placed>=#ml.list*.9,"Lumi placed "..#ml.placed.." of "..#ml.list)
+                assert(mine.stats.inside==0 and mine.stats.max_reach<=7.01,"Lumi plays by the rules")
+                assert(heard("<Lumi> Done! Here's your"),"Lumi says it's done")
+                C.log("action","BRICKCRAFT AI PASS: "..#ai.order.." blueprints valid in 4 turns, requests parsed, "..
+                  (live and "Claude Code designed" or "built-in").." '"..j.title.."' ("..placed.." pieces) built, "..
+                  "collected, undone by his separator; walked "..
+                  "around a wall, reach "..string.format("%.1f",st.max_reach)..", "..st.scaffold.." scaffold blocks, "..
+                  st.skipped.." skipped; then on its own: ground patch, "..own.title.."; knows where Leona is and says hi; "..
+                  "fills holes and gaps on request; Leona's builder renamed Lumi, built '"..mj.title.."' ("..#ml.placed..
+                  " pieces) next to jms's build")
+                C.request_shutdown("BrickCraft AI check passed",false,1)
+              end)
+            end)
           end)
           end)
         end)
