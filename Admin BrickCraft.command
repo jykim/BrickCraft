@@ -41,6 +41,12 @@ TSNAME=$("$TS" status --self --json 2>/dev/null | grep -m1 '"HostName"' | cut -d
 if [[ -n "$TSIP" ]]; then print "   Tailscale: ${TSNAME:-$TSIP}   (or $TSIP)"; fi
 print "   Port:    $PORT"
 print "Use Play BrickCraft.command or the Luanti app (not a web browser)."
+# jms, the AI builder, designs requests with Claude Code through the Local AI API.
+if curl -s -m 2 http://127.0.0.1:8099/health >/dev/null 2>&1; then
+  print "jms (AI builder) is on: Claude Code via the Local AI API (127.0.0.1:8099)."
+else
+  print "jms (AI builder) uses built-in blueprints: the Local AI API (127.0.0.1:8099) is not running."
+fi
 print "Keep this window open. Quitting your game stops the server for everyone."
 print ""
 "$LUANTI" --config "$CONF" --address 127.0.0.1 --port "$PORT" --name "$NAME" --go --logfile "$ROOT/logs/client.log" || true

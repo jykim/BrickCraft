@@ -1,7 +1,8 @@
 local C = core
 -- Automated checks skip the welcome and look pickers.
 local testing = C.settings:get_bool("brickcraft_integration_test",false) or
-  C.settings:get_bool("brickcraft_multiplayer_test",false) or C.settings:get_bool("brickcraft_house_test",false)
+  C.settings:get_bool("brickcraft_multiplayer_test",false) or C.settings:get_bool("brickcraft_house_test",false) or
+  C.settings:get_bool("brickcraft_ai_test",false)
 -- The first 8 colors are the starter kit; the last 3 come from harvesting the landscape.
 local colors = {"coral", "gold", "mint", "sky", "violet", "cream", "navy", "rose", "green", "brown", "tan"}
 local labels = {"Coral", "Gold", "Mint", "Sky", "Violet", "Cream", "Navy", "Rose", "Green", "Brown", "Tan"}
@@ -751,6 +752,16 @@ end)
 
 brickcraft={shapes=shape_by_id,shape_list=shapes,colors=colors,set_shape=set_shape,turn=turn_next,undo=undo_last,styles=style_by_id,
   get_style=get_style,home_pos=home_pos,playing_as=playing_as}
+
+-- jms, the host's AI builder, lives on the shared server (server.conf) only.
+if C.settings:get_bool("brickcraft_ai_builder",false) then
+  -- Luanti only hands out HTTP from init.lua's main scope (secure.http_mods = brickcraft).
+  brickcraft.http=C.request_http_api and C.request_http_api()
+  dofile(C.get_modpath("brickcraft").."/ai_builder.lua")
+  if C.settings:get_bool("brickcraft_ai_test",false) then
+    dofile(C.get_modpath("brickcraft").."/ai_test.lua")
+  end
+end
 -- Opt-in integration checks execute actual engine callbacks, in a disposable world.
 if C.settings:get_bool("brickcraft_integration_test",false) then
   dofile(C.get_modpath("brickcraft").."/integration.lua")

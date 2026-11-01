@@ -30,6 +30,8 @@ styles=dict(
     dad=dict(shirt=(48,76,110),pants=(70,74,84),hair=(62,44,32)),
     daughter=dict(shirt=(229,131,165),pants=(151,116,203),hair=(110,66,40)),
     explorer=dict(shirt=(74,183,147),pants=(238,229,199),hair=(232,190,92)),
+    # jms, the AI builder: orange work shirt and a yellow hard-hat-colored cap.
+    jms=dict(shirt=(245,135,44),pants=(48,76,110),hair=(249,193,65)),
 )
 for name,st in styles.items():
     rows=[(245,196,134),st['shirt'],st['pants'],(35,38,48),st['hair'] or (35,38,48)]
@@ -119,4 +121,4 @@ def round_brick(name,cx,cz,r,stud_at,title):
 round_brick('brickcraft_round_2x2.obj',0,0,.49,[(x,z) for x in (-.25,.25) for z in (-.25,.25)],'round brick 2 x 2')
 # The 1 x 1 sits in the same quarter cell as the 1 x 1 brick (x and z -0.5..0).
 round_brick('brickcraft_round_1x1.obj',-.25,-.25,.24,[(-.25,-.25)],'round brick 1 x 1')
-print('Generated 21 textures, 3 block person meshes and 5 brick meshes')
+print('Generated 22 textures, 3 block person meshes and 5 brick meshes')

@@ -51,6 +51,15 @@
 - 플레이어(사람)는 `init.lua`의 `styles` 표(메시, 텍스처, 이름표 색, 견본 색)입니다. 매 접속마다 *Who's playing?* 폼(`brickcraft:style`)이 뜨고 `choose_player`가 현재 인벤토리를 모드 저장소 `bricks_<id>`에 저장한 뒤 고른 사람의 것을 불러옵니다(처음이면 기본 세트). 접속의 현재 사람은 메타 `brickcraft_profile`이며, 이전 세계의 접속은 고른 모습(`brickcraft_style`)의 사람으로 간주해 인벤토리를 옮깁니다. 퇴장·서버 종료 때도 저장하고, 다른 접속이 플레이 중인 사람은 고를 수 없습니다. 바꿀 때 되돌리기 기록은 지웁니다. 메시·텍스처는 `generate_assets.py`의 `styles`·`person()`이 만듭니다(텍스처 8행: 피부, 상의, 하의, 눈, 머리). 시작 자리는 `spots` 표와 메타 `brickcraft_spot`, `home_pos()`가 `/home`·리스폰·낙하 복귀에 쓰입니다.
 - 검사: `python3 tools/test_multiplayer.py` (전용 서버 30010 + 클라이언트 2개, `brickcraft_multiplayer_test` 설정으로 `multiplayer_test.lua` 실행).
 
+## 4b. AI 빌더 jms
+
+- [ai_builder.lua](../game/mods/brickcraft/ai_builder.lua)는 `brickcraft_ai_builder = true`(server.conf)일 때만 로드되어 공유 서버에만 jms가 있습니다. Luanti는 HTTP를 `init.lua` 최상위에서만 주므로 `init.lua`가 `C.request_http_api()`를 `brickcraft.http`에 넣고 모듈을 불러옵니다(`secure.http_mods = brickcraft`).
+- jms는 플레이어와 같은 규칙으로 짓습니다(브릭만 공짜). 저장하지 않는 물리 엔티티(`static_save = false`, 충돌·중력, 게임의 `movement_speed_walk`·점프·중력 값)이며 `core.find_path`로 장애물을 돌아 걷습니다. 손이 닿는 거리 7, 보이는 면을 가리켜야 하며(`aim_place`가 raycast로 첫 번째로 맞는 면이 놓을 칸 옆 면인지 확인), 이미 있는 조각이나 바닥에 붙여서만 놓습니다. 높은 곳은 기둥 쌓기(점프 중 발밑에 tan 브릭)로 올라가 짓고 내려올 때 그 비계를 세퍼레이터로 회수합니다. 막히면 플레이어처럼 `/home`. 놓기·회수는 가짜 플레이어 `hands`로 브릭 아이템 `on_place`(`place_brick`)와 세퍼레이터 `on_use`(`collect`→`core.node_dig`)를 그대로 부르며, jms의 인벤토리는 플레이어와 같은 32칸 `main`(분리 인벤토리 `brickcraft_ai`, 저장소 `ai_bricks`, 우클릭으로 보기)입니다. 색이 모자라면 99개로 채웁니다. 이름은 `jms (AI)`라 실제 접속 `jms`와 기록이 섞이지 않습니다. 진행 중 작업·대기열·마지막 건물은 `ai_state`에 남습니다.
+- 계획은 지역 좌표 조각 목록 `{piece,color,x,y,z,turn}`입니다. 정면은 -z이고, `finish`가 요청자를 향하도록 90° 단위로 돌린 뒤 0,0,0에 맞춥니다. `find_plot`이 베이스플레이트(±24)에서 y 0..30이 비어 있고 둘레 1칸이 빈 자리 중 목표에 가장 가까운 곳을 고릅니다.
+- 요청은 Local AI API의 OpenAI 형식 `POST /claude/v1/chat/completions`(`brickcraft_ai_url`, `brickcraft_ai_model = opus`)로 보내고, 응답 JSON의 `lines`(`<piece> <color> x y z [turn]`, `box`, `walls`, `clear`)를 `parse_plan`이 검증·제한(18×18×24, 500조각)합니다. 새 부품은 `shapes` 표에서 프롬프트에 자동으로 추가됩니다. 실패하면 `parse_request`가 단어로 내장 설계도를 고릅니다.
+- 설정: `brickcraft_ai_name`, `brickcraft_ai_idle`(혼자 짓기까지 초), `brickcraft_ai_auto_max`, `brickcraft_ai_auto`, `brickcraft_ai_llm`(false면 내장만).
+- 검사: `python3 tools/test_ai_builder.py`(내장, 30012), `--claude`(실제 설계 1회).
+
 ## 4. 실행과 개발 반복
 
 ```sh
