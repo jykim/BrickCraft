@@ -90,9 +90,20 @@ class Mesh:
         self.poly([P(x0,y1,z0),P(x0,y1,z1),P(x1,y1,z1),P(x1,y1,z0)])  # top
         self.poly([P(x0,y0,z1),P(x0,y0,z0),P(x1,y0,z0),P(x1,y0,z1)])  # bottom
     def stud(self,x,z): self.box(x-.13,.5,z-.13,x+.13,.64,z+.13)
-    def save(self,name,title):
-        lines=['# Original BrickCraft '+title]+['v %g %g %g'%p for p in self.v]+['vt %g %g'%p for p in self.vt]
-        lines+=['vn %g %g %g'%p for p in self.vn]+self.f
+    # Faces after this draw with the next texture: the engine splits meshes by group (g), not usemtl.
+    def mat(self,name): self.f+=['g '+name,'usemtl '+name]
+    def prism(self,pts,y0,y1):
+        # pts: an outline in (x, z), turned clockwise like Mesh.box's top.
+        if sum(xa*zb-xb*za for (xa,za),(xb,zb) in zip(pts,pts[1:]+pts[:1]))>0: pts=list(reversed(pts))
+        self.poly([(x,y1,z) for x,z in pts]); self.poly([(x,y0,z) for x,z in reversed(pts)])
+        for (xa,za),(xb,zb) in zip(pts,pts[1:]+pts[:1]):
+            self.poly([(xb,y0,zb),(xb,y1,zb),(xa,y1,za),(xa,y0,za)])
+    def save(self,name,title,flip_x=False):
+        # The engine's OBJ loader negates x; flip_x writes it pre-negated so the mesh lands
+        # where it is drawn here (meshes not symmetric in x need it).
+        k=-1 if flip_x else 1
+        lines=['# Original BrickCraft '+title]+['v %g %g %g'%(k*x,y,z) for x,y,z in self.v]+['vt %g %g'%p for p in self.vt]
+        lines+=['vn %g %g %g'%(k*x,y,z) for x,y,z in self.vn]+self.f
         (root/'models'/name).write_text('\n'.join(lines)+'\n')
 def slope(name,x0,x1,stud_xs,title,inverted=False):
     # Side profile (z,y): flat top over the back stud row, 45-degree face down to a low front lip.
@@ -121,4 +132,48 @@ def round_brick(name,cx,cz,r,stud_at,title):
 round_brick('brickcraft_round_2x2.obj',0,0,.49,[(x,z) for x in (-.25,.25) for z in (-.25,.25)],'round brick 2 x 2')
 # The 1 x 1 sits in the same quarter cell as the 1 x 1 brick (x and z -0.5..0).
 round_brick('brickcraft_round_1x1.obj',-.25,-.25,.24,[(-.25,-.25)],'round brick 1 x 1')
-print('Generated 22 textures, 3 block person meshes and 5 brick meshes')
+# Train track, one cell long: dark ties under light rails 0.5 apart (tiles: tie, rail).
+# The straight runs along z; the curve joins the +z and +x ends around the (+x, +z) corner.
+TIE,RAIL=(-.5,-.42),(-.42,-.32)
+png('brickcraft_track_tie.png',16,16,lambda x,y:(84,88,96,255))
+png('brickcraft_track_rail.png',16,16,lambda x,y:(178,184,192,255))
+png('brickcraft_cart_wheel.png',16,16,lambda x,y:(36,38,44,255))
+m=Mesh(); m.mat('tie')
+for z in (-.375,-.125,.125,.375): m.box(-.42,TIE[0],z-.06,.42,TIE[1],z+.06)
+m.mat('rail')
+for x in (-.25,.25): m.box(x-.04,RAIL[0],-.5,x+.04,RAIL[1],.5)
+m.save('brickcraft_track_straight.obj','train track, straight',flip_x=True)
+def arc(r,th): return (.5-r*math.cos(th),.5-r*math.sin(th))
+m=Mesh(); m.mat('tie')
+for th in (math.pi/12,math.pi/4,5*math.pi/12):
+    tx,tz=math.sin(th)*.06,-math.cos(th)*.06
+    (ax,az),(bx,bz)=arc(.08,th),arc(.92,th)
+    m.prism([(ax-tx,az-tz),(bx-tx,bz-tz),(bx+tx,bz+tz),(ax+tx,az+tz)],*TIE)
+m.mat('rail'); N=12
+for r in (.25,.75):
+    for i in range(N):
+        a,b=math.pi/2*i/N,math.pi/2*(i+1)/N
+        m.prism([arc(r-.04,a),arc(r+.04,a),arc(r+.04,b),arc(r-.04,b)],*RAIL)
+m.save('brickcraft_track_curve.obj','train track, curve',flip_x=True)
+# A flatbed cart centered in its track cell, long side along z (textures: wheel, chassis, deck).
+m=Mesh(); m.mat('wheel')
+for x in (-.25,.25):
+    for z in (-.27,.27): m.box(x-.05,-.32,z-.09,x+.05,-.14,z+.09)
+m.mat('chassis')
+m.box(-.18,-.24,-.42,.18,-.12,.42)
+for z in (-.46,.46): m.box(-.1,-.22,z-.04,.1,-.14,z+.04)  # couplers
+m.mat('deck')
+m.box(-.38,-.12,-.46,.38,-.02,.46)
+for x in (-.19,.19):
+    for z in (-.23,.23): m.box(x-.1,-.02,z-.1,x+.1,.03,z+.1)
+m.save('brickcraft_cart.obj','flatbed train cart',flip_x=True)
+# Inventory icons: track from above, the cart from the side.
+png('brickcraft_track_item.png',32,32,lambda x,y:(178,184,192,255) if x in (8,9,10,21,22,23) else
+    (84,88,96,255) if 3<=x<=28 and y%8 in (3,4,5,6) else (0,0,0,0))
+def cart_icon(x,y):
+    if any((x-cx)**2+(y-24)**2<=12 for cx in (9,22)): return (36,38,44,255)
+    if 3<=x<=28 and 12<=y<=17 or y in (9,10,11) and (6<=x<=11 or 20<=x<=25): return (235,93,72,255)
+    if 5<=x<=26 and 18<=y<=21: return (84,88,96,255)
+    return (0,0,0,0)
+png('brickcraft_cart_item.png',32,32,cart_icon)
+print('Generated 27 textures, 3 block person meshes, 5 brick meshes and 3 train meshes')

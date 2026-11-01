@@ -60,6 +60,13 @@
 - 설정: `brickcraft_ai_jms`(기본 false), `brickcraft_ai_bots`(기본 true), `brickcraft_ai_bot_auto`(기본 false), `brickcraft_ai_parallel`, `brickcraft_ai_name`(jms 이름), `brickcraft_ai_idle`(혼자 짓기까지 초), `brickcraft_ai_auto_max`, `brickcraft_ai_auto`, `brickcraft_ai_llm`(false면 내장만).
 - 검사: `python3 tools/test_ai_builder.py`(내장, 30012, jms를 켜고 Leona 빌더도 확인: 이름 규칙·`/botname`·주인만 멈추기·겹치지 않는 자리), `--claude`(실제 설계 1회).
 
+## 4c. 선로와 수레(trains.lua)
+
+- 선로 조각은 노드(`brickcraft:track_straight`/`_curve`, facedir)이고 `ends_of`가 형태·회전에서 두 끝 방향을 냅니다(직선 r: r, r+2 / 곡선 r: r, r+1). `brick` 그룹이라 세퍼레이터 회수·돌리기와 `remember`(되돌리기)를 브릭과 같이 씁니다. 놓을 때 `lay`가 이웃을 점수로 고릅니다: 이미 이쪽을 향한 끝(4) > 한쪽만 이어진 이웃(1, 돌려 맞춤) > 일직선(+1).
+- 수레는 엔진 물리를 쓰지 않는 엔티티입니다(minetest_game carts와 advtrains 방식). 상태는 칸(`_cell`), 들어온 끝(`_from`), 조각 안 거리(`_s`), 속도(`_v`), 운전자 없이 유지할 속도(`_cruise`)이며 staticdata에 저장됩니다. 매 단계 `centerline`(직선, 또는 모서리 중심 반지름 0.5의 사분원)으로 목표 위치를 구해 속도 = 접선×v + (목표−현재)×4로 움직여 클라이언트 보간이 부드럽습니다. 0.6칸 넘게 벗어나면 `set_pos`로 맞춥니다.
+- 탄 사람의 키는 수레가 읽고, `init.lua`의 키 동작(U 되돌리기, Tab, ?)은 붙어 있는 동안 건너뜁니다.
+- 메시는 `tools/generate_assets.py`가 만듭니다. Luanti OBJ 로더는 x를 뒤집고(`COBJMeshFileLoader`의 `vec.X = -...`) 재질을 `usemtl`이 아니라 `g` 그룹으로 나누므로, 선로·수레는 `flip_x=True`로 미리 뒤집고 재질마다 `g`를 씁니다(타일 순서 = 그룹 순서). 대칭이 아닌 기존 메시(경사 2×1, 둥근 1×1)는 이 보정을 받지 않았습니다.
+
 ## 4. 실행과 개발 반복
 
 ```sh

@@ -2,7 +2,7 @@ local C = core
 -- Automated checks skip the welcome and look pickers.
 local testing = C.settings:get_bool("brickcraft_integration_test",false) or
   C.settings:get_bool("brickcraft_multiplayer_test",false) or C.settings:get_bool("brickcraft_house_test",false) or
-  C.settings:get_bool("brickcraft_ai_test",false)
+  C.settings:get_bool("brickcraft_ai_test",false) or C.settings:get_bool("brickcraft_train_test",false)
 -- The first 8 colors are the starter kit; the last 3 come from harvesting the landscape.
 local colors = {"coral", "gold", "mint", "sky", "violet", "cream", "navy", "rose", "green", "brown", "tan"}
 local labels = {"Coral", "Gold", "Mint", "Sky", "Violet", "Cream", "Navy", "Rose", "Green", "Brown", "Tan"}
@@ -521,6 +521,27 @@ end
 C.after(0,function()
   for _,w in ipairs(worlds) do if not w.built then build_world(w) end end
 end)
+-- Train Yard: a world made once for everyone, with a 12 x 12 loop of track and a cart
+-- on the baseplate to the right of the start spots. Test worlds skip it (but the train check).
+local YARD_A,YARD_B={x=9,z=-4},{x=20,z=7}
+local function lay_train_yard(w)
+  brickcraft.trains.lay_loop({x=w.x+YARD_A.x,y=0,z=w.z+YARD_A.z},{x=w.x+YARD_B.x,y=0,z=w.z+YARD_B.z})
+  C.add_entity({x=w.x+YARD_A.x+1,y=0,z=w.z+YARD_A.z},"brickcraft:cart")
+  w.track=true; save_worlds()
+  C.log("action","BrickCraft Train Yard track laid at "..w.x..","..w.z)
+end
+C.after(0,function()
+  if testing and not C.settings:get_bool("brickcraft_train_test",false) then return end
+  for _,w in ipairs(worlds) do
+    if w.yard then
+      if w.built and not w.track then lay_train_yard(w) end
+      return
+    end
+  end
+  local w=make_world("Train Yard","BrickCraft",lay_train_yard)
+  C.log("action","BrickCraft Train Yard "..(w and "being made at "..w.x..","..w.z or "has no room"))
+  if w then w.yard=true; save_worlds() end
+end)
 
 local function welcome(player)
   C.show_formspec(player:get_player_name(),"brickcraft:welcome",
@@ -541,6 +562,12 @@ local help_rows={
   {"F or Control+click","Same as right click (trackpad)"},
   {"E or Tab","Next piece"},{"Q","Turn the next brick 90°"},
   {"Left click tree / hill","Harvest a green, brown or tan brick"},{"U or I > Undo","Undo your last build action"},
+  {"TRAINS",""},
+  {"Track (slot 13), right click","Lay track; it joins the track next to it"},
+  {"Cart (slot 14), right click track","Put a cart on the track"},
+  {"Right click the cart","Ride it"},{"W / S while riding","Go the way you look / brake"},
+  {"U or right click while riding","Get off"},{"Punch the cart","Push it"},
+  {"Separator on track / cart","Collect it (right click turns a track piece)"},
   {"MENUS",""},
   {"?","This help screen"},
   {"I","Inventory and shape buttons"},{"T","Chat (type a command)"},
@@ -622,6 +649,15 @@ local function give_starter(inv)
   inv:set_stack("main",1,"brickcraft:separator")
   for i=1,STARTER_COLORS do inv:set_stack("main",i+1,"brickcraft:"..colors[i].." 24") end
 end
+-- Track and a cart came after the first kit: each person gets them once, in hotbar slots 13-14.
+local TRAIN_KIT={"brickcraft:track 48","brickcraft:cart"}
+local function give_train_kit(inv,id)
+  if pstore:get_int("trains_"..id)==1 then return end
+  for i,item in ipairs(TRAIN_KIT) do
+    if inv:get_stack("main",12+i):is_empty() then inv:set_stack("main",12+i,item) else inv:add_item("main",item) end
+  end
+  pstore:set_int("trains_"..id,1)
+end
 local function taken_by(player,id)
   for _,p in ipairs(C.get_connected_players()) do
     if p~=player and playing_as(p)==id then return p end
@@ -653,6 +689,7 @@ local function choose_player(player,st)
     end
     history[name]=nil -- an undo must not move bricks between players
   end
+  give_train_kit(player:get_inventory(),st.id)
   local meta=player:get_meta()
   meta:set_string("brickcraft_profile",st.id); meta:set_string("brickcraft_style",st.id)
   meta:set_int("brickcraft_style_chosen",1)
@@ -794,7 +831,7 @@ function inventory_formspec(player)
   end
   return fs.."list[current_player;main;.4,4.1;8,4;]"..
     "label[.4,9.3;1: Separator | 2-9 0 - =, wheel: Colors | Right click or F: Build | Q: Turn | U: Undo]"..
-    "label[.4,9.8;2 x 4 pieces use 2 bricks of their color. The others use 1.]listring[current_player;main]"..
+    "label[.4,9.8;2 x 4 pieces use 2 bricks of their color. Track and cart: slots 13-14, ? for keys.]listring[current_player;main]"..
     "style[undo;bgcolor=#f5872c]button[.4,10.2;2.4,.6;undo;Undo last action]"..
     "button[2.95,10.2;2.4,.6;look;Switch player]button[5.5,10.2;2.4,.6;world;Switch world]"..
     "button[8.05,10.2;2.4,.6;help;Help: all keys]"
@@ -843,8 +880,8 @@ C.register_on_player_receive_fields(function(player,formname,fields)
 end)
 C.register_on_joinplayer(function(player)
   local inv=player:get_inventory(); inv:set_size("main",32)
-  -- 1 separator + 8 starter colors + 3 slots for harvested green/brown/tan bricks.
-  player:hud_set_hotbar_itemcount(12)
+  -- 1 separator + 8 starter colors + 3 slots for harvested green/brown/tan bricks + track and cart.
+  player:hud_set_hotbar_itemcount(14)
   player:set_inventory_formspec(inventory_formspec(player))
   apply_style(player)
   player:set_sky({base_color="#93cddd",type="regular",clouds=true})
@@ -932,7 +969,8 @@ C.register_globalstep(function(dt)
     local name,ctrl=p:get_player_name(),p:get_player_control()
     held[name]=held[name] or {}
     for key,action in pairs(key_actions) do
-      if ctrl[key] and not held[name][key] then action(p) end
+      -- A rider's keys drive the cart (trains.lua) instead.
+      if ctrl[key] and not held[name][key] and not p:get_attach() then action(p) end
       held[name][key]=ctrl[key]
     end
   end
@@ -943,7 +981,10 @@ C.register_globalstep(function(dt)
 end)
 
 brickcraft={shapes=shape_by_id,shape_list=shapes,colors=colors,set_shape=set_shape,turn=turn_next,undo=undo_last,styles=style_by_id,
+  remember=remember,yard=YARD_A,yard_far=YARD_B,
   get_style=get_style,home_pos=home_pos,playing_as=playing_as,world_at=world_at,worlds=function() return worlds end}
+
+dofile(C.get_modpath("brickcraft").."/trains.lua")
 
 -- AI builders (one per player, and jms) live on the shared server (server.conf) only.
 if C.settings:get_bool("brickcraft_ai_builder",false) then
@@ -963,4 +1004,7 @@ if C.settings:get_bool("brickcraft_multiplayer_test",false) then
 end
 if C.settings:get_bool("brickcraft_house_test",false) then
   dofile(C.get_modpath("brickcraft").."/house_test.lua")
+end
+if C.settings:get_bool("brickcraft_train_test",false) then
+  dofile(C.get_modpath("brickcraft").."/train_test.lua")
 end
