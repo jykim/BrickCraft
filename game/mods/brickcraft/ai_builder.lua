@@ -473,6 +473,9 @@ end
 local WALK=tonumber(S:get("movement_speed_walk")) or 4
 local JUMP=tonumber(S:get("movement_speed_jump")) or 6.5
 local GRAVITY=tonumber(S:get("movement_gravity")) or 9.81
+-- Players fall at twice movement_gravity (the client applies it twice), so builders do too:
+-- the same jump then lifts them the same two blocks.
+local FALL=2*GRAVITY
 local REACH,EYE=7,1.5
 
 local function feet_of(pos) return {x=math.floor(pos.x+.5),y=math.floor(pos.y+.51),z=math.floor(pos.z+.5)} end
@@ -1055,7 +1058,7 @@ C.register_entity("brickcraft:ai_builder",{
     nametag="",nametag_color="#f5872c",nametag_bgcolor="#14293699"},
   on_activate=function(self)
     self.object:set_armor_groups({immortal=1})
-    self.object:set_acceleration({x=0,y=-GRAVITY,z=0})
+    self.object:set_acceleration({x=0,y=-FALL,z=0})
   end,
   on_rightclick=function(self,clicker)
     if self._worker and clicker and clicker:is_player() then self._worker.show(clicker) end

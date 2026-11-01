@@ -579,13 +579,13 @@ local function welcome(player)
     "formspec_version[6]size[10,7.6]bgcolor[#142936;true]"..
     "label[.6,.6;BRICKCRAFT / BUILD TOGETHER]"..
     "textarea[.6,1.3;8.8,5.4;;Welcome to your brick workshop!;"..
-    C.formspec_escape("WASD / arrows: move    Mouse: look    Space: jump\n1: orange separator / left click to collect\n2–9, 0, -, = / B, N / wheel: choose a color / right click to place\nTab / E: next piece    Q: turn    U: undo\nSeparator right click: turn a placed brick\nI: inventory    C: see your brick person    ?: all keys\nEsc: pause / Quit to Menu saves and closes world\n\nCollect the colored stacks, trees and hills, then build a tiny home!\n/home takes you back to the start of your world.")..
+    C.formspec_escape("WASD / arrows: move    Mouse: look    Space: jump (2 blocks high)\n1: orange separator / left click to collect\n2–9, 0, -, = / B, N / wheel: choose a color / right click to place\nTab / E: next piece    Q: turn    U: undo\nSeparator right click: turn a placed brick\nI: inventory    C: see your brick person    ?: all keys\nEsc: pause / Quit to Menu saves and closes world\n\nCollect the colored stacks, trees and hills, then build a tiny home!\n/home takes you back to the start of your world.")..
     "]button_exit[1.2,6.7;3.6,.6;go;Let's build!]button[5.2,6.7;3.6,.6;help;Keys and commands]")
 end
 -- One list feeds the help screen; keep it in sync with the controls above.
 local help_rows={
   {"MOVE",""},
-  {"W A S D or arrows","Walk"},{"Mouse","Look around"},{"Space","Jump"},{"C","1st / 3rd person camera"},
+  {"W A S D or arrows","Walk"},{"Mouse","Look around"},{"Space","Jump (up to 2 blocks)"},{"C","1st / 3rd person camera"},
   {"BUILD",""},
   {"1","Orange separator"},{"Left click (separator)","Collect a brick"},
   {"Right click (separator)","Turn a placed brick"},
