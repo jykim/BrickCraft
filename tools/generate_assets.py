@@ -167,6 +167,18 @@ m.box(-.38,-.12,-.46,.38,-.02,.46)
 for x in (-.19,.19):
     for z in (-.23,.23): m.box(x-.1,-.02,z-.1,x+.1,.03,z+.1)
 m.save('brickcraft_cart.obj','flatbed train cart',flip_x=True)
+# Parts fitted to a cart, drawn in the cart's frame (its front is +z): a train motor between
+# the wheels, and a battery box at the back of the deck with a switch light on top
+# (textures: body, light; the light's texture shows the switch).
+m=Mesh(); m.mat('motor')
+m.box(-.16,-.31,-.2,.16,-.12,.2)
+m.save('brickcraft_train_motor.obj','train motor',flip_x=True)
+m=Mesh(); m.mat('body')
+m.box(-.28,-.02,-.44,.28,.26,-.12)
+m.mat('light')
+m.box(.08,.26,-.36,.2,.31,-.2)
+m.box(-.2,.26,-.32,-.04,.29,-.24)  # switch lever
+m.save('brickcraft_battery_box.obj','battery box',flip_x=True)
 # Inventory icons: track from above, the cart from the side.
 png('brickcraft_track_item.png',32,32,lambda x,y:(178,184,192,255) if x in (8,9,10,21,22,23) else
     (84,88,96,255) if 3<=x<=28 and y%8 in (3,4,5,6) else (0,0,0,0))
@@ -176,4 +188,8 @@ def cart_icon(x,y):
     if 5<=x<=26 and 18<=y<=21: return (84,88,96,255)
     return (0,0,0,0)
 png('brickcraft_cart_item.png',32,32,cart_icon)
-print('Generated 27 textures, 3 block person meshes, 5 brick meshes and 3 train meshes')
+png('brickcraft_train_motor_item.png',32,32,lambda x,y:(36,38,44,255) if any((x-cx)**2+(y-23)**2<=12 for cx in (8,23)) else
+    (48,76,110,255) if 4<=x<=27 and 8<=y<=19 else (0,0,0,0))
+png('brickcraft_battery_box_item.png',32,32,lambda x,y:(74,183,147,255) if 18<=x<=24 and 6<=y<=9 else
+    (178,184,192,255) if 6<=x<=14 and 7<=y<=9 else (84,88,96,255) if 4<=x<=27 and 10<=y<=27 else (0,0,0,0))
+print('Generated 29 textures, 3 block person meshes, 5 brick meshes and 5 train meshes')

@@ -773,8 +773,20 @@ local function describe(o)
     local pc,def=piece_of[name],C.registered_nodes[name]
     local at=(x-o.x).." "..y.." "..(z-o.z)
     if pc then lines[#lines+1]=pc.piece.." "..pc.color.." "..at.." "..C.get_node({x=x,y=y,z=z}).param2%4
-    elseif def and def.brickcraft_scenery and y>=0 then lines[#lines+1]=name:gsub("^brickcraft:","").." "..at end
+    elseif def and def.brickcraft_scenery and y>=0 then lines[#lines+1]=name:gsub("^brickcraft:","").." "..at
+    elseif def and def.groups and def.groups.track then
+      lines[#lines+1]="track "..name:match("track_(%a+)$").." "..at.." "..C.get_node({x=x,y=y,z=z}).param2%4
+    end
   end end end
+  for _,obj in ipairs(C.get_objects_inside_radius({x=o.x+7.5,y=3,z=o.z+7.5},12)) do
+    local ent,cp=obj:get_luaentity(),obj:get_pos()
+    if ent and ent.name=="brickcraft:cart" and cp.x>=minp.x-.5 and cp.x<maxp.x+.5 and cp.z>=minp.z-.5 and cp.z<maxp.z+.5 then
+      local rider=ent._driver and C.get_player_by_name(ent._driver)
+      local id=rider and brickcraft.playing_as(rider)
+      lines[#lines+1]="cart "..math.floor(cp.x-o.x+.5).." "..math.floor(cp.y+.5).." "..math.floor(cp.z-o.z+.5)..
+        ((ent._v or 0)>0 and " moving" or " stopped")..(rider and " ridden by "..(id and brickcraft.styles[id].label or ent._driver) or "")
+    end
+  end
   for _,h in ipairs(survey(minp,maxp,true)) do
     lines[#lines+1]=(h.ground and "hole " or "gap ")..(h.x-o.x).." "..h.y.." "..(h.z-o.z)
   end
@@ -909,11 +921,26 @@ Change only what the request is about and keep everything else as it is. Match t
 -- Talking: a question or remark, answered with what the builder sees in front of the person.
 local SYSTEM_CHAT=[[You are jms, the friendly AI builder in BrickCraft, a toy-brick sandbox a family (kids included) plays together. Someone said something to you in chat that isn't a plain build request: a question, a remark, a thank-you. You get what is in front of them and what you are doing.
 
-The area is a grid: x and z from 0 to 15 (x east, z north), y from -1 (the ground) to 8, one line per thing: "<piece> <color> x y z turn", "grass|dirt|trunk|leaves x y z" (scenery), "hole x y z" (a missing ground cell), "gap x y z" (an empty cell between bricks), "player <name> x y z facing <direction>".
+The area is a grid: x and z from 0 to 15 (x east, z north), y from -1 (the ground) to 8, one line per thing: "<piece> <color> x y z turn", "grass|dirt|trunk|leaves x y z" (scenery), "hole x y z" (a missing ground cell), "gap x y z" (an empty cell between bricks), "track straight|curve x y z turn" (train track), "cart x y z moving|stopped [ridden by <name>]" (a train cart), "player <name> x y z facing <direction>". You also hear what they are holding and whether they are riding a cart.
 
 Answer with one JSON object and nothing else (no prose, no code fence):
 - "say": one or two short, friendly sentences back to them, in their language. When they ask about what's around, talk about what you see in the list, in words a kid understands (no coordinates).
 - "do": only if they asked you to do something, even indirectly ("can we clean this up?"): the request in plain words for you to carry out, like "build a red house", "fill the holes here", "take away the loose bricks here" or "fix the roof here". Otherwise leave it out. Never do something they didn't ask for; offer it in "say" instead.]]
+
+-- How-to questions ("how do I move the cart?") are answered from the game's own help screen.
+do
+  local rows={}
+  for _,row in ipairs(brickcraft.help) do
+    rows[#rows+1]=row[2]=="" and "\n"..row[1]..":" or "- "..row[1]..": "..row[2]
+  end
+  SYSTEM_CHAT=SYSTEM_CHAT..[[
+
+
+When they ask how to do something in the game, answer from these controls (the game's own help screen) in kid words: name the key or click, and say which item to hold. A "punch" is a left click. Keys and clicks:]]..table.concat(rows,"\n")..[[
+
+
+Trains: track joins the track next to it by itself and curves at corners. A cart moves when someone rides it (right click the cart, then W goes the way you look, S brakes, U gets off), when someone punches it (left click holding anything but the orange separator: it rolls about 7 cells), or by motor. Hold a Train Motor and right click a cart to fit it: the cart becomes a locomotive. Hold a Battery Box and right click the locomotive to put it on. Right click the battery box to move its switch one notch: forward, off, back, off (its light is green for forward, red for off, gold for back). Switched on, the locomotive runs by itself until switched off or the track ends. A cart put on the track next to another cart, or one that runs into another, hooks on and follows. The separator picks a cart up (with its motor and battery box). There is a Train Yard world (I > Switch world) with a loop of track and a train: a locomotive, switched off, and two cars.]]
+end
 
 -- One Local AI API serves every builder: at most CLAUDE_MAX requests at once, the rest wait.
 local CLAUDE_MAX=tonumber(S:get("brickcraft_ai_parallel")) or 2
@@ -1480,6 +1507,10 @@ local function new_worker(owner)
     end
     local pl=C.get_player_by_name(name)
     local seen=pl and same_world(pl:get_pos(),base()) and "The area in front of "..who..":\n"..describe(area_of(name)).."\n\n" or ""
+    if pl then
+      local held=pl:get_wielded_item():get_short_description()
+      seen=seen..who.." is holding "..(held~="" and held or "nothing")..(pl:get_attach() and " and riding a cart" or "")..".\n"
+    end
     local doing=job and "You are "..(job.kind=="build" and "building a " or "taking down the ")..job.title..
       " ("..(job.i-1).." of "..#job.list.." pieces).\n" or "You aren't building anything right now.\n"
     think(SYSTEM_CHAT,seen..doing..who.." says: "..text,function(reply)
@@ -2089,6 +2120,7 @@ C.register_on_shutdown(function()
 end)
 
 brickcraft.ai={name=NAME,parse_request=parse_request,parse_plan=parse_plan,blueprint=blueprint,
+  describe=describe,chat_system=function() return SYSTEM_CHAT end,
   blueprints=blueprints,order=blueprint_order,find_plot=find_plot,cells_of=cells_of,
   players=players,where=where,near_phrase=near_phrase,player_in=player_in,survey=survey,is_edit=is_edit,
   edit_jobs=edit_jobs,name_problem=name_problem,addressed=addressed,talking=talking,workers=workers,get=worker_of,

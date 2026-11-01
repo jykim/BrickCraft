@@ -22,6 +22,16 @@ C.register_on_joinplayer(function(player)
   C.after(2,function()
     local name=player:get_player_name()
     local jms=ai.get("jms")
+    -- Builders see track and carts, and know the controls, to answer how-to questions.
+    local cells=brickcraft.trains.lay_loop({x=-18,y=0,z=-18},{x=-15,y=0,z=-15})
+    local cart=C.add_entity({x=-17,y=0,z=-18},"brickcraft:cart")
+    local seen=ai.describe({x=-20,y=0,z=-20})
+    assert(seen:find("track curve 2 0 2") and seen:find("track straight 3 0 2"),"builders see track:\n"..seen)
+    assert(seen:find("cart 3 0 2 stopped"),"builders see the cart:\n"..seen)
+    assert(ai.chat_system():find("Punch the cart (left click)",1,true) and ai.chat_system():find("Battery Box",1,true),
+      "builders know the train controls")
+    cart:remove()
+    for _,c in ipairs(cells) do C.remove_node(c) end
     -- Every built-in blueprint makes a valid plan: known pieces, no overlaps, on the ground.
     local o={size=2,color="coral",accent="navy",text="HI LEONA"}
     for _,id in ipairs(ai.order) do
