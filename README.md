@@ -63,6 +63,8 @@ cd ~/dev/BrickCraft
 ./"Admin BrickCraft.command"
 ```
 
+이 Mac에서 게임 창 없이 서버만 열어 두려면 `./"Admin BrickCraft.command" --headless`(또는 `BRICKCRAFT_HEADLESS=1`)로 실행합니다. 들어오고 나가는 사람만 보여 주며, Ctrl-C로 세계를 저장하고 서버를 끕니다.
+
 이름은 묻지 않습니다. 누가 플레이할지는 게임 창의 **Who's playing?** 화면에서 고릅니다. 서버가 뜨면 접속 주소를 보여 주고 jms에서도 바로 게임에 들어갑니다.
 
 - 같은 집/사무실 네트워크: `jms.local` 또는 `192.168.x.x`

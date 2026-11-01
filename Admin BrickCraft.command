@@ -1,6 +1,8 @@
 #!/bin/zsh
 # For the host Mac (jms): get the latest BrickCraft from GitHub, run the workshop as a
 # shared server, and join it here. Other Macs join with "Play BrickCraft.command".
+# --headless (or BRICKCRAFT_HEADLESS=1): no game window here; the server just waits for
+# players until Ctrl-C (or this window closes), then saves and stops.
 # The braces make zsh read the whole script before running it, since the update may rewrite it.
 {
 set -eu
@@ -9,14 +11,20 @@ LAUNCHER="${0:A}"
 source "$ROOT/tools/update.zsh"
 source "$ROOT/tools/launcher-common.zsh"
 init_world
+HEADLESS=${BRICKCRAFT_HEADLESS:-0}
+[[ " $* " == *" --headless "* ]] && HEADLESS=1
 if pgrep -f -- "--world $WORLD" >/dev/null && ! server_running; then
   print "Single-player BrickCraft has the workshop open. Exit it first (Esc > Exit to OS)."
   exit 1
 fi
-player_name Builder; NAME="$REPLY"
+[[ $HEADLESS == 1 ]] || { player_name Builder; NAME="$REPLY"; }
 
 LOG="$ROOT/logs/server.log"
 SERVER_PID=""
+if [[ $HEADLESS == 1 ]] && server_running; then
+  print "A BrickCraft server is already running for this world. Stop it first (quit the host's game)."
+  exit 1
+fi
 if ! server_running; then
   touch "$LOG"; START=$(wc -l < "$LOG")
   "$LUANTI" --server --config "$ROOT/server.conf" --world "$WORLD" --gameid brickcraft \
@@ -41,11 +49,21 @@ TSNAME=$("$TS" status --self --json 2>/dev/null | grep -m1 '"HostName"' | cut -d
 if [[ -n "$TSIP" ]]; then print "   Tailscale: ${TSNAME:-$TSIP}   (or $TSIP)"; fi
 print "   Port:    $PORT"
 print "Use Play BrickCraft.command or the Luanti app (not a web browser)."
-# jms, the AI builder, designs requests with Claude Code through the Local AI API.
+# The AI builders design requests with Claude Code through the Local AI API.
 if curl -s -m 2 http://127.0.0.1:8099/health >/dev/null 2>&1; then
-  print "jms (AI builder) is on: Claude Code via the Local AI API (127.0.0.1:8099)."
+  print "AI builders are on: Claude Code via the Local AI API (127.0.0.1:8099)."
 else
-  print "jms (AI builder) uses built-in blueprints: the Local AI API (127.0.0.1:8099) is not running."
+  print "AI builders use built-in blueprints: the Local AI API (127.0.0.1:8099) is not running."
+fi
+if [[ $HEADLESS == 1 ]]; then
+  print "Headless: no game window here. Waiting for players; Ctrl-C saves the world and stops the server."
+  print ""
+  # Who comes and goes, from the server log.
+  tail -n 0 -f "$LOG" | grep --line-buffered -E "joins game|leaves game|timed out" | sed -u 's/^.*ACTION\[Server\]: //' &
+  TAIL_PID=$!
+  trap 'kill $TAIL_PID 2>/dev/null; print "Stopping the server (saving the world)..."; kill $SERVER_PID 2>/dev/null; wait $SERVER_PID 2>/dev/null || true' EXIT INT TERM
+  wait $SERVER_PID || true
+  exit
 fi
 print "Keep this window open. Quitting your game stops the server for everyone."
 print ""
