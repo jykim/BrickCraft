@@ -822,9 +822,33 @@ local function about_holes(low)
 end
 local function is_edit(low)
   if about_holes(low) then return true end
-  local first=low:gsub("^please%s+",""):gsub("^can you%s+",""):gsub("^could you%s+",""):match("^%a+")
+  local first=low:gsub("^please%s+",""):gsub("^can you%s+",""):gsub("^could you%s+",""):gsub("^can we%s+","")
+    :gsub("^let'?s%s+",""):match("^%a+")
   if first and EDIT_VERBS[first] then return true end
   for _,w in ipairs(EDIT_KO) do if low:find(w,1,true) then return true end end
+end
+-- "Are you there?", "hi": checking on a builder rather than asking for something.
+local HELLO_WORDS={"are you there","you there","hello","hi","hey","안녕","거기 있"}
+local function is_hello(low)
+  for _,w in ipairs(HELLO_WORDS) do if find_name(low,w) then return true end end
+end
+-- A line that asks a builder for something, even without its name.
+local BUILD_WORDS={"build","make","write","create","draw","put","place","help","undo","stop",
+  "만들","지어","짓","써","그려","놓아"}
+local function asks_for_work(low)
+  if is_edit(low) then return true end
+  for _,w in ipairs(BUILD_WORDS) do if find_name(low,w) then return true end end
+end
+-- A question or remark rather than a request ("what doesn't look like a building?",
+-- "thanks!"): the builder answers in words.
+local QUESTION_WORDS={what=1,why=1,how=1,which=1,when=1,is=1,are=1,was=1,were=1,["do"]=1,does=1,did=1,
+  should=1,would=1,could=1,will=1}
+local TALK_WORDS={"thank","thanks","great","cool","nice","wow","ok","okay","lol","뭐","왜","어떻게","어느",
+  "언제","고마워","좋아","멋져","있어?"}
+local function is_talk(low)
+  if asks_for_work(low) then return false end
+  if low:find("%?%s*$") or QUESTION_WORDS[low:match("^%a+") or ""] then return true end
+  for _,w in ipairs(TALK_WORDS) do if find_name(low,w) then return true end end
 end
 
 local SYSTEM=[[You design brick builds for BrickCraft, a toy-brick sandbox a family (kids included) plays together. You are jms, the friendly AI builder who lives in the workshop.
@@ -882,11 +906,21 @@ Change only what the request is about and keep everything else as it is. Match t
 
 ]]..SYSTEM:match("(Pieces:.-)\n\nKeep it under")..(SYSTEM:match("(\nMore pieces.*)$") or "")
 
+-- Talking: a question or remark, answered with what the builder sees in front of the person.
+local SYSTEM_CHAT=[[You are jms, the friendly AI builder in BrickCraft, a toy-brick sandbox a family (kids included) plays together. Someone said something to you in chat that isn't a plain build request: a question, a remark, a thank-you. You get what is in front of them and what you are doing.
+
+The area is a grid: x and z from 0 to 15 (x east, z north), y from -1 (the ground) to 8, one line per thing: "<piece> <color> x y z turn", "grass|dirt|trunk|leaves x y z" (scenery), "hole x y z" (a missing ground cell), "gap x y z" (an empty cell between bricks), "player <name> x y z facing <direction>".
+
+Answer with one JSON object and nothing else (no prose, no code fence):
+- "say": one or two short, friendly sentences back to them, in their language. When they ask about what's around, talk about what you see in the list, in words a kid understands (no coordinates).
+- "do": only if they asked you to do something, even indirectly ("can we clean this up?"): the request in plain words for you to carry out, like "build a red house", "fill the holes here", "take away the loose bricks here" or "fix the roof here". Otherwise leave it out. Never do something they didn't ask for; offer it in "say" instead.]]
+
 -- One Local AI API serves every builder: at most CLAUDE_MAX requests at once, the rest wait.
 local CLAUDE_MAX=tonumber(S:get("brickcraft_ai_parallel")) or 2
 local in_flight,waiting=0,{}
-local function ask_claude(system,content,done)
-  if in_flight>=CLAUDE_MAX then waiting[#waiting+1]={system,content,done}; return end
+-- ok(reply) says whether a reply is usable (default: it has build lines).
+local function ask_claude(system,content,done,ok)
+  if in_flight>=CLAUDE_MAX then waiting[#waiting+1]={system,content,done,ok}; return end
   local body={model=MODEL,max_tokens=16000,messages={{role="system",content=system},{role="user",content=content}}}
   in_flight=in_flight+1
   http.fetch({url=URL,method="POST",timeout=300,data=C.write_json(body),
@@ -894,13 +928,13 @@ local function ask_claude(system,content,done)
     function(res)
       in_flight=in_flight-1
       local nxt=table.remove(waiting,1)
-      if nxt then ask_claude(nxt[1],nxt[2],nxt[3]) end
+      if nxt then ask_claude(nxt[1],nxt[2],nxt[3],nxt[4]) end
       local data=res.succeeded and res.code==200 and C.parse_json(res.data or "",nil)
       local text=type(data)=="table" and type(data.choices)=="table" and data.choices[1] and
         data.choices[1].message and data.choices[1].message.content
       -- The object may come wrapped in a code fence or a sentence; take the outer braces.
       local reply=type(text)=="string" and C.parse_json(text:match("%b{}") or "",nil)
-      if type(reply)~="table" or type(reply.lines)~="table" then
+      if type(reply)~="table" or not (ok and ok(reply) or not ok and type(reply.lines)=="table") then
         C.log("warning","[ai] Claude Code request failed: "..tostring(res.code).." "..tostring(res.data):sub(1,300))
         return done(nil)
       end
@@ -982,37 +1016,41 @@ end
 local lib={
   AUTO_MAX=AUTO_MAX,C=C,EYE=EYE,GROUND=GROUND,JUMP=JUMP,NEARBY=NEARBY,PATCH_AFTER=PATCH_AFTER,
   QUIET=QUIET,REACH=REACH,S=S,STEP=STEP,SYSTEM=SYSTEM,SYSTEM_EDIT=SYSTEM_EDIT,WALK=WALK,
-  about_holes=about_holes,aim_collect=aim_collect,aim_place=aim_place,area_box=area_box,
-  area_of=area_of,ask_claude=ask_claude,beside=beside,blocks=blocks,blueprint=blueprint,
-  bounds=bounds,cells_of=cells_of,center_of=center_of,colors=colors,compass=compass,def_of=def_of,
-  display_name=display_name,dug=dug,edit_jobs=edit_jobs,either=either,eye_of=eye_of,feet_of=feet_of,
-  find_plot=find_plot,find_word=find_word,front_of=front_of,is_edit=is_edit,is_free=is_free,key=key,
-  list_blueprints=list_blueprints,name_problem=name_problem,named_in=named_in,names=names,
-  near_phrase=near_phrase,node_name=node_name,owner_player=owner_player,parse_plan=parse_plan,
-  patch_plan=patch_plan,plan_for=plan_for,player_in=player_in,players=players,same_world=same_world,
-  seen_from=seen_from,shapes=shapes,standable=standable,storage=storage,stored_name=stored_name,
-  survey=survey,takedown=takedown,turns_toward=turns_toward,use_claude=use_claude,walkable=walkable,
-  where=where,worker_named=worker_named,workers=workers}
+  about_holes=about_holes,asks_for_work=asks_for_work,is_hello=is_hello,aim_collect=aim_collect,
+  aim_place=aim_place,area_box=area_box,area_of=area_of,ask_claude=ask_claude,beside=beside,
+  blocks=blocks,blueprint=blueprint,bounds=bounds,cells_of=cells_of,center_of=center_of,
+  colors=colors,compass=compass,def_of=def_of,display_name=display_name,dug=dug,edit_jobs=edit_jobs,
+  either=either,eye_of=eye_of,feet_of=feet_of,find_plot=find_plot,find_word=find_word,
+  front_of=front_of,is_edit=is_edit,is_free=is_free,key=key,list_blueprints=list_blueprints,
+  name_problem=name_problem,named_in=named_in,names=names,near_phrase=near_phrase,
+  node_name=node_name,owner_player=owner_player,parse_plan=parse_plan,patch_plan=patch_plan,
+  plan_for=plan_for,player_in=player_in,players=players,same_world=same_world,seen_from=seen_from,
+  shapes=shapes,standable=standable,storage=storage,stored_name=stored_name,survey=survey,
+  takedown=takedown,turns_toward=turns_toward,use_claude=use_claude,walkable=walkable,where=where,
+  worker_named=worker_named,workers=workers,SYSTEM_CHAT=SYSTEM_CHAT,is_talk=is_talk,
+  parse_request=parse_request,describe=describe}
 -- One builder per owner: jms (owner "jms", the host's, in the Workshop) or a player's.
 -- Each has its own body, bricks, jobs and saved state.
 local function new_worker(owner)
   local AUTO_MAX,C,EYE,GROUND,JUMP,NEARBY,PATCH_AFTER,QUIET,REACH,S,STEP,SYSTEM,SYSTEM_EDIT,WALK,
-    about_holes,aim_collect,aim_place,area_box,area_of,ask_claude,beside,blocks,blueprint,bounds,
-    cells_of,center_of,colors,compass,def_of,display_name,dug,edit_jobs,either,eye_of,feet_of,
-    find_plot,find_word,front_of,is_edit,is_free,key,list_blueprints,name_problem,named_in,names,
-    near_phrase,node_name,owner_player,parse_plan,patch_plan,plan_for,player_in,players,same_world,
-    seen_from,shapes,standable,storage,stored_name,survey,takedown,turns_toward,use_claude,walkable,
-    where,worker_named,workers=
+    about_holes,asks_for_work,is_hello,aim_collect,aim_place,area_box,area_of,ask_claude,beside,
+    blocks,blueprint,bounds,cells_of,center_of,colors,compass,def_of,display_name,dug,edit_jobs,
+    either,eye_of,feet_of,find_plot,find_word,front_of,is_edit,is_free,key,list_blueprints,
+    name_problem,named_in,names,near_phrase,node_name,owner_player,parse_plan,patch_plan,plan_for,
+    player_in,players,same_world,seen_from,shapes,standable,storage,stored_name,survey,takedown,
+    turns_toward,use_claude,walkable,where,worker_named,workers,SYSTEM_CHAT,is_talk,parse_request,
+    describe=
     lib.AUTO_MAX,lib.C,lib.EYE,lib.GROUND,lib.JUMP,lib.NEARBY,lib.PATCH_AFTER,lib.QUIET,lib.REACH,
-    lib.S,lib.STEP,lib.SYSTEM,lib.SYSTEM_EDIT,lib.WALK,lib.about_holes,lib.aim_collect,
-    lib.aim_place,lib.area_box,lib.area_of,lib.ask_claude,lib.beside,lib.blocks,lib.blueprint,
-    lib.bounds,lib.cells_of,lib.center_of,lib.colors,lib.compass,lib.def_of,lib.display_name,
-    lib.dug,lib.edit_jobs,lib.either,lib.eye_of,lib.feet_of,lib.find_plot,lib.find_word,
-    lib.front_of,lib.is_edit,lib.is_free,lib.key,lib.list_blueprints,lib.name_problem,lib.named_in,
-    lib.names,lib.near_phrase,lib.node_name,lib.owner_player,lib.parse_plan,lib.patch_plan,
-    lib.plan_for,lib.player_in,lib.players,lib.same_world,lib.seen_from,lib.shapes,lib.standable,
-    lib.storage,lib.stored_name,lib.survey,lib.takedown,lib.turns_toward,lib.use_claude,
-    lib.walkable,lib.where,lib.worker_named,lib.workers
+    lib.S,lib.STEP,lib.SYSTEM,lib.SYSTEM_EDIT,lib.WALK,lib.about_holes,lib.asks_for_work,
+    lib.is_hello,lib.aim_collect,lib.aim_place,lib.area_box,lib.area_of,lib.ask_claude,lib.beside,
+    lib.blocks,lib.blueprint,lib.bounds,lib.cells_of,lib.center_of,lib.colors,lib.compass,
+    lib.def_of,lib.display_name,lib.dug,lib.edit_jobs,lib.either,lib.eye_of,lib.feet_of,
+    lib.find_plot,lib.find_word,lib.front_of,lib.is_edit,lib.is_free,lib.key,lib.list_blueprints,
+    lib.name_problem,lib.named_in,lib.names,lib.near_phrase,lib.node_name,lib.owner_player,
+    lib.parse_plan,lib.patch_plan,lib.plan_for,lib.player_in,lib.players,lib.same_world,
+    lib.seen_from,lib.shapes,lib.standable,lib.storage,lib.stored_name,lib.survey,lib.takedown,
+    lib.turns_toward,lib.use_claude,lib.walkable,lib.where,lib.worker_named,lib.workers,
+    lib.SYSTEM_CHAT,lib.is_talk,lib.parse_request,lib.describe
   local w={owner=owner,jms=owner=="jms",name=stored_name(owner)}
   local style=not w.jms and brickcraft.styles[owner]
   local TAG=style and style.tag or "#f5872c"
@@ -1372,12 +1410,13 @@ local function new_worker(owner)
   end
 
   -- Asks Claude as this builder.
-  local function think(system,content,done)
+  local function think(system,content,done,ok)
     thinking=thinking+1
     local whose=w.jms and "the" or style.label.."'s"
     system=system:gsub("You are jms, the friendly AI builder",function() return "You are "..w.name..", "..whose.." friendly AI builder" end)
-    ask_claude(system,content,function(reply) thinking=thinking-1; done(reply) end)
+    ask_claude(system,content,function(reply) thinking=thinking-1; done(reply) end,ok)
   end
+  local handle -- defined below; talking can lead to work
 
   local function come_to(name)
     local pl=C.get_player_by_name(name)
@@ -1429,7 +1468,31 @@ local function new_worker(owner)
     return true
   end
 
-  local function handle(name,text)
+  -- Answers a question or remark with what it sees; if Claude finds they asked for
+  -- something ("do"), it does that too.
+  local function chat(name,text)
+    local who=display_name(name)
+    if not use_claude then
+      if parse_request(text) and not text:find("%?") then return handle(name,text,"do") end
+      say(either("I'm not sure, "..who..". I'm better at building!","Hmm, I don't know, "..who..".")..
+        " Try \""..w.name..", build a red house\" or \""..w.name..", fill the holes here\".")
+      return
+    end
+    local pl=C.get_player_by_name(name)
+    local seen=pl and same_world(pl:get_pos(),base()) and "The area in front of "..who..":\n"..describe(area_of(name)).."\n\n" or ""
+    local doing=job and "You are "..(job.kind=="build" and "building a " or "taking down the ")..job.title..
+      " ("..(job.i-1).." of "..#job.list.." pieces).\n" or "You aren't building anything right now.\n"
+    think(SYSTEM_CHAT,seen..doing..who.." says: "..text,function(reply)
+      if not reply then say("Sorry "..who..", I didn't catch that. Ask me to build or fix something!") return end
+      say(tostring(reply.say):sub(1,240))
+      local todo=type(reply["do"])=="string" and reply["do"]:gsub("^%s+",""):gsub("%s+$","") or ""
+      if todo~="" then handle(name,todo,"do") end
+    end,function(r) return type(r.say)=="string" end)
+  end
+
+  -- how: "named" (it was called by name), "unnamed" (a follow-up, or its owner playing
+  -- alone) or "do" (what talking turned into).
+  function handle(name,text,how)
     text=text:gsub("^%s+",""):gsub("%s+$","")
     local low=text:lower()
     local who=display_name(name)
@@ -1441,6 +1504,11 @@ local function new_worker(owner)
         "\"where is Leona?\", \"who's here?\", \"status\", \"auto off\". For what's already built: "..
         "\"fill the holes here\", \"fix the roof here\", \"maintenance off\"."..
         (w.jms and "" or " "..style.label.." can rename me: \""..w.name..", your name is ...\" or /botname."))
+      return
+    end
+    if is_hello(low) and not asks_for_work(low) then
+      say(either("I'm here, "..who.."! What should we build?","Hi "..who.."! Ask me to build or fix something.")..
+        " Try \""..w.name..", build a red house\" or \""..w.name..", fill the holes here\".")
       return
     end
     local new=text:match("^[Yy]our name is%s+(.+)$") or text:match("^[Cc]all yourself%s+(.+)$") or
@@ -1522,6 +1590,9 @@ local function new_worker(owner)
       say(auto_on and "I'll build on my own when it's quiet." or "Okay, I'll only build what you ask for.")
       return
     end
+    -- A question or remark gets an answer, and so does anything said without its name
+    -- that doesn't ask for work.
+    if how~="do" and not asks_for_work(low) and (is_talk(low) or how=="unnamed") then return chat(name,text) end
     -- Building and fixing happen where the builder is: jms in the Workshop, a player's
     -- builder in its owner's world.
     local asker=C.get_player_by_name(name)
@@ -1899,29 +1970,62 @@ local function own_worker(name)
   local id=pl and brickcraft.playing_as(pl)
   return BOTS and id and worker_of(id)
 end
--- The builder a chat line starts with, and the line without its name.
+-- Who's in a conversation with which builder: connection name -> {w=builder, at=seconds}.
+-- For TALK_WINDOW seconds after the last line to a builder, follow-ups need no name.
+local TALK_WINDOW=tonumber(S:get("brickcraft_ai_talk_window")) or 60
+local talking={}
+-- Nobody else is playing in the speaker's world.
+local function alone(name)
+  local me=C.get_player_by_name(name)
+  if not me then return false end
+  for _,pl in ipairs(C.get_connected_players()) do
+    if pl~=me and brickcraft.playing_as(pl) and same_world(pl:get_pos(),me:get_pos()) then return false end
+  end
+  return true
+end
+-- The builder a chat line is for, and the line without its name: a builder named at the
+-- start ("Lumi, build ...") or the end ("are you there, Lumi?"); "bot" is the speaker's own.
+-- Playing alone in a world, a request said without a name goes to the speaker's builder.
 local function addressed(name,message)
   local low=message:lower()
   local online=owners_online()
-  local best,len
+  local best,s,e
   local function try(wk,n)
     for _,prefix in ipairs({"@"..n,"hey "..n,n}) do
-      if low:sub(1,#prefix)==prefix and not low:sub(#prefix+1,#prefix+1):find("[%w_]") and (not len or #prefix>len) then
-        best,len=wk,#prefix
+      if low:sub(1,#prefix)==prefix and not low:sub(#prefix+1,#prefix+1):find("[%w_]") and (not best or #prefix>e) then
+        best,s,e=wk,1,#prefix
       end
+    end
+    local trimmed=low:gsub("[%s%?!%.~]+$","")
+    if not best and #trimmed>#n and trimmed:sub(-#n)==n and trimmed:sub(-#n-1,-#n-1):find("[%s,]") then
+      best,s,e=wk,#trimmed-#n+1,#low
     end
   end
   for owner in pairs(online) do local wk=worker_of(owner); try(wk,wk.name:lower()) end
-  if not best then
-    local mine=own_worker(name)
-    if mine then try(mine,"my bot"); try(mine,"bot") end
+  local mine=own_worker(name)
+  if not best and mine then try(mine,"my bot"); try(mine,"bot") end
+  if best then
+    local rest=s==1 and message:sub(e+1) or message:sub(1,s-1)
+    return best,(rest:gsub("^[%s,:!]+",""):gsub("[%s,]+$","")),"named"
   end
-  if best then return best,message:sub(len+1):gsub("^[%s,:!]+","") end
+  if message:sub(1,1)=="/" then return end
+  -- Without a name, a line that names someone else is for them.
+  local others={}
+  for _,p in ipairs(players()) do if p.name~=name then others[#others+1]=p end end
+  if named_in(message,others) or worker_named(low) then return end
+  -- Still talking with a builder: follow-ups need no name.
+  local t=talking[name]
+  if t and C.get_us_time()/1e6-t.at<=TALK_WINDOW and online[t.w.owner] then return t.w,message,"unnamed" end
+  -- Nobody else here: everything is for one's own builder.
+  if mine and alone(name) then return mine,message,"unnamed" end
 end
 C.register_on_chat_message(function(name,message)
   quiet=0
-  local wk,rest=addressed(name,message)
-  if wk then C.after(.2,wk.handle,name,rest) end
+  local wk,rest,how=addressed(name,message)
+  if wk then
+    talking[name]={w=wk,at=C.get_us_time()/1e6}
+    C.after(.2,wk.handle,name,rest,how)
+  end
   return false
 end)
 C.register_chatcommand("bot",{params="<request>",description="Ask your builder (AI) to build something",
@@ -1987,6 +2091,6 @@ end)
 brickcraft.ai={name=NAME,parse_request=parse_request,parse_plan=parse_plan,blueprint=blueprint,
   blueprints=blueprints,order=blueprint_order,find_plot=find_plot,cells_of=cells_of,
   players=players,where=where,near_phrase=near_phrase,player_in=player_in,survey=survey,is_edit=is_edit,
-  edit_jobs=edit_jobs,name_problem=name_problem,workers=workers,get=worker_of,
+  edit_jobs=edit_jobs,name_problem=name_problem,addressed=addressed,talking=talking,workers=workers,get=worker_of,
   set_idle=function(s) IDLE=s end,
   set_small_talk=function(on,gap) SMALL_TALK=on; CHAT_GAP=gap or CHAT_GAP end}

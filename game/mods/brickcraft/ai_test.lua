@@ -231,6 +231,22 @@ C.register_on_joinplayer(function(player)
             assert(mine.state().bot:get_properties().nametag=="Lumi (AI)","nametag follows the name")
             mine.handle("Visitor","stop")
             assert(heard("<Lumi> Only Leona can stop me"),"only the owner stops it")
+            -- Who a chat line is for: a name at the start or the end; alone in a world,
+            -- everything goes to her own builder, which answers questions in words.
+            assert(ai.addressed(name,"make it bigger")==jms,"a follow-up goes to the builder she's talking with")
+            ai.talking[name]=nil
+            local r1,t1,h1=ai.addressed(name,"build a gold tower")
+            assert(r1==mine and t1=="build a gold tower" and h1=="unnamed","alone, a request needs no name")
+            local r2,t2,h2=ai.addressed(name,"are you there, Lumi?")
+            assert(r2==mine and t2=="are you there" and h2=="named","name at the end: "..tostring(t2))
+            assert(ai.addressed(name,"what doesn't look like a building")==mine,"alone, plain chat is for her builder")
+            assert(ai.addressed(name,"jms, build a tree")==jms,"a named builder wins")
+            assert(ai.addressed(name,"I like jms's flower")==nil,"naming another builder isn't talking to hers")
+            mine.handle(name,"what doesn't look like a building","unnamed")
+            assert(heard("<Lumi> I'm not sure, Leona") or heard("<Lumi> Hmm, I don't know, Leona"),
+              "without its designer, a question gets a plain answer")
+            assert(ai.is_edit("can we clean up all mess?"),"\"can we ...\" asks for work")
+            assert(C.strip_colors(C.format_chat_message(name,"hi")):find("<Leona> hi",1,true),"chat shows who's playing")
             chat(name,"bot, build a gold tower")
             wait(function() return mine.state().job~=nil end,live and 300 or 5,"Lumi starts building",function()
               local mj=mine.state().job

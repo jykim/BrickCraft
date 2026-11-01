@@ -594,6 +594,14 @@ local function playing_as(player)
   if id=="" and meta:get_int("brickcraft_style_chosen")==1 then id=meta:get_string("brickcraft_style") end
   return style_by_id[id] and id or nil
 end
+-- Chat shows who's playing ("<Dad> hi") in their nametag color, not the computer's
+-- connection name. Connections still at "Who's playing?" keep the connection name.
+local format_chat=C.format_chat_message
+function C.format_chat_message(name,message)
+  local p=C.get_player_by_name(name)
+  local st=p and style_by_id[playing_as(p) or ""]
+  return format_chat(st and C.colorize(st.tag,st.label) or name,message)
+end
 local function save_bricks(player)
   local id=playing_as(player)
   if not id then return end
