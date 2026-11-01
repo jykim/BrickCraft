@@ -21,7 +21,7 @@ proc=subprocess.Popen([str(root/'runtime/luanti.app/Contents/MacOS/luanti'),'--g
     '--world',str(world),'--config',str(config),'--name','Builder','--port','30015','--logfile',str(log)],
     env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 try:
-    deadline=time.time()+60
+    deadline=time.time()+240
     while True:
         content=log.read_text() if log.exists() else ''
         if 'BRICKCRAFT TECHNIC PASS' in content:

@@ -87,8 +87,8 @@ C.register_on_joinplayer(function(player)
     wait(20,function()
       local k=key(ent._cell)
       if k~=last then moved=moved+1; last=k; seen[k]=true end
-      local e=T.ends(ent._cell)
-      local p=T.centerline(ent._cell,ent._from,T.exit_of(e,ent._from),ent._s)
+      local e=T.path_ends(ent._cell)
+      local p=T.centerline(ent._cell,ent._from,T.other_end(e,ent._from),ent._s)
       worst=math.max(worst,vector.distance({x=p.x,y=0,z=p.z},{x=cart:get_pos().x,y=0,z=cart:get_pos().z}))
       return moved>=#loop
     end,function()

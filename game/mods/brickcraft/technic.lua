@@ -401,11 +401,45 @@ brickcraft.technic={place=place,solve=solve,run=run,spin=spin,phase_off=phase_of
 -- the right of the start spots: a gear train on a technic wall (8, 24, 40, 24 and 8 teeth,
 -- each at the spacing that meshes), a windmill, a line of axles through technic bricks into
 -- two 24s on a diagonal, and two motors jammed against each other (switch one the other way
--- to free it). On the left, a loop of track with a geared train: a locomotive whose motor
--- drives its wheels through a 24 and a 24, pulling a passenger car, switched on. init.lua
--- makes the world; LAB_VERSION rebuilds an older lab once.
-local LAB_VERSION=3
-local LOOP_A,LOOP_B={x=-21,z=-4},{x=-9,z=6}
+-- to free it). On the left, a coaster: a motor turns an 8 that turns a 24 beside a chain
+-- lift, which pulls three cars up six levels; from the top gravity does the rest: a drop,
+-- a small hill and curves back round to the lift. init.lua makes the world; LAB_VERSION
+-- rebuilds an older lab once (version 3's geared train and its loop go).
+local LAB_VERSION=4
+local COASTER_AREA={a={x=-23,z=-6},b={x=-7,z=8}}
+-- The coaster's track, cell by cell in the direction the cars go, from the station.
+local function coaster_path()
+  local path={}
+  local function add(x,y,z) path[#path+1]={x=x,y=y,z=z} end
+  for x=-9,-21,-1 do add(x,0,-4) end                      -- station, then turn north
+  for i=0,5 do add(-21,i,-3+i) end                        -- chain lift, six levels up
+  add(-21,6,3); add(-21,6,4)                              -- over the top, turn east
+  for i=0,5 do add(-20+i,5-i,4) end                       -- the drop
+  add(-14,0,4); add(-13,0,4); add(-12,1,4); add(-11,2,4)  -- up the small hill
+  add(-10,1,4); add(-9,0,4)                               -- and down
+  for z=4,-4,-1 do add(-8,0,z) end                        -- back to the station
+  return path
+end
+-- Each cell's piece, from its neighbors: a ramp where the next cell is a level up (rising
+-- toward it) or the cell before is (rising toward that), else a straight or a curve.
+local function coaster_pieces(path,color)
+  local out={}
+  local function flat(a) return {x=a.x,y=0,z=a.z} end
+  for i,p in ipairs(path) do
+    local prev,nxt=path[(i-2)%#path+1],path[i%#path+1]
+    local a,b=flat(vector.subtract(prev,p)),flat(vector.subtract(nxt,p))
+    local name,param2
+    if nxt.y==p.y+1 then name,param2="_track_ramp",C.dir_to_facedir(b)
+    elseif prev.y==p.y+1 then name,param2="_track_ramp",C.dir_to_facedir(a)
+    elseif vector.equals(a,vector.multiply(b,-1)) then name,param2="_track",C.dir_to_facedir(b)
+    else
+      local ra,rb=C.dir_to_facedir(a),C.dir_to_facedir(b)
+      name,param2="_track_curve",(ra+1)%4==rb and ra or rb
+    end
+    out[i]={pos=p,name="brickcraft:"..color..name,param2=param2}
+  end
+  return out
+end
 local function build_lab(w)
   local function at(x,y,z) return {x=w.x+x,y=y,z=w.z+z} end
   for x=8,23 do for y=0,7 do for z=-4,8 do C.set_node(at(x,y,z),{name="air"}) end end end
@@ -436,32 +470,50 @@ local function build_lab(w)
   put(18,1,-4,"navy_battery_node_fwd"); put(18,1,-3,"navy_motor_node",1)
   put(19,1,-3,"violet_axle",X); put(20,1,-3,"violet_axle",MX)
   put(21,1,-4,"navy_battery_node_fwd"); put(21,1,-3,"navy_motor_node",3)
-  -- The geared train's loop (the train goes on when someone first comes by: tick below).
-  for x=LOOP_A.x-1,LOOP_B.x+1 do for y=0,3 do for z=LOOP_A.z-1,LOOP_B.z+1 do C.set_node(at(x,y,z),{name="air"}) end end end
-  brickcraft.trains.lay_loop(at(LOOP_A.x,0,LOOP_A.z),at(LOOP_B.x,0,LOOP_B.z),"navy")
-  storage:set_int("lab_train_"..w.id,0)
+  -- The coaster (its cars go on when someone first comes by: tick below). Version 3's
+  -- geared train and its loop were here: their carts go too, when their area wakes.
+  local ca,cb=at(COASTER_AREA.a.x,0,COASTER_AREA.a.z),at(COASTER_AREA.b.x,9,COASTER_AREA.b.z)
+  for x=ca.x,cb.x do for y=0,9 do for z=ca.z,cb.z do C.set_node({x=x,y=y,z=z},{name="air"}) end end end
+  brickcraft.trains.clear_carts(vector.offset(ca,0,-1,0),cb)
+  local pieces=coaster_pieces(coaster_path(),"coral")
+  for _,pc in ipairs(pieces) do
+    local pos=at(pc.pos.x,pc.pos.y,pc.pos.z)
+    C.set_node(pos,{name=pc.name,param2=pc.param2})
+    for y=0,pc.pos.y-1 do C.set_node(at(pc.pos.x,y,pc.pos.z),{name="brickcraft:tan"}) end -- supports
+  end
+  -- The lift is the six ramps after the station: chain lift pieces. Its drive: a motor
+  -- facing +x turns an 8, which turns a 24 beside the lift's second piece.
+  for _,pc in ipairs(pieces) do
+    if pc.name:find("_track_ramp$") and pc.pos.x==-21 then
+      C.set_node(at(pc.pos.x,pc.pos.y,pc.pos.z),{name="brickcraft:coral_track_lift",param2=pc.param2})
+    end
+  end
+  put(-23,0,-1,"cream"); put(-23,0,0,"cream")
+  put(-23,1,0,"navy_battery_node_fwd"); put(-23,1,-1,"navy_motor_node",1)
+  put(-22,1,-1,"gold_gear8",X); put(-22,1,-2,"coral_gear24",X)
+  storage:set_int("lab_coaster_"..w.id,0)
   C.log("action","BrickCraft Technic Lab machines built at "..w.x..","..w.z)
   changed()
   return LAB_VERSION
 end
 brickcraft.technic.lab_version=LAB_VERSION
--- The geared train goes on the lab's loop when a player is near (its area must be loaded).
+-- The coaster's cars go on when a player is near (its area must be loaded).
 local lab_timer=0
 C.register_globalstep(function(dt)
   lab_timer=lab_timer+dt
   if lab_timer<2 then return end
   lab_timer=0
   for _,w in ipairs(brickcraft.worlds()) do
-    if w.technic and (tonumber(w.machines) or 0)>=3 and storage:get_int("lab_train_"..w.id)==0 then
+    if w.technic and (tonumber(w.machines) or 0)>=4 and storage:get_int("lab_coaster_"..w.id)==0 then
       for _,pl in ipairs(C.get_connected_players()) do
         local p=pl:get_pos()
         if math.abs(p.x-w.x)<40 and math.abs(p.z-w.z)<40 then
-          local z=w.z+LOOP_B.z
-          local train=brickcraft.trains.put_train({{x=w.x-13,y=0,z=z},{x=w.x-14,y=0,z=z}},"coral",
-            {gears={24,24},coach="sky",on=true})
-          if #train==2 then
-            storage:set_int("lab_train_"..w.id,1)
-            C.log("action","BrickCraft Technic Lab geared train put on the loop")
+          local z=w.z-4
+          local cars=brickcraft.trains.put_coaster({{x=w.x-18,y=0,z=z},{x=w.x-17,y=0,z=z},{x=w.x-16,y=0,z=z}},
+            {"gold","mint","sky"},3)
+          if #cars==3 then
+            storage:set_int("lab_coaster_"..w.id,1)
+            C.log("action","BrickCraft Technic Lab coaster cars put on the track")
           end
           break
         end
@@ -469,7 +521,7 @@ C.register_globalstep(function(dt)
     end
   end
 end)
-brickcraft.technic.lab_loop={a=LOOP_A,b=LOOP_B}
+brickcraft.technic.coaster_path=coaster_path
 brickcraft.technic.build_lab=build_lab
 
 if C.settings:get_bool("brickcraft_technic_test",false) then

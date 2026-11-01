@@ -13,6 +13,10 @@ local colors={}
 for _,color in ipairs(brickcraft.colors) do colors[color]=true end
 -- Cells per second, and cells per second each second.
 local MAX_SPEED,ACCEL,FRICTION,MOTOR_SPEED=5,3,.6,3
+-- On ramps gravity pulls a car along the track (cells per second each second, times the
+-- slope), up to FAST. A chain lift pulls cars up at LIFT_PER_TURN cells per second for each
+-- turn per second of the fastest gear or axle touching its run of lift pieces.
+local GRAVITY,FAST,LIFT_PER_TURN=6,12,6
 -- A locomotive's gearbox: the motor's gear drives the gear on the drive wheels' axle, so
 -- the wheels turn motor_teeth/wheel_teeth as fast as the motor. The motor turns
 -- MOTOR_RPS times a second and a drive wheel is WHEEL_R cells in radius, so 24 to 24 runs
@@ -106,6 +110,23 @@ for color in pairs(colors) do
     })
   end
 end
+-- Ramps rise one level over one cell toward their turn (+z unturned); a chain lift is a
+-- ramp with a chain between the rails that a turning gear or axle beside it drives.
+local ramp_box={type="fixed",fixed={{-.5,-.5,-.5,.5,-.18,0},{-.5,-.5,0,.5,.32,.5}}}
+for color in pairs(colors) do
+  for _,kind in ipairs({"ramp","lift"}) do
+    C.register_node("brickcraft:"..color.."_track_"..kind,{
+      description=kind=="lift" and "Chain Lift (track ramp)" or "Track Ramp",
+      drawtype="mesh",mesh="brickcraft_track_"..kind..".obj",
+      tiles={{name="brickcraft_"..color..".png",backface_culling=false},{name="brickcraft_track_rail.png",backface_culling=false},
+        {name="brickcraft_cart_wheel.png",backface_culling=false}},
+      paramtype="light",paramtype2="facedir",sunlight_propagates=true,
+      collision_box=ramp_box,selection_box=ramp_box,
+      groups={brick=1,track=1,not_in_creative_inventory=1},drop="brickcraft:"..color,
+      brickcraft_shape="track",brickcraft_track="ramp",brickcraft_lift=kind=="lift" or nil,brickcraft_color=color,
+    })
+  end
+end
 -- Track and carts from before trains were pieces: old track is navy now, and the old train
 -- items in inventories become bricks.
 C.register_alias("brickcraft:track_straight","brickcraft:navy_track")
@@ -115,20 +136,81 @@ C.register_alias("brickcraft:cart","brickcraft:coral")
 C.register_alias("brickcraft:train_motor","brickcraft:navy")
 C.register_alias("brickcraft:battery_box","brickcraft:navy")
 
+-- Where carts run. Each end of a piece is a direction d out of its cell and the height h
+-- of the joint there (0 at the cell's level; 1 at a ramp's top end, a level up). Pieces
+-- join where their joints meet: a ramp's top joins the piece a level up, and a piece
+-- leads down onto a ramp whose top meets it.
+local function path_ends(pos)
+  local node=C.get_node(pos)
+  local def=C.registered_nodes[node.name]
+  local kind=def and def.brickcraft_track
+  local r=node.param2%4
+  if kind=="straight" then return {{d=D(r),h=0},{d=D(r+2),h=0}} end
+  if kind=="curve" then return {{d=D(r),h=0},{d=D(r+1),h=0}} end
+  if kind=="ramp" then return {{d=D(r+2),h=0},{d=D(r),h=1}} end
+end
+local function same_end(a,b) return same(a.d,b.d) and a.h==b.h end
+local function has_end(e,a) return e~=nil and a~=nil and a.d~=nil and (same_end(e[1],a) or same_end(e[2],a)) end
+local function other_end(e,a) return same_end(e[1],a) and e[2] or e[1] end
+local function joint(pos,e) return {x=pos.x+.5*e.d.x,y=pos.y+e.h,z=pos.z+.5*e.d.z} end
+-- The piece past end e of the piece at pos, and its end there; nil at the end of the line.
+local function across(pos,e)
+  local j=joint(pos,e)
+  for _,dy in ipairs({0,-1,1}) do
+    local q={x=pos.x+e.d.x,y=pos.y+dy,z=pos.z+e.d.z}
+    for _,f in ipairs(path_ends(q) or {}) do
+      if vector.equals(joint(q,f),j) then return q,f end
+    end
+  end
+end
 -- Where a cart s cells into a piece is, entering by end a and leaving by end b, and which
 -- way it moves. A curve's centerline is a quarter circle (radius 0.5) round the corner
--- between its ends.
+-- between its ends; a ramp's runs straight from joint to joint.
 local CURVE_LEN=math.pi/4
-local function length(a,b) return same(a,neg(b)) and 1 or CURVE_LEN end
+local function length(a,b)
+  if a.h~=b.h then return math.sqrt(2) end
+  return same(a.d,neg(b.d)) and 1 or CURVE_LEN
+end
 local function centerline(cell,a,b,s)
-  if same(a,neg(b)) then
-    return {x=cell.x+.5*(a.x*(1-s)+b.x*s),y=cell.y,z=cell.z+.5*(a.z*(1-s)+b.z*s)},{x=b.x,y=0,z=b.z}
+  if a.h~=b.h then
+    local ja,jb=joint(cell,a),joint(cell,b)
+    local dv=vector.subtract(jb,ja)
+    return vector.add(ja,vector.multiply(dv,s/math.sqrt(2))),vector.normalize(dv)
+  end
+  local ad,bd=a.d,b.d
+  if same(ad,neg(bd)) then
+    return {x=cell.x+.5*(ad.x*(1-s)+bd.x*s),y=cell.y,z=cell.z+.5*(ad.z*(1-s)+bd.z*s)},{x=bd.x,y=0,z=bd.z}
   end
   local th=s/CURVE_LEN*math.pi/2
   local c,sn=math.cos(th),math.sin(th)
-  local cx,cz=cell.x+.5*(a.x+b.x),cell.z+.5*(a.z+b.z)
-  return {x=cx-.5*(b.x*c+a.x*sn),y=cell.y,z=cz-.5*(b.z*c+a.z*sn)},
-    {x=b.x*sn-a.x*c,y=0,z=b.z*sn-a.z*c}
+  local cx,cz=cell.x+.5*(ad.x+bd.x),cell.z+.5*(ad.z+bd.z)
+  return {x=cx-.5*(bd.x*c+ad.x*sn),y=cell.y,z=cz-.5*(bd.z*c+ad.z*sn)},
+    {x=bd.x*sn-ad.x*c,y=0,z=bd.z*sn-ad.z*c}
+end
+-- A cart saved before ramps kept the end it came in by as a bare direction.
+local function as_end(a) if a and not a.d then return {d=a,h=0} end return a end
+-- How fast the chain lift under a cell pulls (nil if it isn't a lift or nothing turns it):
+-- the fastest gear or axle touching any piece of its run of lift pieces.
+local function lift_speed(cell)
+  local def=C.registered_nodes[C.get_node(cell).name]
+  if not (def and def.brickcraft_lift) or not brickcraft.technic then return end
+  local best,seen,todo=0,{},{vector.copy(cell)}
+  while #todo>0 do
+    local p=table.remove(todo)
+    local k=p.x..","..p.y..","..p.z
+    if not seen[k] then
+      seen[k]=true
+      for _,d in ipairs({{x=1,y=0,z=0},{x=-1,y=0,z=0},{x=0,y=1,z=0},{x=0,y=-1,z=0},{x=0,y=0,z=1},{x=0,y=0,z=-1}}) do
+        best=math.max(best,math.abs(brickcraft.technic.spin(vector.add(p,d))))
+      end
+      for _,e in ipairs(path_ends(p) or {}) do
+        local q=across(p,e)
+        local qd=q and C.registered_nodes[C.get_node(q).name]
+        if qd and qd.brickcraft_lift then todo[#todo+1]=q end
+      end
+    end
+  end
+  return best>0 and best*LIFT_PER_TURN or nil
 end
 local function approach(v,target,step)
   if v<target then return math.min(v+step,target) end
@@ -137,34 +219,45 @@ end
 
 -- Carts loaded now, by id, so coupled cars can find the car they follow.
 local carts={}
+-- Areas whose older carts are taken away when they wake ({a,b,t}), kept in mod storage.
+local storage=C.get_mod_storage()
+local clearings=C.deserialize(storage:get_string("cart_clearings")) or {}
+local function clear_carts(a,b)
+  local t=os.time()
+  clearings[#clearings+1]={a=vector.copy(a),b=vector.copy(b),t=t}
+  storage:set_string("cart_clearings",C.serialize(clearings))
+  for _,o in ipairs(C.get_objects_in_area(a,b)) do
+    local ent=o:get_luaentity()
+    if ent and ent.name==CART and (ent._born or 0)<t then o:remove() end
+  end
+end
 local GAP=1 -- coupled cars run this far apart, center to center
 -- How far b is from a along the track, ahead of a's way of travel (behind: negative),
 -- or nil when it isn't within `far` cells either way.
 local function gap(a,b,far)
   local function walk(cell,from,s)
-    local e=track_ends(cell)
-    local to=exit_of(e,from)
+    local e=path_ends(cell)
+    local to=other_end(e,from)
     local len,acc=length(from,to),-s
     for _=1,far+2 do
       if vector.equals(cell,b._cell) then
-        local d=acc+((b._from and same(b._from,from)) and (b._s or len/2) or len-(b._s or len/2))
+        local d=acc+((b._from and b._from.d and same_end(b._from,from)) and (b._s or len/2) or len-(b._s or len/2))
         if d>=0 then return d<=far and d or nil end
       end
       acc=acc+len
       if acc>far then return end
-      local nxt=vector.add(cell,to)
-      local ne=track_ends(nxt)
-      if not opens(ne,neg(to)) then return end
-      cell,from=nxt,neg(to)
-      to=exit_of(ne,from); len=length(from,to)
+      local nxt,nf=across(cell,to)
+      if not nxt then return end
+      cell,from=nxt,nf
+      to=other_end(path_ends(cell),from); len=length(from,to)
     end
   end
-  local e=track_ends(a._cell)
-  if not (e and a._from and opens(e,a._from) and b._cell) then return end
+  local e=path_ends(a._cell)
+  if not (has_end(e,a._from) and b._cell) then return end
   local s=a._s or .5
   local d=walk(a._cell,a._from,s)
   if d then return d end
-  local to=exit_of(e,a._from)
+  local to=other_end(e,a._from)
   d=walk(a._cell,to,length(a._from,to)-s)
   return d and -d
 end
@@ -399,15 +492,23 @@ C.register_entity(CART,{
   get_staticdata=function(self)
     return C.serialize({id=self._id,cell=self._cell,from=self._from,s=self._s,v=self._v,flip=self._flip,
       cruise=self._cruise,color=self._color,motor=self._motor,battery=self._battery,power=self._power,
-      last=self._last,leader=self._leader,coach=self._coach,gear_m=self._gear_m,gear_w=self._gear_w})
+      last=self._last,leader=self._leader,coach=self._coach,gear_m=self._gear_m,gear_w=self._gear_w,born=self._born})
   end,
   on_activate=function(self,staticdata)
     self.object:set_armor_groups({immortal=1})
     local d=C.deserialize(staticdata or "") or {}
     self._id=d.id or (tostring(C.get_us_time())..math.random(1000,9999))
     self._cell=d.cell or vector.round(self.object:get_pos())
-    local e=track_ends(self._cell)
-    self._from=d.from or (e and e[1])
+    local e=path_ends(self._cell)
+    self._from=as_end(d.from) or (e and e[1])
+    self._born=d.born or 0 -- unknown: made before carts kept their age
+    -- Carts in an area cleared after they were made (a world rebuilt) go when they wake.
+    for _,z in ipairs(clearings) do
+      local p=self.object:get_pos()
+      if self._born<z.t and p.x>=z.a.x and p.x<=z.b.x and p.y>=z.a.y and p.y<=z.b.y and p.z>=z.a.z and p.z<=z.b.z then
+        self._gone=true
+      end
+    end
     self._s,self._v,self._flip,self._cruise,self._color=d.s,d.v or 0,d.flip,d.cruise,d.color
     self._motor,self._battery,self._power,self._last,self._leader=d.motor,d.battery,d.power or 0,d.last,d.leader
     self._coach,self._gear_m,self._gear_w=d.coach,d.gear_m,d.gear_w
@@ -449,18 +550,20 @@ C.register_entity(CART,{
   end,
   on_step=function(self,dtime)
     local obj=self.object
+    if self._gone then obj:remove(); return end
     if not self._parts then
       show_parts(self)
       obj:set_properties({textures={"brickcraft_cart_wheel.png","brickcraft_track_tie.png",
         "brickcraft_"..color_of(self._color,"coral")..".png"}})
     end
-    local e=track_ends(self._cell)
+    local e=path_ends(self._cell)
     if not e then -- its track was collected: it rests where it is
       if self._v~=0 then self._v=0; obj:set_velocity(vector.zero()) end
       return
     end
-    if not (self._from and opens(e,self._from)) then self._from=e[1] end -- the piece was turned
-    local b=exit_of(e,self._from)
+    self._from=as_end(self._from)
+    if not has_end(e,self._from) then self._from=e[1] end -- the piece was turned
+    local b=other_end(e,self._from)
     local len=length(self._from,b)
     self._s=math.min(self._s or len/2,len)
     local _,tan=centerline(self._cell,self._from,b,self._s)
@@ -484,13 +587,20 @@ C.register_entity(CART,{
       local lv=dl and (d*dl<0 and lent._v or -lent._v) or 0
       v=lv+3*(d-(d>=0 and GAP or -GAP))
       if math.abs(v)<.05 then v=0 end -- settled: it stops with the car it follows
-      v=math.max(-MAX_SPEED-1,math.min(MAX_SPEED+1,v))
+      v=math.max(-FAST-1,math.min(FAST+1,v))
     else
       -- The motor drives it; otherwise someone pushing it, or it rolls to a stop.
       local front=(self._motor and self._battery and (self._power or 0)~=0) and self._power*motor_speed(self) or self._cruise
       if front then v=approach(v,front*(self._flip and -1 or 1),ACCEL*dtime)
       elseif pushed then v=math.max(-MAX_SPEED,math.min(MAX_SPEED,pushed))
       else v=approach(v,0,FRICTION*dtime) end
+      -- Gravity along a ramp (uphill slows it, downhill speeds it up), and a running chain
+      -- lift that catches it on the way up.
+      v=v-GRAVITY*tan.y*dtime
+      local lift=tan.y~=0 and lift_speed(self._cell)
+      if lift and tan.y>0 and v<lift then v=lift end
+      if lift and tan.y<0 and v>-lift then v=-lift end
+      v=math.max(-FAST,math.min(FAST,v))
     end
     if v<0 then -- going back the way it came
       self._from,b=b,self._from
@@ -510,11 +620,10 @@ C.register_entity(CART,{
     local s=self._s+v*dtime
     for _=1,16 do
       if s<=len then break end
-      local nxt=vector.add(self._cell,b)
-      local ne=track_ends(nxt)
-      if not opens(ne,neg(b)) then s,v=len,0; break end
-      self._cell,self._from=nxt,neg(b)
-      b=exit_of(ne,self._from)
+      local nxt,nf=across(self._cell,b)
+      if not nxt then s,v=len,0; break end
+      self._cell,self._from=nxt,nf
+      b=other_end(path_ends(nxt),nf)
       s=s-len; len=length(self._from,b)
     end
     s=math.min(s,len)
@@ -522,26 +631,27 @@ C.register_entity(CART,{
     local p
     p,tan=centerline(self._cell,self._from,b,s)
     self._tan=tan
-    local yaw=C.dir_to_yaw(self._flip and neg(tan) or tan)
+    -- It faces its front, tipped up or down on a ramp.
+    local rot=vector.dir_to_rotation(self._flip and vector.multiply(tan,-1) or tan)
     spin_gearbox(self,self._flip and -v or v)
     local off=vector.subtract(p,obj:get_pos())
     if v==0 then
       if vector.length(off)>.01 then obj:set_pos(p) end
       obj:set_velocity(vector.zero())
-      if math.abs(obj:get_yaw()-yaw)>.01 then obj:set_yaw(yaw) end
+      if vector.distance(obj:get_rotation(),rot)>.01 then obj:set_rotation(rot) end
       return
     end
     -- Velocity along the track keeps the motion smooth between server steps; the
     -- small pull toward the centerline takes up the difference on curves.
     if vector.length(off)>.6 then obj:set_pos(p); off=vector.zero() end
     obj:set_velocity(vector.add(vector.multiply(tan,v),vector.multiply(off,4)))
-    obj:set_yaw(yaw)
+    obj:set_rotation(rot)
   end,
 })
 
 -- Puts a cart of a color on the track at pos; it hooks on behind a car next to it.
 local function put_cart(pos,color,coach)
-  local obj=C.add_entity(pos,CART,C.serialize({color=color,coach=coach and color or nil}))
+  local obj=C.add_entity(pos,CART,C.serialize({color=color,coach=coach and color or nil,born=os.time()}))
   local ent=obj and obj:get_luaentity()
   if not ent then return end
   for _,other in ipairs(near(ent,GAP+.6)) do
@@ -567,8 +677,8 @@ local function place(s,stack,placer,pointed,item)
     return stack
   end
   if s.train=="cart" or s.train=="coach" then
-    local pos=track_ends(pointed.under) and pointed.under or pointed.above
-    if not track_ends(pos) then C.chat_send_player(name,"Put the cart on a track."); return stack end
+    local pos=path_ends(pointed.under) and pointed.under or pointed.above
+    if not path_ends(pos) then C.chat_send_player(name,"Put the cart on a track."); return stack end
     for _,o in ipairs(C.get_objects_inside_radius(pos,.6)) do
       local ent=o:get_luaentity()
       if ent and ent.name==CART then C.chat_send_player(name,"There's a cart here already."); return stack end
@@ -590,7 +700,7 @@ local function put_train(cells,color,opts)
   local out={}
   for i,pos in ipairs(cells) do
     local car=i>1 and opts.coach or nil
-    local obj=C.add_entity(pos,CART,C.serialize({color=car or color,coach=car}))
+    local obj=C.add_entity(pos,CART,C.serialize({color=car or color,coach=car,born=os.time()}))
     local ent=obj and obj:get_luaentity()
     if not ent then return out end
     if i==1 then
@@ -599,6 +709,28 @@ local function put_train(cells,color,opts)
       if opts.on then ent._power,ent._last=1,1 end
     else ent._leader=out[i-1]._id end
     out[i]=ent
+  end
+  return out
+end
+
+-- A coaster train: plain cars in turn of colors along cells, each hooked on behind the one
+-- before; the first heads away from the second at speed.
+local function put_coaster(cells,colors_list,speed)
+  local out={}
+  for i,pos in ipairs(cells) do
+    local obj=C.add_entity(pos,CART,C.serialize({color=colors_list[(i-1)%#colors_list+1],born=os.time()}))
+    local ent=obj and obj:get_luaentity()
+    if not ent then return out end
+    if i>1 then ent._leader=out[i-1]._id end
+    out[i]=ent
+  end
+  local lead,second=out[1],out[2]
+  if lead and second then
+    for _,en in ipairs(path_ends(lead._cell) or {}) do
+      local q=across(lead._cell,en)
+      if q and vector.equals(q,second._cell) then lead._from=en end
+    end
+    lead._v=speed or 0
   end
   return out
 end
@@ -617,6 +749,7 @@ local function lay_loop(a,b,color)
 end
 
 brickcraft.trains={lay=lay,lay_loop=lay_loop,ends=track_ends,joined=joined,exit_of=exit_of,centerline=centerline,
+  path_ends=path_ends,other_end=other_end,across=across,lift_speed=lift_speed,put_coaster=put_coaster,clear_carts=clear_carts,
   gap=gap,place=place,put_cart=put_cart,put_train=put_train,switch=switch,hop_off=hop_off,carts=carts,
   motor_speed=motor_speed}
 

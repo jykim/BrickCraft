@@ -275,4 +275,28 @@ for z in (-.24,.24): m.box(-.3,-.02,z-.08,.3,.16,z+.08)
 m.box(-.38,-.02,-.46,.38,.3,-.4); m.box(-.38,-.02,.4,.38,.3,.46)  # end walls
 m.mat('roof'); m.box(-.44,.95,-.5,.44,1.03,.5)
 m.save('brickcraft_coach.obj','passenger car cabin',flip_x=True)
+# Ramps: track rising one level over one cell toward +z (the centerline runs from (z -1/2,
+# y 0) to (z 1/2, y 1), so rails sit 0.32 below it as on flat track). Ties step up under
+# the rails; a chain lift has a dark chain between them (textures: tie, rail, chain).
+def incline(m,x0,x1,below,thick):
+    pts=[]
+    for z in (-.5,.5):
+        top=z+.5-below
+        pts.append([(x0,top,z),(x1,top,z),(x1,top-thick,z),(x0,top-thick,z)])
+    (a0,a1,a2,a3),(b0,b1,b2,b3)=pts
+    m.poly([a0,b0,b1,a1]); m.poly([a3,a2,b2,b3])          # top, bottom
+    m.poly([a0,a3,b3,b0]); m.poly([a1,b1,b2,a2])          # sides
+    m.poly([a0,a1,a2,a3]); m.poly([b0,b3,b2,b1])          # ends
+def ramp(name,chain):
+    m=Mesh(); m.mat('tie')
+    for z in (-.375,-.125,.125,.375):
+        top=z+.5-.42
+        m.box(-.42,top-.08,z-.06,.42,top,z+.06)
+    m.mat('rail')
+    for x in (-.25,.25): incline(m,x-.04,x+.04,.32,.1)
+    if chain:
+        m.mat('chain'); incline(m,-.1,.1,.39,.04)
+    m.save(name,'track ramp'+(' with chain lift' if chain else ''))
+ramp('brickcraft_track_ramp.obj',False)
+ramp('brickcraft_track_lift.obj',True)
 print('Generated 33 textures, 3 block person meshes, 5 brick meshes, 5 train meshes and a cannon')
