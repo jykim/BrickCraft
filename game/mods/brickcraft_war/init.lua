@@ -47,7 +47,8 @@ end
 -- Teams: everyone starts blue, all on one side against the Red Army; /team green puts a
 -- player's knights and AI builder against the blue players and theirs (and theirs
 -- against them). Players can hit players on any team, as before.
-local TEAMS={blue={tag="#8fd0ff"},green={tag="#7be08a"}}
+-- Red is the Red Army's: Tower Defense attackers (td.lua) fight on it.
+local TEAMS={blue={tag="#8fd0ff"},green={tag="#7be08a"},red={tag="#ff7a6a"}}
 local function team_of(name) return war[name] and war[name].team or "blue" end
 local function side_of(obj)
   if not obj then return nil end
@@ -543,14 +544,20 @@ local LOOKS={
   blue={tex="brickcraft_person_blueknight.png",name="Blue Knight",tag="#8fd0ff",hp=MAX_HP,speed=3.4,sight=12},
   green={tex="brickcraft_person_blueknight.png^[colorize:#2fae45:150",name="Green Knight",tag="#7be08a",hp=MAX_HP,speed=3.4,sight=12},
   red={tex="brickcraft_person_redknight.png",name="Red Knight",tag="#ff7a6a",hp=6,speed=2.6,sight=14},
-  boss={tex="brickcraft_person_redboss.png",name="Red Commander",tag="#ff5040",hp=40,speed=2,sight=20,size=1.3} -- 20 hearts,
+  boss={tex="brickcraft_person_redboss.png",name="Red Commander",tag="#ff5040",hp=40,speed=2,sight=20,size=1.3}, -- 20 hearts
+  -- The Tower Defense world's Red Army (td.lua) and its barracks' footmen; armor is what
+  -- an arrow's damage is multiplied by.
+  scout={tex="brickcraft_person_redknight.png^[colorize:#ffb020:90",name="Red Scout",tag="#ffb46a",hp=3,speed=4.4,sight=8},
+  shield={tex="brickcraft_person_redknight.png^[colorize:#2c3038:150",name="Shield Knight",tag="#ff7a6a",hp=16,speed=1.8,sight=8,size=1.15,armor=.5},
+  warlord={tex="brickcraft_person_redboss.png",name="Red Warlord",tag="#ff5040",hp=40,speed=1.5,sight=8,size=1.3},
+  footman={tex="brickcraft_person_blueknight.png^[colorize:#d8e4ff:50",name="Footman",tag="#8fd0ff",hp=MAX_HP,speed=3.4,sight=6},
 }
 local armies={} -- id -> {boss=luaentity, lab=the War Lab world when it camps there}
 local next_lab_army=0 -- not before this time (not saved: world tables are)
 local function knight_tag(self)
   self.object:set_properties({nametag=self._name.."  "..math.max(0,self._hp).."/"..self._max})
 end
-local function look_of(self) return LOOKS[self._boss and "boss" or self._archer and "archer" or self._team or "practice"] end
+local function look_of(self) return LOOKS[self._kind or self._boss and "boss" or self._archer and "archer" or self._team or "practice"] end
 local function dress(self)
   local l=look_of(self)
   local k=l.size or 1
@@ -641,17 +648,18 @@ local function next_step(self,p,to)
   self._step_up=wp.y-.5>p.y+.3
   return {x=wp.x,y=wp.y-.5,z=wp.z}
 end
--- Walks toward (or with back, away from) a spot: the knight's own speed, jumping a block
--- when it bumps into one, its path steps up, or it hasn't got anywhere for a second.
-local function walk(self,to,back)
+-- Walks toward (or with back, away from) a spot: the knight's own speed (slowed while
+-- frost is on it: _slow), jumping a block when it bumps into one, its path steps up, or it
+-- hasn't got anywhere for a second. direct: straight there, no path.
+local function walk(self,to,back,direct)
   local p=self.object:get_pos()
-  if not back then to=next_step(self,p,to) end
+  if not back and not direct then to=next_step(self,p,to) end
   local d={x=to.x-p.x,y=0,z=to.z-p.z}
   local len=math.sqrt(d.x*d.x+d.z*d.z)
   if len<.1 then return end
   d={x=d.x/len,y=0,z=d.z/len}
   face(self.object,back and {x=-d.x,z=-d.z} or d)
-  local k=(back and -.7 or 1)*look_of(self).speed
+  local k=(back and -.7 or 1)*look_of(self).speed*((self._slow or 0)>now() and self._slow_k or 1)
   local v=self.object:get_velocity()
   local vy=v.y
   local t=now()
@@ -699,9 +707,9 @@ end
 local function stay_by(self,spot,p,gap)
   if spot and flat_dist(p,spot)>gap then walk(self,spot) else self._still=true end
 end
--- A cannonball from `from` (a lobbing thrower's hands, or a cannon: v) at foe, side's own.
-local function lob(from,foe,thrower,side,v)
-  local q=vector.offset(foe:get_pos(),0,.8,0)
+-- A cannonball from `from` (a lobbing thrower's hands, or a cannon: v) at the spot q, or
+-- at foe (lob), side's own.
+local function lob_at(from,q,thrower,side,v)
   local dx,dz=q.x-from.x,q.z-from.z
   local dist=math.max(math.sqrt(dx*dx+dz*dz),.1)
   v=v or 13
@@ -711,6 +719,7 @@ local function lob(from,foe,thrower,side,v)
   e=e+math.atan2(q.y-from.y,math.max(dist,1))*.5
   fire(from,{x=dx/dist*math.cos(e)*v,y=math.sin(e)*v,z=dz/dist*math.cos(e)*v},nil,thrower,side)
 end
+local function lob(from,foe,thrower,side,v) lob_at(from,vector.offset(foe:get_pos(),0,.8,0),thrower,side,v) end
 -- A Red Army's cannon fires at the closest foe within 30, a castle wall in the way or not,
 -- while it has cannonballs (3 at most; its feeder brings more). Only with its gunner beside
 -- it does it turn: unmanned, it fires only at what is right in front of it. Two cannonballs
@@ -820,8 +829,10 @@ local function clear_shot(a,b)
   return true
 end
 local build -- (below, the Siege Castle) a red builder's turn; true while it builds
+local lane_step -- (td.lua) a Tower Defense knight's walk along its road; true while on it
 local function think(self)
   local p=self.object:get_pos()
+  if self._lane and lane_step(self,p) then return end
   if self._build and build(self,p) then return end
   if self._crew and crew(self,p) then return end
   -- The Commander's guards stay by him and fight what comes within 6 of him.
@@ -977,7 +988,8 @@ C.register_entity(":brickcraft:knight",{
     self._stun=now()+.5
     if m.dmg==0 then return true end
     flash(self.object,self._tex)
-    self._hp=self._hp-m.dmg
+    local armor=m==MOVES.arrow and look_of(self).armor
+    self._hp=self._hp-(armor and math.max(1,math.floor(m.dmg*armor+.5)) or m.dmg)
     if self._hp<=0 then
       -- Falls on its back, away from the hit.
       self._down=now()+(self._archer and 8 or self._owner and 5 or self._team=="red" and 1.5 or 3)
@@ -989,6 +1001,7 @@ C.register_entity(":brickcraft:knight",{
         C.chat_send_player(attacker:get_player_name(),"You knocked out the "..self._name.."!")
       end
       if self._boss then defeat_army(self._army,attacker) end
+      if self._on_down then self._on_down(self,attacker) end
     end
     knight_tag(self)
     return true
@@ -1436,6 +1449,15 @@ C.register_globalstep(function(dt)
   end
 end)
 
+-- A player's team, and their knights with them.
+local function set_team(name,t)
+  local s=war[name]
+  if not s or s.team==t then return end
+  s.team=t
+  for _,k in ipairs(blue_knights(name)) do k._team=t; dress(k) end
+  local pl=C.get_player_by_name(name)
+  if pl then update_hud(pl) end
+end
 -- /team: blue (everyone's, against the Red Army) or green (against the blue players too).
 -- Your knights change sides with you.
 C.register_chatcommand("team",{params="blue|green",description="War mode: pick your team; blue and green fight each other",
@@ -1443,13 +1465,10 @@ C.register_chatcommand("team",{params="blue|green",description="War mode: pick y
     local s=war[name]
     if not s then return false,"Start war mode first: /war" end
     local t=param:lower():match("%a+")
-    if not TEAMS[t or ""] then return true,"You're on the "..s.team.." team. /team green or /team blue to switch." end
+    if not TEAMS[t or ""] or t=="red" then return true,"You're on the "..s.team.." team. /team green or /team blue to switch." end
     if t==s.team then return true,"You're on the "..t.." team already." end
-    s.team=t
-    for _,k in ipairs(blue_knights(name)) do k._team=t; dress(k) end
-    local pl=C.get_player_by_name(name)
-    if pl then update_hud(pl) end
-    tell_war(label(pl).." joined the "..t.." team!")
+    set_team(name,t)
+    tell_war(label(C.get_player_by_name(name)).." joined the "..t.." team!")
     return true
   end})
 
@@ -1900,11 +1919,10 @@ C.register_globalstep(function(dt)
   trap_timer=trap_timer+dt
   if trap_timer<.25 then return end
   trap_timer=0
-  local w=castle()
-  if not w then return end
   for ent in pairs(things) do
     local p=ent.object:get_pos()
-    if p and ent._team=="red" and not ent._down and ent.name=="brickcraft:knight" and brickcraft.world_at(p)==w then
+    local w=p and brickcraft.world_at(p)
+    if p and ent._team=="red" and not ent._down and ent.name=="brickcraft:knight" and (w.castle or w.td) then
       local under=vector.round({x=p.x,y=p.y-.3,z=p.z})
       local k=C.pos_to_string(under)
       if (sprung[k] or 0)<now() and C.get_node(under).name=="brickcraft:spike_trap" then
@@ -2047,7 +2065,14 @@ C.after(0,function()
   if w then w.castle=true; brickcraft.save_worlds() end
 end)
 
-brickcraft.war={flag_watch=flag_watch,FLAG=FLAG,unstick=unstick,tune=TUNE,reset_castle=reset_castle,siege_army=siege_army,garrison=garrison,castle_damage=castle_damage,army_size=army_size,lab=lab,castle=castle,castle_cell=castle_cell,shoot_arrow=shoot_arrow,start=start,stop=stop,hit=hit,fire=fire,fire_from=fire_from,max_hp=MAX_HP,
+-- Tower Defense (experimental), the world after the Siege Castle: its own file.
+local td=dofile(C.get_modpath("brickcraft_war").."/td.lua")({things=things,LOOKS=LOOKS,MOVES=MOVES,spawn_knight=spawn_knight,
+  dress=dress,knight_tag=knight_tag,walk=walk,swing=swing,find_foe=find_foe,face=face,poof=poof,loose=loose,lob_at=lob_at,
+  hit=hit,castle_cell=castle_cell,now=now,label=label,arrow_speed=ARROW_SPEED,arrow_gravity=ARROW_GRAVITY,ball_speed=BALL_SPEED,
+  war=war,set_team=set_team})
+lane_step=td.lane_step
+
+brickcraft.war={td=td,flag_watch=flag_watch,FLAG=FLAG,unstick=unstick,tune=TUNE,reset_castle=reset_castle,siege_army=siege_army,garrison=garrison,castle_damage=castle_damage,army_size=army_size,lab=lab,castle=castle,castle_cell=castle_cell,shoot_arrow=shoot_arrow,start=start,stop=stop,hit=hit,fire=fire,fire_from=fire_from,max_hp=MAX_HP,
   spawn_knight=spawn_knight,_things=function() return things end,command=command,
   orders=function(name) return blue_orders[name] end,bot_fight=bot_fight,plan_red=plan_red,spawn_army=spawn_army,battle=battle,armies=armies,drop_ammo=drop_ammo,
   on=function(player) return war[player:get_player_name()] end}
