@@ -1563,6 +1563,23 @@ C.register_node(":brickcraft:water",{description="Moat Water",drawtype="liquid",
 local function castle() for _,w in ipairs(brickcraft.worlds()) do if w.castle then return w end end end
 local OURS={["brickcraft:siege_tower"]=true}
 for from,to in pairs(CRACKS) do OURS[from]=true end
+-- Someone inside the castle's stone (it grew round where they stood, or they left the
+-- game there before it did) sees only black: they go to their start spot.
+local function unstick(player)
+  local w=castle()
+  local p=player:get_pos()
+  if not w or brickcraft.world_at(p)~=w then return false end
+  for dy=0,1 do
+    local name=C.get_node(vector.round(vector.offset(p,0,.5+dy,0))).name
+    if OURS[name] or name=="brickcraft:castle_wall" or name=="brickcraft:castle_gate" then
+      player:set_pos(brickcraft.home_pos(player,w)); return true
+    end
+  end
+  return false
+end
+C.register_on_joinplayer(function(player)
+  C.after(1,function() if player:is_player() then unstick(player) end end)
+end)
 local function build_castle(w,first)
   local vm=C.get_voxel_manip()
   local emin,emax=vm:read_from_map({x=w.x-24,y=-4,z=w.z-24},{x=w.x+24,y=8,z=w.z+24})
@@ -1592,6 +1609,7 @@ local function build_castle(w,first)
   -- blocks are, and lighting them alone left the castle pitch black.
   vm:set_data(data); vm:write_to_map(false)
   C.fix_light({x=w.x-24,y=-4,z=w.z-24},{x=w.x+24,y=31,z=w.z+24})
+  for _,pl in ipairs(C.get_connected_players()) do unstick(pl) end
   if first or not w.castle_lit then w.castle_built,w.castle_moat,w.castle_lit=true,true,true; brickcraft.save_worlds() end
 end
 -- A builder's turn: by its stand it puts the next missing step of its siege tower every
@@ -1809,7 +1827,7 @@ C.after(0,function()
   if w then w.castle=true; brickcraft.save_worlds() end
 end)
 
-brickcraft.war={tune=TUNE,reset_castle=reset_castle,siege_army=siege_army,garrison=garrison,castle_damage=castle_damage,army_size=army_size,lab=lab,castle=castle,castle_cell=castle_cell,shoot_arrow=shoot_arrow,start=start,stop=stop,hit=hit,fire=fire,fire_from=fire_from,max_hp=MAX_HP,
+brickcraft.war={unstick=unstick,tune=TUNE,reset_castle=reset_castle,siege_army=siege_army,garrison=garrison,castle_damage=castle_damage,army_size=army_size,lab=lab,castle=castle,castle_cell=castle_cell,shoot_arrow=shoot_arrow,start=start,stop=stop,hit=hit,fire=fire,fire_from=fire_from,max_hp=MAX_HP,
   spawn_knight=spawn_knight,_things=function() return things end,command=command,
   orders=function(name) return blue_orders[name] end,bot_fight=bot_fight,plan_red=plan_red,spawn_army=spawn_army,battle=battle,armies=armies,drop_ammo=drop_ammo,
   on=function(player) return war[player:get_player_name()] end}

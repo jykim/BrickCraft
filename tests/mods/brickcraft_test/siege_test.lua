@@ -35,6 +35,9 @@ local function run(dad)
   assert(node(w,4,2,-3)=="brickcraft:castle_wall" and node(w,4,3,-3)=="air" and node(w,-7,5,-3)=="brickcraft:castle_wall","stairs up the inner towers")
   local light=C.get_node_light({x=w.x,y=1,z=w.z+2},.5)
   assert(light and light>=10,"the courtyard is lit at noon, got "..tostring(light))
+  -- Standing inside the keep (it grew where he stood): he goes to his start spot.
+  dad:set_pos({x=w.x-.9,y=-.5,z=w.z+5}); sleep(.3)
+  assert(W.unstick(dad) and dad:get_pos().z-w.z<4.6,"out of the keep's stone")
   log(("CASTLE: walls, battlements, a gate and stairs at %d,%d"):format(w.x,w.z))
 
   -- Dad goes to war in the castle; the Red Army comes.
