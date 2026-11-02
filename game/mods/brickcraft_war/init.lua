@@ -491,10 +491,32 @@ local function defeat_army(id,by)
   tell_war((by and by:is_player() and label(by).." beat" or "Blue beat").." the Red Army! (/battle for another)")
 end
 
+-- The next spot on the way to `to`: straight there when it's right there, else along
+-- a path (core.find_path, a block's jump at a time) round walls and up hills, planned
+-- again every 1.5 s or when the target moves to another cell. No path: straight on.
+local function cell_of(pos) return vector.round({x=pos.x,y=pos.y+.5,z=pos.z}) end
+local function next_step(self,p,to)
+  self._step_up=false
+  if math.abs(to.y-p.y)<.6 and flat_dist(p,to)<1.5 then self._path=nil; return to end
+  local t,goal=now(),cell_of(to)
+  if self._path==nil or (self._path_at or 0)+1.5<t or
+     (not vector.equals(self._goal,goal) and (self._path_at or 0)+.5<t) then
+    self._path=C.find_path(cell_of(p),goal,24,1,3,"A*_noprefetch") or false
+    self._path_at,self._goal=t,goal
+  end
+  local path=self._path
+  if not path then return to end
+  while path[1] and flat_dist(p,path[1])<.5 and math.abs(path[1].y-.5-p.y)<.8 do table.remove(path,1) end
+  local wp=path[1]
+  if not wp then return to end
+  self._step_up=wp.y-.5>p.y+.3
+  return {x=wp.x,y=wp.y-.5,z=wp.z}
+end
 -- Walks toward (or with back, away from) a spot: the knight's own speed, jumping a block
--- when it bumps into one.
+-- when it bumps into one, its path steps up, or it hasn't got anywhere for a second.
 local function walk(self,to,back)
   local p=self.object:get_pos()
+  if not back then to=next_step(self,p,to) end
   local d={x=to.x-p.x,y=0,z=to.z-p.z}
   local len=math.sqrt(d.x*d.x+d.z*d.z)
   if len<.1 then return end
@@ -503,7 +525,10 @@ local function walk(self,to,back)
   local k=(back and -.7 or 1)*look_of(self).speed
   local v=self.object:get_velocity()
   local vy=v.y
-  if self._bumped and self._grounded then vy=7.5 end
+  local t=now()
+  if not self._moved or vector.distance(self._moved,p)>.3 then self._moved,self._moved_at=p,t end
+  local stuck=t-self._moved_at>1
+  if (self._bumped or self._step_up or stuck) and self._grounded then vy=7.5 end
   self.object:set_velocity({x=d.x*k,y=vy,z=d.z*k})
 end
 -- Orders: each side's knights follow one order at a time. Blue knights take their

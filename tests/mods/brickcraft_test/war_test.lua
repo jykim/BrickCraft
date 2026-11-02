@@ -210,6 +210,24 @@ local function run(dad,kid)
   log(("RED: a Red Knight charged and hit Leona (%d/10)"):format(W.on(kid).hp))
   red.object:remove()
 
+  -- Up a hill: a fort 4 blocks high, a sheer wall toward the knight and stairs only on the
+  -- far side. The knight walks round and climbs to Leona on top.
+  local fort={}
+  local function put(x,y,z) fort[#fort+1]={x=x,y=y,z=z}; C.set_node({x=x,y=y,z=z},{name="brickcraft:coral"}) end
+  C.load_area({x=2,y=-1,z=-36},{x=20,y=6,z=-24})
+  -- (on cleared baseplate, away from the landscape's own hills)
+  for x=2,20 do for z=-36,-24 do for y=0,6 do C.set_node({x=x,y=y,z=z},{name="air"}) end end end
+  for x=10,12 do for z=-31,-29 do for y=0,3 do put(x,y,z) end end end
+  for i,top in ipairs({2,1,0}) do for y=0,top do put(12+i,y,-30) end end
+  kid:set_pos({x=11,y=3.5,z=-30}); W.on(kid).shield=0; sleep(.5)
+  khp=W.on(kid).hp
+  red=W.spawn_knight({x=5,y=0,z=-30},"red")
+  wait(30,function() return W.on(kid).hp<khp end,function() return "the red knight never got up the fort, at "..
+    C.pos_to_string(red.object:get_pos() or {x=0,y=0,z=0},1) end)
+  log(("CLIMB: a Red Knight walked round the fort, up its stairs and hit Leona on top (%d/10)"):format(W.on(kid).hp))
+  red.object:remove()
+  for _,c in ipairs(fort) do C.set_node(c,{name="air"}) end
+
   -- /battle: a Commander and 4 knights. Knock out the Commander and the army falls.
   kid:set_pos(brickcraft.home_pos(kid)); sleep(.5)
   dad:set_pos({x=0,y=0,z=-14}); face(dad,EAST); sleep(.8)
