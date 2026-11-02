@@ -48,6 +48,6 @@ finally:
 out=subprocess.run(['zsh',str(root/'tools/post_issues.zsh'),str(world)],env={**os.environ,'BRICKCRAFT_ISSUES_DRY':'1'},
     capture_output=True,text=True).stdout
 print(out.strip(),flush=True)
-assert 'trains could whistle' in out and (world/'issues'/'sent').glob('*.url'),'reports post: '+out
+assert '[enhancement]: trains could whistle' in out and '[bug]: the cart stops on curves' in out and (world/'issues'/'sent').glob('*.url'),'reports post: '+out
 assert not list((world/'issues').glob('*.title')),'nothing left queued'
 print('PASS')

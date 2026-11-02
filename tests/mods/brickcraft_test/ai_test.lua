@@ -105,7 +105,7 @@ C.register_on_joinplayer(function(player)
         C.mkdir(dir.."/sent"); C.safe_file_write(dir.."/sent/"..id..".url","https://example.test/issues/1")
         wait(function() return heard("example.test/issues/1") end,10,"jms tells the issue link",function()
           C.log("action","BRICKCRAFT AI report: "..heard("example.test/issues/1"))
-          chat(name,"jms, report trains could whistle") -- stays queued for tools/post_issues.zsh
+          chat(name,"jms, idea: trains could whistle") -- an idea, queued for tools/post_issues.zsh
         end)
       end)
       chat(name,"jms, where is Leona?")
@@ -114,6 +114,20 @@ C.register_on_joinplayer(function(player)
         assert(m and m:find("10 blocks north of me") and m:find("facing south"),"where: "..tostring(m))
         chat(name,"jms, who's here?")
         wait(function() return heard("just you and me") end,5,"jms says who's here",function()
+          -- It remembers what was said, for the next request to Claude.
+          local memory=jms.recall()
+          assert(memory:find("<Leona> where is Leona?",1,true) and memory:find("<jms> It's just you and me",1,true),
+            "jms remembers the chat:\n"..memory)
+          -- Bricks from its stock: starter colors, not the harvested ones.
+          local inv=player:get_inventory()
+          local had=0
+          for _,st in ipairs(inv:get_list("main")) do if st:get_name()=="brickcraft:rose" then had=had+st:get_count() end end
+          chat(name,"jms, give me 5 pink bricks")
+          chat(name,"jms, can i have green bricks?")
+          wait(function() return heard("5 rose bricks for you") and heard("I don't have green") end,5,"jms gives bricks",function()
+            local now=0
+            for _,st in ipairs(inv:get_list("main")) do if st:get_name()=="brickcraft:rose" then now=now+st:get_count() end end
+            assert(now==had+5,"Leona got 5 rose bricks: "..had.." -> "..now)
           -- Leona walks over: jms says hi to her by name.
           ai.set_small_talk(true,1)
           player:set_pos({x=bp.x+2,y=bp.y,z=bp.z})
@@ -122,6 +136,7 @@ C.register_on_joinplayer(function(player)
             C.log("action","BRICKCRAFT AI small talk: "..heard(hi))
             ai.set_small_talk(false)
             done()
+          end)
           end)
         end)
       end)

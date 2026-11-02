@@ -127,7 +127,7 @@ WASD 또는 **방향키** 이동, 마우스 시점, Space 점프(브릭 2칸 높
 
 ## AI 빌더에게 버그·아이디어 알리기
 
-`Lumi, report the cart stops on curves`처럼 자기 빌더에게 `report ...`(또는 `bug ...`, `버그`, `신고`, `이슈`)라고 하면, 빌더가 Claude로 GitHub 이슈 제목·내용을 쓰고(버그는 `bug`, 아이디어는 `enhancement` 라벨) 그 사람의 말 그대로, 게임 안 이름, 세계·위치, 손에 든 것, 앞쪽 16×16칸 목록을 붙여 세계 폴더의 `issues/`에 적어 둡니다. Admin으로 연 서버가 15초마다 `tools/post_issues.zsh`로 `gh issue create`를 실행해 올리고(`logs/issues.log`), 올라가면 빌더가 이슈 링크를 말해 줍니다. 올리지 못한 것은 남아 있다가 다시 시도합니다.
+`Lumi, report the cart stops on curves`처럼 자기 빌더에게 `report ...`(또는 `bug ...`, `idea ...`, `feature ...`, `버그`, `신고`, `이슈`, `아이디어`)라고 하면, 빌더가 Claude로 GitHub 이슈 제목·내용을 쓰고(버그는 `bug`, 아이디어는 `enhancement` 라벨) 그 사람의 말 그대로, 게임 안 이름, 세계·위치, 손에 든 것, 앞쪽 16×16칸 목록을 붙여 세계 폴더의 `issues/`에 적어 둡니다. Admin으로 연 서버가 15초마다 `tools/post_issues.zsh`로 `gh issue create`를 실행해 올리고(`logs/issues.log`), 올라가면 빌더가 이슈 링크를 말해 줍니다. 올리지 못한 것은 남아 있다가 다시 시도합니다. 설계 API가 켜져 있으면 `report`라고 하지 않아도 빌더가 알아서 적습니다: 게임이 이상하게 굴 때(`ugh the train keeps falling off at the corner`)는 버그로, 게임에 없는 것을 바랄 때(`it would be so cool if the knights could ride horses`)는 아이디어로 적고, 그 자리에서 도울 수 있으면(선로 고치기, 대신할 말 짓기) 그것도 합니다. 조작법을 몰라서 묻는 말, 자기 건물이 망가진 것, 방금 이미 적은 것은 적지 않습니다. 대화를 기억하므로 `report that`은 방금 이야기한 것을 적습니다(채팅 내용을 이슈에 옮기지는 않음).
 
 - 호스트 Mac에서 `gh auth login`으로 GitHub에 로그인되어 있어야 합니다. 아니면 Admin이 알려 주고 보고는 `worlds/workshop/issues/`에 쌓입니다. 끄려면 `BRICKCRAFT_ISSUES=0`.
 - **저장소가 공개라 이슈도 공개입니다.** 컴퓨터 이름이나 채팅 기록은 넣지 않지만 게임 안 이름(예: Leona)과 한 말은 들어갑니다.
@@ -207,9 +207,11 @@ Admin으로 연 서버에서는 **플레이어마다 자기 AI 빌더**가 있�
   - **그 세계에 다른 사람이 없을 때:** 하는 말은 모두 자기 빌더에게 갑니다.
   - **빌더와 이야기하는 중일 때:** 빌더에게 말한 뒤 60초 동안은 이어지는 말(`make it bigger`, `thanks`)이 그 빌더에게 갑니다(`brickcraft_ai_talk_window`).
   - 다른 사람 이름을 부르는 말(`Leona, look!`)이나 다른 빌더 이름이 들어간 말은 빌더가 받지 않습니다.
-- 질문이나 그냥 하는 말(`what doesn't look like a building?`, `thanks!`)에는 말로 답합니다. 부탁한 사람 앞 16×16칸을 Claude에게 보여 주고 한두 문장으로 답하며, 사실상 부탁이면(`can we clean this up?`) 그 일도 합니다. 설계 API가 꺼져 있으면 짧게만 답합니다.
+- 질문이나 그냥 하는 말(`what doesn't look like a building?`, `thanks!`)에는 말로 답합니다. 부탁한 사람 앞 16×16칸을 Claude에게 보여 주고 한두 문장으로 답하며, 사실상 부탁이면(`can we clean this up?`) 그 일도 합니다. 설계 API가 켜져 있으면 짓기·고치기가 분명한 말(`build ...`, `fix ...`, `come here`)이 아닌 것은 모두 이렇게 먼저 Claude가 듣고, 한 번에 여러 일(최대 4개)로 바꿉니다: `make it taller, and I'm out of blue bricks` → 방금 지은 집을 높이고 남색 브릭을 줌, `help me get ready for a party` → 탁자와 글자 간판을 짓고 브릭을 줌. **주인**의 말은 돌려 말해도 알아듣고 도움이 되는 일이면 바로 하며, 다른 사람에게는 부탁한 것만 하고 나머지는 제안만 합니다. 설계 API가 꺼져 있으면 짧게만 답합니다.
+- **빌더는 대화를 기억합니다.** 빌더에게 한 말과 빌더가 한 말을 최근 16줄까지, 30분 동안 기억해(`brickcraft_ai_memory`, 초) Claude에게 보내는 짓기·고치기·대화 요청에 함께 넣습니다. 그래서 `what color did you make it?`, `make it bigger`, `do that again`의 "it"·"that"이 무엇인지 압니다. 기억은 빌더마다 저장되어 서버를 다시 켜도 남습니다.
+- **브릭 주기:** `Lumi, give me 24 red bricks`, `Lumi, give Leona 10 blue bricks`, `파란 브릭 줘`. 기본 8색만 한 번에 99개까지 주며, 초록·갈색·황갈색은 풍경에서 수확해야 한다고 알려 줍니다. 주인만 시킬 수 있습니다.
 - 채팅에는 컴퓨터 이름이 아니라 고른 사람 이름이 이름표 색으로 나옵니다(`<Dad> hi`).
-- 누구나 다른 사람의 빌더에게도 부탁할 수 있지만 주인의 부탁이 먼저입니다. `stop`, `undo`, 이름 바꾸기, `auto`/`maintenance` 켜고 끄기는 주인만 합니다. 빌더가 있는 세계에서 부탁해야 합니다(다른 세계에서는 자기 빌더에게 부탁).
+- 누구나 다른 사람의 빌더에게도 부탁할 수 있지만 주인의 부탁이 먼저입니다. `stop`, `undo`, 브릭 주기, 이름 바꾸기, `auto`/`maintenance` 켜고 끄기는 주인만 합니다. 빌더가 있는 세계에서 부탁해야 합니다(다른 세계에서는 자기 빌더에게 부탁).
 - 주인이 다른 세계로 가면 빌더도 따라갑니다. 짓던 것은 비계를 회수한 뒤 남겨 두었다가 그 세계로 돌아오면 마저 짓습니다. 멀리(24칸 넘게) 떨어지면 주인 옆으로 건너옵니다.
 - 빌더끼리는 짓는 자리가 겹치지 않고(짓는 중이거나 기다리는 건물 자리를 피함), 다른 빌더가 선 칸에는 놓지 않고 기다립니다.
 - 플레이어 빌더는 혼자 짓지 않습니다. 주인이 `Lumi, auto on`이라고 하면 조용할 때 주인 앞에 작은 건물을 짓습니다(`brickcraft_ai_bot_auto = true`로 기본값 변경).

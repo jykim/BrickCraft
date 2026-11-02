@@ -865,6 +865,11 @@ local function asks_for_work(low)
   if is_edit(low) then return true end
   for _,w in ipairs(BUILD_WORDS) do if find_name(low,w) then return true end end
 end
+-- Plainly a build or a fix ("help me find Leona" isn't): goes to the designer without talking first.
+local function clear_work(low)
+  if is_edit(low) or low:find("^come") or low:find("이리") then return true end
+  for _,w in ipairs(BUILD_WORDS) do if w~="help" and find_name(low,w) then return true end end
+end
 -- A question or remark rather than a request ("what doesn't look like a building?",
 -- "thanks!"): the builder answers in words.
 local QUESTION_WORDS={what=1,why=1,how=1,which=1,when=1,is=1,are=1,was=1,were=1,["do"]=1,does=1,did=1,
@@ -933,13 +938,16 @@ Change only what the request is about and keep everything else as it is. Match t
 ]]..SYSTEM:match("(Pieces:.-)\n\nKeep it under")..(SYSTEM:match("(\nMore pieces.*)$") or "")
 
 -- Talking: a question or remark, answered with what the builder sees in front of the person.
-local SYSTEM_CHAT=[[You are jms, the friendly AI builder in BrickCraft, a toy-brick sandbox a family (kids included) plays together. Someone said something to you in chat that isn't a plain build request: a question, a remark, a thank-you. You get what is in front of them and what you are doing.
+local SYSTEM_CHAT=[[You are jms, the friendly AI builder in BrickCraft, a toy-brick sandbox a family (kids included) plays together. Someone said something to you in chat that isn't a plain build request: a question, a remark, a thank-you, or something they want help with. You get what was said in chat with you lately, what is in front of them, what you are doing, and whether they are your owner.
 
 The area is a grid: x and z from 0 to 15 (x east, z north), y from -1 (the ground) to 8, one line per thing: "<piece> <color> x y z turn", "grass|dirt|trunk|leaves x y z" (scenery), "hole x y z" (a missing ground cell), "gap x y z" (an empty cell between bricks), "track straight|curve <color> x y z turn" (train track), "cart x y z moving|stopped [ridden by <name>]" (a train cart), "machine motor|battery|axle|brick|gear8|gear24|gear40 <color> x y z turning|still|forward|off|back" (technic machine parts), "player <name> x y z facing <direction>". You also hear what they are holding and whether they are riding a cart.
 
 Answer with one JSON object and nothing else (no prose, no code fence):
 - "say": one or two short, friendly sentences back to them, in their language. When they ask about what's around, talk about what you see in the list, in words a kid understands (no coordinates).
-- "do": only if they asked you to do something, even indirectly ("can we clean this up?"): the request in plain words for you to carry out, like "build a red house", "fill the holes here", "take away the loose bricks here" or "fix the roof here". Otherwise leave it out. Never do something they didn't ask for; offer it in "say" instead.]]
+- "do": a list of steps for you to carry out, in order, each one plain words from what you can do (at most 4; leave it out when there's nothing to do):
+  "build <anything>" (a house, a tree, a word sign, anything they imagine), "build <it> next to <name>", "fill the holes here", "fix|finish|change|decorate|paint|tidy <what> here" or "take away <what> here" (on what is already built in front of them), "undo" (take down your last build), "stop", "come here", "give me <number> <color> bricks" or "give <name> <number> <color> bricks" (up to 99 of coral, gold, mint, sky, violet, cream, navy or rose; red, blue, yellow, purple, white, black and pink are fine too; green, brown and tan come from harvesting the landscape with the separator), "where is <name>", "who's here", "status", "report <what's wrong in the game>", "maintenance on|off", "auto on|off", "your name is <name>".
+
+Your owner is the one you work for: help them with anything they want. Do what they ask even when they only hint at it ("I'm out of red bricks": give them red bricks; "this place is a mess": tidy it; "make it bigger": change what you built last), and when it would clearly help what they're doing, just do it. Use the chat so far to tell what "it", "that" or "again" means. When what they want isn't on the list, do the steps that come closest and say what you can't do, or tell them how to do it themselves with the controls below. Ask back only when you really can't tell what they mean. Help everyone else too, but don't do anything they didn't ask for; offer it in "say" instead.]]
 
 -- How-to questions ("how do I move the cart?") are answered from the game's own help screen.
 do
@@ -957,7 +965,7 @@ Trains: the Train Track, Train Cart, Train Motor and Battery Box are pieces like
 
 Technic: the Technic row has the Technic Brick (a brick with an axle through it), the Axle and Gears with 8, 24 and 40 teeth; pick one, hold a color and right click, and an axle or gear points the way you look. A Train Motor and Battery Box from the Trains row put on the ground make a machine: the motor turns what's in front of it when the battery box next to it is switched on (right click the box with the separator: forward, off, back). Turning goes along axles, gears and technic bricks in a line, and from gear to gear when they fit together. Gears have their real sizes (8 teeth is half a cell across, 24 is one and a half, 40 is two and a half), so they mesh at set spacings: an 8 right next to a 24, a 24 two cells from a 40, two 24s or an 8 and a 40 on a diagonal; a gear that would bump another won't go in. Each gear turns the next one the other way, and a small gear turns a big one slower (8 teeth to 24: a third as fast; 24 to 40: three fifths), all the way down the train. Two motors turning one machine different ways jam it; switching one the other way frees it. The separator's right click points an axle or gear another way. A locomotive can have a gearbox: right click it with a Gear piece twice, the first gear goes on the motor and the second on the drive wheels, and the ratio sets its speed (24 to 24 is 3 cells a second, 8 to 24 a third of that, 24 to 8 three times faster, up to 7); the gears and drive wheels turn on its side. The Passenger Car piece is a cart with a cabin that hooks on like any car. There is a Technic Lab world (I > Switch world) with a gear train, a windmill, a jammed machine to fix, and a roller coaster: a motor turns an 8, the 8 turns a 24 beside a chain lift that pulls three cars up six levels, and from the top gravity alone takes them down the drop (they speed up going down and slow down going up), over a small hill and round to the lift again. Jump onto a car to ride it.
 
-If something in the game seems broken, or they wish it did something new, you can't change the game yourself, but tell them to say "<your name>, report <what's wrong>": you'll send it to the people who make the game, to fix later.]]
+You can't change the game itself, but you collect bugs and ideas for the people who make it: each "report" step becomes an issue on GitHub for them to fix or build later. When something in the game seems broken (it acts wrong, gets stuck, looks wrong, or doesn't do what the controls above say), or someone wishes the game had something new (a piece, a world, a thing that moves, a sound), add a "report <what's wrong or what they want, in a few plain words>" step without being asked, and say in "say" that you wrote it down for the game's makers. Use the chat so far: "report that" means what they were just talking about. When you can also help right now (fix the track, build a stand-in), do that too, but still report it: the game itself needs fixing or the new thing, and only its makers can do that. Don't report it when they only don't know how to do something (tell them how), when it's only their own build that's missing bricks or looks wrong, or when it's already been reported in the chat so far.]]
 end
 
 -- Bug reports and ideas players give their builders go to the game's makers: each is
@@ -991,7 +999,7 @@ C.register_globalstep(function(dt)
 end)
 brickcraft.reports={queue=queue_report,dir=REPORTS,system=[[You write GitHub issues for BrickCraft, a toy-brick sandbox game a family (kids included) plays together. A player told their AI builder about something wrong in the game, or an idea for it. Turn their words into an issue the game's developer can act on later.
 
-You get their exact words, where they were and what they held, and the area in front of them as a list (x and z 0-15, y -1 ground to 8; "<piece> <color> x y z turn", "track straight|curve x y z turn", "cart x y z moving|stopped", "player <name> ...").
+You get what was said in chat lately (it can explain what "that" means, but don't copy anyone's chat into the issue), their exact words, where they were and what they held, and the area in front of them as a list (x and z 0-15, y -1 ground to 8; "<piece> <color> x y z turn", "track straight|curve x y z turn", "cart x y z moving|stopped", "player <name> ...").
 
 Answer with one JSON object and nothing else:
 - "title": a short, specific issue title in English (under 70 characters).
@@ -1114,7 +1122,7 @@ local lib={
   shapes=shapes,standable=standable,storage=storage,stored_name=stored_name,survey=survey,
   takedown=takedown,turns_toward=turns_toward,use_claude=use_claude,walkable=walkable,where=where,
   worker_named=worker_named,workers=workers,SYSTEM_CHAT=SYSTEM_CHAT,is_talk=is_talk,
-  parse_request=parse_request,describe=describe}
+  parse_request=parse_request,describe=describe,color_words=color_words,clear_work=clear_work}
 -- One builder per owner: jms (owner "jms", the host's, in the Workshop) or a player's.
 -- Each has its own body, bricks, jobs and saved state.
 local function new_worker(owner)
@@ -1142,10 +1150,33 @@ local function new_worker(owner)
   local TAG=style and style.tag or "#f5872c"
   local sk=w.jms and "" or "_"..owner -- storage keys (jms keeps the ones from before there were more)
   local function id() return w.name.." (AI)" end -- the player name for the callbacks; never a real connection
-  local function say(text)
+  -- What was said to it and what it said, for MEMORY seconds (saved, so it lasts a restart):
+  -- every Claude request gets it, so "make it taller" knows what "it" is.
+  local MEMORY=tonumber(C.settings:get("brickcraft_ai_memory")) or 1800
+  local talk=C.deserialize(storage:get_string("ai_talk"..sk)) or {}
+  local heard -- the line it is answering now: already in the request, so not in the memory too
+  local function remember(who,text)
+    local line={at=os.time(),who=who,text=text}
+    talk[#talk+1]=line
+    while #talk>16 do table.remove(talk,1) end
+    storage:set_string("ai_talk"..sk,C.serialize(talk))
+    return line
+  end
+  -- Its line from someone, in the memory (handle has no upvalues to spare, so on w).
+  function w.hear(who,text) heard=remember(who,text) end
+  local function recall()
+    local rows={}
+    for _,l in ipairs(talk) do
+      if l~=heard and os.time()-l.at<=MEMORY then rows[#rows+1]="<"..l.who.."> "..l.text end
+    end
+    return #rows==0 and "" or "What was said in chat with you lately, oldest first:\n"..table.concat(rows,"\n").."\n\n"
+  end
+  -- filler: "let me think..." lines, not worth remembering.
+  local function say(text,filler)
     quiet=0
     C.chat_send_all(C.colorize(TAG,"<"..w.name.."> ")..text)
     C.log("action","[ai] "..w.name..": "..text)
+    if not filler then remember(w.name,text) end
   end
   local function owner_pl() return not w.jms and owner_player(owner) end
   local function is_owner(name)
@@ -1508,20 +1539,26 @@ local function new_worker(owner)
     return true
   end
 
-  -- Asks Claude as this builder.
+  -- Asks Claude as this builder, with what was said lately.
   local function think(system,content,done,ok)
     thinking=thinking+1
     local whose=w.jms and "the" or style.label.."'s"
     system=system:gsub("You are jms, the friendly AI builder",function() return "You are "..w.name..", "..whose.." friendly AI builder" end)
+    content=recall()..content
     ask_claude(system,content,function(reply) thinking=thinking-1; done(reply) end,ok)
   end
   local handle -- defined below; talking can lead to work
 
   -- A bug report or idea for the game's makers (see queue_report): Claude writes it up as
   -- an issue, with their words quoted and what was around them.
-  local function report(name,text)
+  -- via_chat: talking turned it into a report, so their own words are the line it heard.
+  local function report(name,text,via_chat)
     local who=display_name(name)
-    local words=text:gsub("^[Rr]eport%s*[:,]?%s*",""):gsub("^[Bb]ug%s*[:,]?%s*","")
+    local said=via_chat and heard and heard.text or text
+    local low=text:lower()
+    local idea=low:find("^idea") or low:find("^feature") or low:find("아이디어") -- without Claude, the label
+    local words=text:gsub("^[Rr]eport%s*[:,]?%s*",""):gsub("^[Bb]ug%s*[:,]?%s*",""):gsub("^[Ii]dea%s*[:,]?%s*","")
+      :gsub("^[Ff]eature%s*[:,]?%s*","")
     if #words<4 then
       say("Tell me what's wrong, "..who..": \""..w.name..", report the cart stops on curves\".")
       return
@@ -1536,7 +1573,7 @@ local function new_worker(owner)
         "; holding "..(held~="" and held or "nothing")..(pl:get_attach() and "; riding a cart" or "")
       if same_world(pl:get_pos(),base()) then area=describe(area_of(name)) end
     end
-    local quote="> "..text:gsub("\n"," ")
+    local quote="> "..said:gsub("\n"," ")
     local function post(title,body,kind)
       title=title:gsub("[%c]"," "):sub(1,80)
       local full=body.."\n\n---\n**In the game:**\n\n"..quote.."\n\n"..facts:gsub("\n","  \n")..
@@ -1544,13 +1581,15 @@ local function new_worker(owner)
       brickcraft.reports.queue(title,full,kind=="idea" and "enhancement" or "bug",function(url)
         say("Your report is on GitHub now, "..who..": "..url)
       end)
-      say("Thanks "..who.."! I wrote it down for the game's makers: \""..title.."\". It goes on GitHub soon.")
+      -- Talking already said it was written down.
+      if not via_chat then say("Thanks "..who.."! I wrote it down for the game's makers: \""..title.."\". It goes on GitHub soon.") end
     end
-    if not use_claude then post(words:sub(1,70),"A player reported this from inside the game.","bug") return end
-    say("Okay "..who..", I'm writing that down...")
-    think(brickcraft.reports.system,facts.."\n\nArea in front of them:\n"..area.."\n\n"..who.." says: "..text,function(reply)
+    if not use_claude then post(words:sub(1,70),"A player reported this from inside the game.",idea and "idea" or "bug") return end
+    if not via_chat then say("Okay "..who..", I'm writing that down...",true) end
+    think(brickcraft.reports.system,facts.."\n\nArea in front of them:\n"..area.."\n\n"..who.." says: "..said..
+      (said~=text and "\n(Their builder took it as: "..text..")" or ""),function(reply)
       if reply then post(reply.title,reply.body,reply.kind)
-      else post(words:sub(1,70),"A player reported this from inside the game.","bug") end
+      else post(words:sub(1,70),"A player reported this from inside the game.",idea and "idea" or "bug") end
     end,function(r) return type(r.title)=="string" and type(r.body)=="string" end)
   end
 
@@ -1622,12 +1661,54 @@ local function new_worker(owner)
     end
     local doing=job and "You are "..(job.kind=="build" and "building a " or "taking down the ")..job.title..
       " ("..(job.i-1).." of "..#job.list.." pieces).\n" or "You aren't building anything right now.\n"
-    think(SYSTEM_CHAT,seen..doing..who.." says: "..text,function(reply)
+    local whose=w.jms and "You work for everyone in the workshop.\n" or is_owner(name) and who.." is your owner.\n" or
+      style.label.." is your owner, not "..who..": only "..style.label.." can have you stop, undo, give bricks away, rename you or change your modes.\n"
+    think(SYSTEM_CHAT,seen..doing..whose..who.." says: "..text,function(reply)
       if not reply then say("Sorry "..who..", I didn't catch that. Ask me to build or fix something!") return end
       say(tostring(reply.say):sub(1,240))
-      local todo=type(reply["do"])=="string" and reply["do"]:gsub("^%s+",""):gsub("%s+$","") or ""
-      if todo~="" then handle(name,todo,"do") end
+      local steps=reply["do"]
+      if type(steps)~="table" then steps={steps} end
+      for i,step in ipairs(steps) do
+        step=type(step)=="string" and step:gsub("^%s+",""):gsub("%s+$","") or ""
+        if step~="" and i<=4 then handle(name,step,"do") end
+      end
     end,function(r) return type(r.say)=="string" end)
+  end
+
+  -- Bricks from its own stock (which never runs out) to the asker, or to someone it names:
+  -- the starter colors only, since green, brown and tan come from harvesting.
+  function w.give(name,text)
+    local who=display_name(name)
+    if not allowed(name,"give my bricks away") then return end
+    local low=text:lower()
+    local to=named_in(text,around())
+    local pl=C.get_player_by_name(to and to.name or name)
+    if not pl then say("I can't find "..(to and to.label or "you")..", "..who..".") return end
+    local color,at
+    for _,cw in ipairs(lib.color_words) do
+      for _,word in ipairs(cw[2]) do
+        local s=find_word(low,word)
+        if s and (not at or s<at) then color,at=cw[1],s end
+      end
+    end
+    if not color then say("Which color, "..who.."? \""..w.name..", give me 24 red bricks\".") return end
+    if color=="green" or color=="brown" or color=="tan" then
+      say("I don't have "..color.." to give, "..who..". Those come from the landscape: punch "..
+        (color=="green" and "leaves or grass" or color=="brown" and "tree trunks" or "dirt").." with the separator.")
+      return
+    end
+    local n=math.max(1,math.min(tonumber(low:match("%d+")) or 24,99))
+    local left=pl:get_inventory():add_item("main","brickcraft:"..color.." "..n):get_count()
+    local got=n-left
+    local whom=pl:get_player_name()==name and "you" or display_name(pl:get_player_name())
+    if got==0 then say((whom=="you" and "Your" or whom.."'s").." bricks are full, "..who..". Put some down first!") return end
+    say(either("Here you go, "..who.."! ","Sure, "..who.."! ")..got.." "..color.." bricks for "..whom..
+      (left>0 and " (that's all that fit)." or "."))
+  end
+
+  local function talks_first(low,how)
+    if use_claude then return not lib.clear_work(low) end
+    return not asks_for_work(low) and (is_talk(low) or how=="unnamed")
   end
 
   -- how: "named" (it was called by name), "unnamed" (a follow-up, or its owner playing
@@ -1636,6 +1717,7 @@ local function new_worker(owner)
     text=text:gsub("^%s+",""):gsub("%s+$","")
     local low=text:lower()
     local who=display_name(name)
+    if how~="do" then w.hear(who,text) end
     idle=0 -- someone's talking to it: not a quiet moment to start something of its own
     -- In war mode it is its owner's commander: their words are orders for their knights
     -- first (brickcraft_war); what isn't about the battle comes back here.
@@ -1647,7 +1729,7 @@ local function new_worker(owner)
       say("Hi "..who.."! Ask me to build anything: \""..w.name..", build a big red castle\". I know "..
         list_blueprints()..(use_claude and ", and I can try anything else you imagine" or "")..
         ". Say \"next to Leona\" to build by someone. Something broken, or an idea for the game? \""..w.name..
-        ", report the cart stops on curves\". Also: \""..w.name..", stop\", \"undo\", \"come here\", "..
+        ", report the cart stops on curves\". Also: \""..w.name..", stop\", \"undo\", \"come here\", \"give me 24 red bricks\", "..
         "\"where is Leona?\", \"who's here?\", \"status\", \"auto off\". For what's already built: "..
         "\"fill the holes here\", \"fix the roof here\", \"maintenance off\"."..
         (w.jms and "" or " "..style.label.." can rename me: \""..w.name..", your name is ...\" or /botname."))
@@ -1659,8 +1741,9 @@ local function new_worker(owner)
       return
     end
     if low:find("^report") or low:find("^bug") or low:find("report th") or low:find("report a ") or
+       low:find("^idea") or low:find("^feature") or low:find("아이디어") or
        low:find("버그") or low:find("신고") or low:find("이슈") then
-      report(name,text)
+      report(name,text,how=="do")
       return
     end
     local new=text:match("^[Yy]our name is%s+(.+)$") or text:match("^[Cc]all yourself%s+(.+)$") or
@@ -1695,6 +1778,11 @@ local function new_worker(owner)
         end
       end
       say(#others==0 and "It's just you and me here, "..who.."." or "I can see "..table.concat(others,", ")..".")
+      return
+    end
+    if (low:find("^give") or low:find("^can i have") or low:find("^i need") or low:find("줘")) and
+       (low:find("brick") or low:find("브릭") or low:find("벽돌")) then
+      w.give(name,text)
       return
     end
     if low:find("^stop") or low:find("^cancel") or low:find("그만") then
@@ -1743,8 +1831,9 @@ local function new_worker(owner)
       return
     end
     -- A question or remark gets an answer, and so does anything said without its name
-    -- that doesn't ask for work.
-    if how~="do" and not asks_for_work(low) and (is_talk(low) or how=="unnamed") then return chat(name,text) end
+    -- that doesn't ask for work. With Claude, anything that isn't plainly a build or a fix
+    -- is talked over first, and talking can turn it into steps ("do").
+    if how~="do" and talks_first(low,how) then return chat(name,text) end
     -- Building and fixing happen where the builder is: jms in the Workshop, a player's
     -- builder in its owner's world.
     local asker=C.get_player_by_name(name)
@@ -1783,7 +1872,7 @@ local function new_worker(owner)
         say("Sorry "..who..", my designer isn't answering, so I can only fill holes: \""..w.name..", fill the holes here\".")
         return
       end
-      say("Let me have a look, "..who.."...")
+      say("Let me have a look, "..who.."...",true)
       think(SYSTEM_EDIT,"The area in front of "..who..":\n"..describe(o).."\n\nRequest from "..who..": "..text,function(reply)
         idle=0
         apply_edit(reply,o,name)
@@ -1807,7 +1896,7 @@ local function new_worker(owner)
         or ("Got it, "..who..". The "..title.." is next in line."))
     end
     if not use_claude then return fallback() end
-    say("Hmm, let me think about that, "..who.."...")
+    say("Hmm, let me think about that, "..who.."...",true)
     think(SYSTEM,"Build request from "..who..": "..text,function(reply)
       idle=0
       local turns=from and turns_toward(near,from) or 0
@@ -2118,6 +2207,7 @@ local function new_worker(owner)
   function w.yaw() return bot_ok() and bot:get_yaw() or 0 end
   w.handle,w.apply_edit,w.inventory,w.stats=handle,apply_edit,inv,stats
   w.state=function() return {job=job,queue=queue,last=last,thinking=thinking,auto_count=auto_count,bot=bot_ok() and bot,mode=mode} end
+  w.recall=recall
   w.set_auto=function(on) auto_on=on end
   w.set_maintenance=function(on) maint_on=on end
   return w
