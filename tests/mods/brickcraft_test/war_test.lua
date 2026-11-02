@@ -291,7 +291,23 @@ local function run(dad,kid)
   f=W.bot_fight(dad,bot.object)
   assert(f and f.role=="soldier" and f.to,"with no knights Dad bot goes in with its sword: "..(f and f.role or "no fight"))
   log("BOT FIGHTS: Dad bot lobbed cannonballs as commander, then went in as a soldier when his knights were gone")
-  for _=1,10 do W.hit(W.armies[rid].boss.object,dad,"sword") end
+  -- The sword Dad holds shows in his hand.
+  wait(2,function() local d=W.on(dad); return d.held_item=="brickcraft:sword" and d.held:get_attach()==dad end,
+    function() return "Dad's sword isn't in his hand: "..tostring(W.on(dad).held_item) end)
+  log("WEAPON: Dad's sword shows in his hand")
+  -- Teams: Dad's knights leave blue Leona alone; once she's green, they go for her.
+  local team=C.registered_chatcommands.team.func
+  W.on(kid).shield=0; kid:set_pos(vector.offset(dad:get_pos(),1.5,0,0))
+  assert(W.command(DAD,"more knights",said),"Dad's knights back")
+  local was=hp(kid); sleep(3); assert(hp(kid)==was,"knights leave a teammate alone")
+  team(KID,"green")
+  assert(W.on(kid).team=="green" and kid:get_nametag_attributes().color.g>200,"Leona is green")
+  was=hp(kid)
+  wait(12,function() return hp(kid)~=nil and hp(kid)<was end,function() return "Dad's knights never went for green Leona" end)
+  log(("TEAMS: Dad's knights left blue Leona alone; on the green team they went for her (%d/10)"):format(hp(kid) or 0))
+  team(KID,"blue"); W.on(kid).hp=10
+  -- (Dad's knights and bot may have beaten the army already.)
+  if W.armies[rid] then for _=1,10 do W.hit(W.armies[rid].boss.object,dad,"sword") end end
   sleep(2)
 
   -- Leaving war: bricks back exactly, cannon and knight gone.
@@ -334,7 +350,7 @@ local function run(dad,kid)
   cannon_item:get_definition().on_place(cannon_item,dad,{type="node",under={x=-4,y=-1,z=0},above={x=-4,y=0,z=0}})
   kn_item=dinv:get_stack("main",4)
   kn_item:get_definition().on_place(kn_item,dad,{type="node",under={x=-1,y=-1,z=1},above={x=-1,y=0,z=1}})
-  kid:set_pos({x=-1,y=0,z=-1})
+  kid:set_pos({x=-3,y=0,z=-1}); face(kid,WEST) -- looking at Dad, his sword in hand
   log("PASS: war mode works between two players")
   sleep(8)
   C.request_shutdown("BrickCraft war checked",false,1)

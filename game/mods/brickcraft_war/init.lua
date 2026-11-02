@@ -40,9 +40,14 @@ local function label(p)
   local st=brickcraft.styles[brickcraft.playing_as(p) or ""]
   return st and st.label or p:get_player_name()
 end
+-- Teams: everyone starts blue, all on one side against the Red Army; /team green puts a
+-- player's knights and AI builder against the blue players and theirs (and theirs
+-- against them). Players can hit players on any team, as before.
+local TEAMS={blue={tag="#8fd0ff"},green={tag="#7be08a"}}
+local function team_of(name) return war[name] and war[name].team or "blue" end
 local function side_of(obj)
   if not obj then return nil end
-  if obj:is_player() then return "blue" end
+  if obj:is_player() then return team_of(obj:get_player_name()) end
   local ent=obj:get_luaentity()
   return ent and ent._team
 end
@@ -59,6 +64,8 @@ local function body_tex(player)
 end
 local function condition(player)
   local s=war[player:get_player_name()]
+  -- The nametag in the team's color, so everyone sees who's on which side.
+  player:set_nametag_attributes({color=s and TEAMS[s.team].tag or brickcraft.get_style(player).tag})
   local hp=s and s.hp or MAX_HP
   player:set_physics_override({speed=hp<=LOW and .6 or hp<=MAX_HP/2 and .85 or 1,jump=hp<=LOW and .85 or 1})
   local tex=body_tex(player)
@@ -71,7 +78,7 @@ local function update_hud(player)
   local s=war[player:get_player_name()]
   if not s then return end
   condition(player)
-  local text="WAR   1 Sword   2 Cannon (left click: fire)   3 Boot   4 Knight      Lives: "..s.lives.."      Cannonballs: "..s.ammo..
+  local text="WAR ("..s.team.." team)   1 Sword   2 Cannon (left click: fire)   3 Boot   4 Knight      Lives: "..s.lives.."      Cannonballs: "..s.ammo..
     "      Knockouts: "..s.kos.."      /battle: Red Army   /war: stop"
   if s.hud.hearts then
     player:hud_change(s.hud.hearts,"number",s.hp)
@@ -116,8 +123,8 @@ end
 
 -- target takes a move from attacker (a player or knight, or nil for a stray cannonball);
 -- dir is the way it flies (attacker to target when nil); side is the attacker's (a
--- cannonball's attacker may be gone). Nobody hurts their own side, but players can fight
--- players. Returns true when it landed.
+-- cannonball's attacker may be gone). Nobody hurts their own side (a player's is their
+-- team), but players can always fight players. Returns true when it landed.
 local function hit(target,attacker,move,dir,side)
   local m=MOVES[move]
   local tp=target:get_pos()
@@ -277,7 +284,7 @@ local function fire(pos,vel,shooter,from,side)
   if not obj then return end
   obj:set_velocity(vel); obj:set_acceleration({x=0,y=-BALL_GRAVITY,z=0})
   local ent=obj:get_luaentity()
-  ent._shooter,ent._from,ent._side=shooter,from,side or (shooter and "blue")
+  ent._shooter,ent._from,ent._side=shooter,from,side or (shooter and team_of(shooter))
   C.add_particlespawner({amount=10,time=.1,minpos=pos,maxpos=pos,minvel={x=-1,y=.5,z=-1},maxvel={x=1,y=1.5,z=1},
     minexptime=.5,maxexptime=1,minsize=4,maxsize=7,texture="brickcraft_smoke.png"})
   return obj
@@ -400,6 +407,7 @@ C.register_tool(":brickcraft:cannon",{
 local LOOKS={
   practice={tex="brickcraft_person_knight.png",name="Practice Target",tag="#d8dde6",hp=MAX_HP},
   blue={tex="brickcraft_person_blueknight.png",name="Blue Knight",tag="#8fd0ff",hp=MAX_HP,speed=3.4,sight=12},
+  green={tex="brickcraft_person_blueknight.png^[colorize:#2fae45:150",name="Green Knight",tag="#7be08a",hp=MAX_HP,speed=3.4,sight=12},
   red={tex="brickcraft_person_redknight.png",name="Red Knight",tag="#ff7a6a",hp=6,speed=2.6,sight=14},
   boss={tex="brickcraft_person_redboss.png",name="Red Commander",tag="#ff5040",hp=20,speed=2,sight=20,size=1.3},
 }
@@ -418,7 +426,7 @@ local function dress(self)
     collisionbox={-.3*k,0,-.3*k,.3*k,1.75*k,.3*k},selectionbox={-.3*k,0,-.3*k,.3*k,1.75*k,.3*k}})
   knight_tag(self)
 end
--- Puts up a knight standing on the cell pos; team is nil (practice), "blue" or "red".
+-- Puts up a knight standing on the cell pos; team is nil (practice), "red", or a player's team.
 local function spawn_knight(pos,team,opts)
   local obj=C.add_entity({x=pos.x,y=pos.y-.5,z=pos.z},"brickcraft:knight")
   if not obj then return end
@@ -437,7 +445,7 @@ local function flat_dist(a,b) return math.sqrt((a.x-b.x)^2+(a.z-b.z)^2) end
 local function foe_of(self,obj)
   if obj:is_player() then
     local s=war[obj:get_player_name()]
-    return self._team=="red" and s and s.shield<now()
+    return self._team and s and s.shield<now() and s.team~=self._team
   end
   local e=obj:get_luaentity()
   return e and e.name=="brickcraft:knight" and not e._down and e._team and e._team~=self._team
@@ -506,13 +514,13 @@ end
 local MODES={follow=true,charge=true,flank=true,hold=true,guard=true,retreat=true}
 local blue_orders={}
 local function order_of(self)
-  if self._team=="blue" then return blue_orders[self._owner or ""] end
+  if self._owner then return blue_orders[self._owner] end
   local army=armies[self._army or 0]
   return army and army.order
 end
 -- Who the knight stays by: its owner, or its Commander.
 local function leader_of(self)
-  if self._team=="blue" then return self._owner and C.get_player_by_name(self._owner) end
+  if self._owner then return C.get_player_by_name(self._owner) end
   local army=armies[self._army or 0]
   return army and alive(army.boss) and army.boss.object
 end
@@ -616,7 +624,7 @@ local function think(self)
   -- follow (and red with no order): fight what it sees, else back by the leader.
   local foe,fd=find_foe(self,p)
   if foe then engage(self,foe,fd,p)
-  elseif self._team=="blue" then stay_by(self,lp,p,3)
+  elseif self._owner then stay_by(self,lp,p,3)
   else
     local home=self._home
     if leader then home=vector.add(lp,self._offset or {x=0,y=0,z=0}) end
@@ -649,7 +657,7 @@ C.register_entity(":brickcraft:knight",{
     self._hp=self._hp-m.dmg
     if self._hp<=0 then
       -- Falls on its back, away from the hit.
-      self._down=now()+(self._team=="blue" and 5 or self._team=="red" and 1.5 or 3)
+      self._down=now()+(self._owner and 5 or self._team=="red" and 1.5 or 3)
       self._gone=self._team=="red"
       self.object:set_rotation({x=-math.pi/2,y=self.object:get_yaw(),z=0})
       local by=attacker and attacker:is_player() and war[attacker:get_player_name()]
@@ -711,7 +719,7 @@ C.register_tool(":brickcraft:knight",{
       return stack
     end
     local def=C.registered_nodes[C.get_node(pointed.under).name]
-    spawn_knight((def and def.buildable_to) and pointed.under or pointed.above,"blue",
+    spawn_knight((def and def.buildable_to) and pointed.under or pointed.above,team_of(name),
       {owner=name,yaw=placer:get_look_horizontal()})
     return stack
   end,
@@ -769,7 +777,7 @@ end
 local function blue_knights(name)
   local out={}
   for ent in pairs(things) do
-    if ent._team=="blue" and ent._owner==name and ent.object:get_pos() then out[#out+1]=ent end
+    if ent.name=="brickcraft:knight" and ent._owner==name and ent.object:get_pos() then out[#out+1]=ent end
   end
   return out
 end
@@ -906,17 +914,17 @@ local function status(name,player)
       reds[#reds+1]=("a Red Army %s of you: Commander %d/20, %d knights"):format(rel(p,bp),army.boss._hp,#red_knights(id))
     end
   end
-  return ("You have %d blue knight%s (order: %s). %s."):format(#mine,#mine==1 and "" or "s",o and o.mode or "follow",
+  return ("You're on the %s team with %d knight%s (order: %s). %s."):format(war[name].team,#mine,#mine==1 and "" or "s",o and o.mode or "follow",
     #reds>0 and table.concat(reds,"; ") or "No Red Army near: /battle calls one")
 end
 -- A player's AI builder fights beside them. As a soldier (no knights of theirs up, or the
 -- Red Army right on them) it goes for the closest foe with its sword; as a commander it
 -- stays by them behind the knights and lobs cannonballs, the Red Commander first. Returns
 -- nil with no foe near, else {role="soldier"|"commander", to=where to walk (nil: stand)}.
-local BOT={_team="blue"}
 local function bot_fight(player,bot)
   local name=player:get_player_name()
   if not war[name] then return end
+  local BOT={_team=team_of(name)}
   local pp,bp=player:get_pos(),bot:get_pos()
   local foe,fd=find_foe(BOT,bp,16,pp)
   if not foe then return end
@@ -926,7 +934,9 @@ local function bot_fight(player,bot)
   local role=(#blue_knights(name)==0 or close) and "soldier" or "commander"
   local function strike(f)
     face(bot,vector.subtract(f:get_pos(),bp))
-    if (st._swung or 0)+MOVES.sword.cool*1.5<t then st._swung=t; hit(f,bot,"sword",nil,"blue") end
+    -- A knight's blow for players (it can't be hurt back), its sword for knights.
+    local move=f:is_player() and "knight" or "sword"
+    if (st._swung or 0)+MOVES[move].cool*1.5<t then st._swung=t; hit(f,bot,move,nil,BOT._team) end
   end
   if role=="soldier" then
     foe,fd=close or foe,close and vector.distance(bp,close:get_pos()) or fd
@@ -937,7 +947,7 @@ local function bot_fight(player,bot)
   if near then strike(near); return {role=role} end
   local aim=find_foe(BOT,bp,20,nil,"commander") or foe
   face(bot,vector.subtract(aim:get_pos(),bp))
-  if (st._lobbed or 0)+2.5<t then st._lobbed=t; lob(vector.offset(bp,0,2,0),aim,bot,"blue") end
+  if (st._lobbed or 0)+2.5<t then st._lobbed=t; lob(vector.offset(bp,0,2,0),aim,bot,BOT._team) end
   if flat_dist(bp,pp)>4 then return {role=role,to=pp} end
   return {role=role}
 end
@@ -949,7 +959,7 @@ local function reinforce(name,player)
   for i=1,n do
     local a=i*2*math.pi/n
     local g=ground_at(math.floor(p.x+math.cos(a)*2+.5),p.y,math.floor(p.z+math.sin(a)*2+.5))
-    if g then spawn_knight(g,"blue",{owner=name,yaw=player:get_look_horizontal()}) end
+    if g then spawn_knight(g,team_of(name),{owner=name,yaw=player:get_look_horizontal()}) end
   end
   return n
 end
@@ -1020,6 +1030,53 @@ C.register_chatcommand("orders",{params="<order>",description="War mode: order y
     return true
   end})
 
+-- The sword, cannon or boot each player holds shows in their right hand, for everyone.
+local SHOWN={["brickcraft:sword"]=true,["brickcraft:cannon"]=true,["brickcraft:boot"]=true}
+C.register_entity(":brickcraft:held",{
+  initial_properties={visual="wielditem",visual_size={x=.3,y=.3},physical=false,pointable=false,static_save=false},
+  on_step=function(self) if not self.object:get_attach() then self.object:remove() end end,
+})
+local function show_held(player,s)
+  local item=player:get_wielded_item():get_name()
+  if not SHOWN[item] then item=nil end
+  if item==s.held_item and (not item or s.held and s.held:get_pos()) then return end
+  if s.held then s.held:remove(); s.held=nil end
+  s.held_item=item
+  if not item then return end
+  local obj=C.add_entity(player:get_pos(),"brickcraft:held")
+  if not obj then return end
+  obj:set_properties({wield_item=item,textures={item}})
+  obj:set_attach(player,"",{x=-4.1,y=6.2,z=1.5},{x=-90,y=0,z=0})
+  s.held=obj
+end
+local held_timer=0
+C.register_globalstep(function(dt)
+  held_timer=held_timer+dt
+  if held_timer<.2 then return end
+  held_timer=0
+  for name,s in pairs(war) do
+    local pl=C.get_player_by_name(name)
+    if pl then show_held(pl,s) end
+  end
+end)
+
+-- /team: blue (everyone's, against the Red Army) or green (against the blue players too).
+-- Your knights change sides with you.
+C.register_chatcommand("team",{params="blue|green",description="War mode: pick your team; blue and green fight each other",
+  func=function(name,param)
+    local s=war[name]
+    if not s then return false,"Start war mode first: /war" end
+    local t=param:lower():match("%a+")
+    if not TEAMS[t or ""] then return true,"You're on the "..s.team.." team. /team green or /team blue to switch." end
+    if t==s.team then return true,"You're on the "..t.." team already." end
+    s.team=t
+    for _,k in ipairs(blue_knights(name)) do k._team=t; dress(k) end
+    local pl=C.get_player_by_name(name)
+    if pl then update_hud(pl) end
+    tell_war(label(pl).." joined the "..t.." team!")
+    return true
+  end})
+
 -- Piles of cannonballs turn up 5 to 14 blocks from each player in war (3 near them at most);
 -- a Red Army gives up when nobody in war has been near it for 30 seconds.
 local supply_timer=0
@@ -1085,7 +1142,7 @@ local function start(player)
   inv:set_list("main",{})
   for i,item in ipairs(KIT) do inv:set_stack("main",i,item) end
   brickcraft.forget(name) -- an undo would put bricks in the kit, lost when war ends
-  war[name]={hp=MAX_HP,lives=LIVES,kos=0,ammo=AMMO_START,shield=now()+SHIELD,last={},hud={}}
+  war[name]={team="blue",hp=MAX_HP,lives=LIVES,kos=0,ammo=AMMO_START,shield=now()+SHIELD,last={},hud={}}
   update_hud(player)
   brickcraft.refresh_inventory(player)
   tell_war(label(player).." is in the war! ("..(function()
@@ -1097,6 +1154,7 @@ function stop(player)
   local s=war[name]
   if not s then unstash(player); return false end
   for _,id in pairs(s.hud) do player:hud_remove(id) end
+  if s.held then s.held:remove() end
   war[name]=nil
   condition(player)
   blue_orders[name]=nil
