@@ -33,6 +33,7 @@ local function run(dad)
     node(w,0,-1,-14)=="brickcraft:baseplate" and node(w,14,-1,0)=="brickcraft:baseplate","a moat on the north and west only")
   assert(node(w,0,6,6)=="brickcraft:castle_wall" and node(w,-6,6,-5)=="brickcraft:castle_wall" and node(w,6,6,-5)=="brickcraft:castle_wall","the keep and two inner towers")
   assert(node(w,4,2,-3)=="brickcraft:castle_wall" and node(w,4,3,-3)=="air" and node(w,-7,5,-3)=="brickcraft:castle_wall","stairs up the inner towers")
+  assert(node(w,3,5,5)=="brickcraft:castle_wall" and node(w,3,6,5)=="air" and node(w,0,9,7)=="brickcraft:castle_flag","stairs up the keep, its flag")
   local light=C.get_node_light({x=w.x,y=1,z=w.z+2},.5)
   assert(light and light>=10,"the courtyard is lit at noon, got "..tostring(light))
   -- Standing inside the keep (it grew where he stood): he goes to his start spot.
@@ -52,7 +53,10 @@ local function run(dad)
     if ent._army==id and ent.name=="brickcraft:cannon" then cannons[#cannons+1]=ent end
   end
   assert(knights>=50 and #cannons==4 and army.boss._boss,("50 knights, a Commander, 4 cannons: %d knights, %d cannons"):format(knights,#cannons))
-  log(("ARMY: a Red Commander, %d knights and %d red cannons"):format(knights,#cannons))
+  for _,c in ipairs(cannons) do
+    assert(c._gunner and c._gunner._crew==c and c._ammo>=1 and c._ammo<=3,"each red cannon has a gunner and up to 3 cannonballs: "..tostring(c._gunner).." "..c._ammo)
+  end
+  log(("ARMY: a Red Commander, %d knights and %d red cannons, each with a gunner, a feeder and 3 cannonballs"):format(knights,#cannons))
   local archers={}
   for ent in pairs(W._things()) do if ent._archer==w.id then archers[#archers+1]=ent end end
   assert(#archers==12,"12 castle archers, got "..#archers)
@@ -68,6 +72,18 @@ local function run(dad)
     return red._hp<rhp or red._down
   end,function() return "the archer never hit the Red Knight" end)
   log(("ARCHERS: 12 castle archers; one on the south wall shot a Red Knight below (%d/6)"):format(math.max(0,red._hp)))
+  -- Without its gunner a cannon can't turn: pointed away from everyone, it doesn't fire.
+  local still=cannons[2]
+  still._gunner.object:remove()
+  local q=still.object:get_pos()
+  still.object:set_yaw(math.atan2(-(q.x-w.x),q.z-w.z)) -- facing away from the castle
+  still._fired,still._ammo=0,3
+  sleep(3)
+  assert(still._ammo==3,"an unmanned cannon turned and fired")
+  -- Out of cannonballs, its feeder brings 3 from the supply.
+  still._ammo=0
+  wait(60,function() return still._ammo==3 or not still.object:get_pos() end,function() return "the feeder never came back" end)
+  log("CREW: unmanned, a red cannon couldn't turn to fire; its feeder brought 3 cannonballs from the supply")
 
   -- Only the Red Army's cannonballs crack the castle: a crack first, then a hole.
   -- (on a corner tower: the red cannons aim at people, the archers on the walls among them)
@@ -115,11 +131,20 @@ local function run(dad)
   assert(after>before and s.ammo==0,"the castle cannon fired without cannonballs")
   log("CASTLE CANNON: fired with no cannonballs")
 
-  -- A red cannon: five sword strikes put it out.
+  -- A red cannon: Dad's cannonballs knock it out, each one landing beside it.
   local rc=cannons[1]
-  for _=1,5 do W.hit(rc.object,dad,"sword") end
-  assert(not rc.object:get_pos(),"red cannon knocked out")
-  log("RED CANNON: knocked out by Dad")
+  local hits=0
+  for i=1,6 do
+    local q=rc.object:get_pos()
+    if not q then break end
+    local before=rc._hp
+    W.fire(vector.offset(q,-3,.7,.1),{x=12,y=0,z=0},DAD)
+    sleep(.8)
+    hits=i
+    log(("  ball %d: red cannon %s"):format(i,rc.object:get_pos() and rc._hp.."/"..before or "out"))
+  end
+  assert(not rc.object:get_pos(),"red cannon still up after "..hits.." cannonballs: "..tostring(rc._hp))
+  log(("RED CANNON: Dad's cannonballs knocked one out (%d balls)"):format(hits))
 
   -- The siege: Dad waits in the courtyard (his hearts kept up) while the army builds its
   -- towers and breaks in.
@@ -172,8 +197,25 @@ local function run(dad)
   assert(#W.castle_damage(w)==0 and C.get_node(holes[1]).name=="brickcraft:castle_wall","the castle is whole")
   for _,a in pairs(W.armies) do assert(a.lab~=w,"no Red Army left in the castle") end
   log("RESET: /resetcastle put the castle back new and sent the Red Army away")
+  -- The flag: with the keep's archers gone, three red knights by it take the castle.
+  local army2,id2
+  wait(25,function() for i,a in pairs(W.armies) do if a.lab==w then army2,id2=a,i end end; return army2 end,function() return "no next army" end)
+  dad:set_pos(brickcraft.home_pos(dad,w))
+  for ent in pairs(W._things()) do
+    local q=ent.object:get_pos()
+    if ent._archer and q and q.y>6 then ent.object:remove() end
+  end
+  local n=0
+  for ent in pairs(W._things()) do
+    if ent._army==id2 and ent.name=="brickcraft:knight" and not ent._boss and not ent._crew and not ent._build and n<3 then
+      n=n+1; ent.object:set_pos({x=w.x+n-2,y=6.5,z=w.z+6})
+    end
+  end
+  wait(25,function() keep_up(); return not W.armies[id2] end,function() return "the flag wasn't taken" end)
+  assert(node(w,0,9,7)=="brickcraft:castle_flag_red","the flag is red")
+  log("FLAG: three red knights by the flag took it, the castle fell, the flag turned red")
   -- A scene to look at: the next army coming, Dad on the north wall.
-  sleep(17)
+  sleep(5)
   dad:set_pos({x=w.x-4,y=4.5,z=w.z+9}); dad:set_look_horizontal(0); dad:set_look_vertical(.25)
   log("SCENE")
   sleep(14)

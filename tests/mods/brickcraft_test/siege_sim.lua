@@ -68,7 +68,10 @@ local function battle(w,run,watcher)
       red,red0,walls,foot,far,cannons,archers,army and army.boss._hp.."/20" or "out",#W.castle_damage(w),tower)
     if math.floor(t)%20==0 then log(("  %s at %.0f s: %s"):format(run.name,t,stats)) end
     if inside>0 and not first then first=t end
-    if not army then outcome="castle holds (Commander knocked out)" end
+    if not army then
+      outcome=C.get_node({x=w.x+W.FLAG.x,y=9,z=w.z+W.FLAG.z}).name=="brickcraft:castle_flag_red" and
+        "Red Army takes the flag" or "castle holds (Commander knocked out)"
+    end
     if red==0 and cannons==0 and army then outcome="castle holds (army out)" end
     if inside>=12 then taken=t; outcome="Red Army takes the courtyard (12 in)" end
     if t>=LIMIT then outcome="nobody won in "..LIMIT.." s" end
