@@ -2015,8 +2015,8 @@ local function new_worker(owner)
       "It's a good day for building, isn't it, "..p.label.."?")) end
   end
 
-  -- War: it fights beside its owner (brickcraft_war picks soldier or commander) and its
-  -- builds wait. Returns true while it fights.
+  -- War: it fights beside its owner (brickcraft_war picks soldier or commander, or mends
+  -- the Siege Castle when told to) and its builds wait. Returns true while it fights.
   local fighting
   local function fight()
     local pl=not w.jms and brickcraft.war and owner_pl()
@@ -2024,7 +2024,7 @@ local function new_worker(owner)
     if not f then fighting=nil; return false end
     if f.role~=fighting then
       fighting=f.role
-      say(f.role=="soldier" and "I've got your back, "..display_name(pl:get_player_name()).."!" or "Knights, at them! I'll cover you with cannonballs.")
+      say(f.say or f.role=="soldier" and "I've got your back, "..display_name(pl:get_player_name()).."!" or "Knights, at them! I'll cover you with cannonballs.")
     end
     set_path(f.to and find_path(feet_of(f.to)) or {})
     return true

@@ -4,7 +4,7 @@ local testing = C.settings:get_bool("brickcraft_integration_test",false) or
   C.settings:get_bool("brickcraft_multiplayer_test",false) or C.settings:get_bool("brickcraft_house_test",false) or
   C.settings:get_bool("brickcraft_ai_test",false) or C.settings:get_bool("brickcraft_train_test",false) or
   C.settings:get_bool("brickcraft_war_test",false) or C.settings:get_bool("brickcraft_strict_test",false) or
-  C.settings:get_bool("brickcraft_siege_test",false)
+  C.settings:get_bool("brickcraft_siege_test",false) or C.settings:get_bool("brickcraft_siege_sim",false)
 -- The first 8 colors are the starter kit; the last 3 come from harvesting the landscape.
 local colors = {"coral", "gold", "mint", "sky", "violet", "cream", "navy", "rose", "green", "brown", "tan"}
 local labels = {"Coral", "Gold", "Mint", "Sky", "Violet", "Cream", "Navy", "Rose", "Green", "Brown", "Tan"}

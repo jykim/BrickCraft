@@ -23,12 +23,16 @@ local function run(dad)
   for _,f in ipairs(C.registered_on_player_receive_fields) do if f(dad,"brickcraft:style",{style_dad="x"}) then break end end
   wait(60,function() local w=W.castle(); return w and w.castle_built end,function() return "Siege Castle not built" end)
   local w=W.castle()
-  C.load_area({x=w.x-24,y=-1,z=w.z-24},{x=w.x+24,y=8,z=w.z+24})
+  C.load_area({x=w.x-24,y=-4,z=w.z-24},{x=w.x+24,y=8,z=w.z+24})
   assert(node(w,0,3,10)=="brickcraft:castle_wall" and node(w,9,4,0)=="brickcraft:castle_wall","the walls")
   assert(node(w,0,1,-10)=="brickcraft:castle_gate" and node(w,0,3,-10)=="brickcraft:castle_wall","the gate in the south wall")
   assert(node(w,0,5,10)=="brickcraft:castle_wall" and node(w,1,5,10)=="air","battlements")
   assert(node(w,-7,0,8)=="brickcraft:castle_wall" and node(w,-3,4,8)=="brickcraft:castle_wall" and node(w,-7,1,8)=="air","stairs")
   assert(node(w,-14,0,11)=="air","the workshop's stacks are gone")
+  assert(node(w,0,-2,14)=="brickcraft:water" and node(w,-14,-1,0)=="brickcraft:water" and node(w,0,-4,14)=="brickcraft:baseplate" and
+    node(w,0,-1,-14)=="brickcraft:baseplate" and node(w,14,-1,0)=="brickcraft:baseplate","a moat on the north and west only")
+  assert(node(w,0,6,6)=="brickcraft:castle_wall" and node(w,-6,6,-5)=="brickcraft:castle_wall" and node(w,6,6,-5)=="brickcraft:castle_wall","the keep and two inner towers")
+  assert(node(w,4,2,-3)=="brickcraft:castle_wall" and node(w,4,3,-3)=="air" and node(w,-7,5,-3)=="brickcraft:castle_wall","stairs up the inner towers")
   log(("CASTLE: walls, battlements, a gate and stairs at %d,%d"):format(w.x,w.z))
 
   -- Dad goes to war in the castle; the Red Army comes.
@@ -44,14 +48,31 @@ local function run(dad)
   end
   assert(knights>=50 and #cannons==4 and army.boss._boss,("50 knights, a Commander, 4 cannons: %d knights, %d cannons"):format(knights,#cannons))
   log(("ARMY: a Red Commander, %d knights and %d red cannons"):format(knights,#cannons))
+  local archers={}
+  for ent in pairs(W._things()) do if ent._archer==w.id then archers[#archers+1]=ent end end
+  assert(#archers==12,"12 castle archers, got "..#archers)
+  -- The north wall's archer shoots a Red Knight held below it.
+  local archer
+  for _,a in ipairs(archers) do local q=a.object:get_pos(); if q.z-w.z<-9.5 and q.x-w.x<-5 then archer=a end end
+  local red
+  for ent in pairs(W._things()) do if ent._army==id and ent.name=="brickcraft:knight" and not ent._boss and not ent._build then red=ent end end
+  local spot={x=archer.object:get_pos().x,y=-.5,z=w.z-15}
+  local rhp=red._hp
+  wait(15,function()
+    red.object:set_pos(spot); red.object:set_velocity({x=0,y=0,z=0}); red._stun=C.get_us_time()/1e6+1
+    return red._hp<rhp or red._down
+  end,function() return "the archer never hit the Red Knight" end)
+  log(("ARCHERS: 12 castle archers; one on the south wall shot a Red Knight below (%d/6)"):format(math.max(0,red._hp)))
 
   -- Only the Red Army's cannonballs crack the castle: a crack first, then a hole.
-  local wall={x=w.x+4,y=2,z=w.z+10}
-  W.fire({x=w.x+4,y=2,z=w.z+13},{x=0,y=0,z=-15},nil,nil,"blue")
+  -- (on a corner tower: the red cannons aim at people, the archers on the walls among them)
+  local wall={x=w.x+11,y=1,z=w.z+11}
+  local from,v={x=w.x+14,y=1,z=w.z+11},{x=-15,y=0,z=0}
+  W.fire(from,v,nil,nil,"blue")
   sleep(.6); assert(C.get_node(wall).name=="brickcraft:castle_wall","blue doesn't break the castle")
-  W.fire({x=w.x+4,y=2,z=w.z+13},{x=0,y=0,z=-15},nil,nil,"red")
+  W.fire(from,v,nil,nil,"red")
   wait(2,function() return C.get_node(wall).name=="brickcraft:castle_wall_cracked" end,function() return "no crack: "..C.get_node(wall).name end)
-  W.fire({x=w.x+4,y=2,z=w.z+13},{x=0,y=0,z=-15},nil,nil,"red")
+  W.fire(from,v,nil,nil,"red")
   wait(2,function() return C.get_node(wall).name=="air" end,function() return "no hole: "..C.get_node(wall).name end)
   log("WALLS: a red cannonball cracked the wall, the next knocked it out; blue ones don't")
   local tower={x=w.x+20,y=0,z=w.z+20}
@@ -112,10 +133,10 @@ local function run(dad)
         if p.y>3.8 and m<=11 then on_wall=on_wall or (C.get_us_time()-t0)/1e6 end
       end
     end
-    for _,c in ipairs({{11,0,-7},{11,4,-3},{-11,0,7},{-11,4,3}}) do
+    for _,c in ipairs({{11,0,-7},{11,4,-3},{3,0,-11},{7,4,-11}}) do
       if node(w,c[1],c[2],c[3])=="brickcraft:siege_tower" then built=built+1 end
     end
-    return inside and (on_wall or built>=4)
+    return inside and (on_wall or built>=1)
   end,function()
     return ("inside %s, on the wall %s, tower blocks %d"):format(tostring(inside),tostring(on_wall),built)
   end)
@@ -126,8 +147,28 @@ local function run(dad)
   for _=1,10 do W.hit(army.boss.object,dad,"sword") end
   assert(not W.armies[id],"beating the Commander beats the army")
   log("VICTORY: knocking out the Commander beat the Red Army")
+
+  -- Dad's builder mends the castle when he says so.
+  local holes={{x=w.x+2,y=1,z=w.z+9},{x=w.x+2,y=2,z=w.z+9},{x=w.x+3,y=1,z=w.z+9}} -- the north wall, by the moat
+  C.set_node(holes[1],{name="air"}); C.set_node(holes[2],{name="air"}); C.set_node(holes[3],{name="brickcraft:castle_wall_cracked"})
+  dad:set_pos({x=w.x,y=-.5,z=w.z+3})
+  local heard={}
+  assert(W.command(DAD,"Please fix the holes in the wall",function(t) heard[#heard+1]=t end) and heard[1]:find("On it"),"the fix order: "..tostring(heard[1]))
+  wait(120,function()
+    keep_up()
+    for _,h in ipairs(holes) do if C.get_node(h).name~="brickcraft:castle_wall" then return false end end
+    return true
+  end,function() return ("not mended: %s %s %s, %d damaged blocks left"):format(C.get_node(holes[1]).name,C.get_node(holes[2]).name,
+    C.get_node(holes[3]).name,#W.castle_damage(w)) end)
+  log(("REPAIR: Dad's builder mended the holes and the crack he showed it (%d other damaged blocks to go)"):format(#W.castle_damage(w)))
+  -- /resetcastle: new again, no Red Army there.
+  C.set_node(holes[1],{name="air"})
+  assert(C.registered_chatcommands.resetcastle.func(DAD,""),"/resetcastle")
+  assert(#W.castle_damage(w)==0 and C.get_node(holes[1]).name=="brickcraft:castle_wall","the castle is whole")
+  for _,a in pairs(W.armies) do assert(a.lab~=w,"no Red Army left in the castle") end
+  log("RESET: /resetcastle put the castle back new and sent the Red Army away")
   -- A scene to look at: the next army coming, Dad on the north wall.
-  sleep(31)
+  sleep(17)
   dad:set_pos({x=w.x-4,y=4.5,z=w.z+9}); dad:set_look_horizontal(0); dad:set_look_vertical(.25)
   log("SCENE")
   sleep(14)

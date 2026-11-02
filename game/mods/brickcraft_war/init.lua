@@ -31,6 +31,9 @@ local MOVES={
 local CANNONS,KNIGHTS=3,4 -- each player's most at once
 local BALL_SPEED,BALL_GRAVITY,BLAST=18,9.81,1.6
 local AMMO_START,AMMO_MAX,AMMO_PILE=6,30,3
+-- The Siege Castle's balance (seconds between shots or steps; tools/sim_siege.py tries
+-- others): red cannons, siege tower builders, castle archers, knights a side.
+local TUNE={red_cannon_every=12,build_every=12,archer_every=2,siege_per_side=26}
 
 local war={} -- name -> {hp, lives, kos, ammo, shield (time), hurt (time), look, last={move->time}, hud={}}
 local things={} -- cannons and knights up now (luaentities)
@@ -243,8 +246,8 @@ end
 -- the way. They burst on anything solid or anyone, hitting everyone within BLAST.
 -- Cannonballs break things within 1.5 of where they burst on a node, a crack first and
 -- the next hit knocks it out: anyone's cannonballs break bricks players put up (a whole
--- piece at once; hills and trees stay), only the Red Army's crack the Siege Castle, and
--- anyone else's knock siege towers apart (at once).
+-- piece at once; hills and trees stay), only the Red Army's crack the Siege Castle (its
+-- gate only from right on it, within 1), and anyone else's knock siege towers apart (at once).
 local stone="brickcraft_baseplate.png^[colorize:#a9adb5:210"
 local CRACKS={["brickcraft:castle_wall"]="brickcraft:castle_wall_cracked",["brickcraft:castle_gate"]="brickcraft:castle_gate_cracked",
   ["brickcraft:castle_wall_cracked"]="air",["brickcraft:castle_gate_cracked"]="air"}
@@ -274,7 +277,9 @@ local function ball_on_node(pt,side)
     local pos={x=x,y=y,z=z}
     if vector.distance(pos,pt)<=1.5 then
       local node=C.get_node(pos)
-      local to=side=="red" and CRACKS[node.name] or side~="red" and node.name=="brickcraft:siege_tower" and "air"
+      local gate=node.name:find("^brickcraft:castle_gate")
+      local to=side=="red" and (not gate or vector.distance(pos,pt)<=1) and CRACKS[node.name] or
+        side~="red" and node.name=="brickcraft:siege_tower" and "air"
       if to then C.swap_node(pos,{name=to}) else break_brick(pos,node) end
     end
   end end end
@@ -468,10 +473,10 @@ C.register_entity(":brickcraft:arrow",{
     for pt in C.raycast(prev,pos,true,false) do
       if pt.type=="object" then
         local ref=pt.ref
-        local own=(ref:is_player() and ref:get_player_name()==self._shooter) or
+        local own=(ref:is_player() and ref:get_player_name()==self._shooter) or ref==self._from or
           (self._side and side_of(ref)==self._side and not ref:is_player())
         if not own and is_target(ref) then
-          hit(ref,self._shooter and C.get_player_by_name(self._shooter),"arrow",vel,self._side)
+          hit(ref,self._shooter and C.get_player_by_name(self._shooter) or self._from,"arrow",vel,self._side)
           self.object:remove(); return
         end
       elseif pt.type=="node" then
@@ -481,6 +486,15 @@ C.register_entity(":brickcraft:arrow",{
     end
   end,
 })
+-- An arrow from pos along dir: a player's (shooter, their name) or an archer's (from).
+local function loose(pos,dir,shooter,from,side)
+  local obj=C.add_entity(pos,"brickcraft:arrow")
+  if not obj then return end
+  obj:set_velocity(vector.multiply(dir,ARROW_SPEED)); obj:set_acceleration({x=0,y=-ARROW_GRAVITY,z=0})
+  local ent=obj:get_luaentity()
+  ent._shooter,ent._from,ent._side=shooter,from,side
+  return obj
+end
 local function shoot_arrow(player)
   local name=player:get_player_name()
   local s=war[name]
@@ -489,12 +503,7 @@ local function shoot_arrow(player)
   if (s.last.arrow or 0)+MOVES.arrow.cool>t then return end
   s.last.arrow=t
   local dir=player:get_look_dir()
-  local obj=C.add_entity(vector.add(vector.offset(player:get_pos(),0,1.45,0),vector.multiply(dir,.6)),"brickcraft:arrow")
-  if not obj then return end
-  obj:set_velocity(vector.multiply(dir,ARROW_SPEED)); obj:set_acceleration({x=0,y=-ARROW_GRAVITY,z=0})
-  local ent=obj:get_luaentity()
-  ent._shooter,ent._side=name,team_of(name)
-  return obj
+  return loose(vector.add(vector.offset(player:get_pos(),0,1.45,0),vector.multiply(dir,.6)),dir,name,nil,team_of(name))
 end
 C.register_tool(":brickcraft:bow",{
   description="Bow (war)\nLeft click: shoot an arrow where you look (1 heart)\nAs many arrows as you like",
@@ -512,6 +521,7 @@ C.register_tool(":brickcraft:bow",{
 -- a pile of cannonballs), a blue one gets back up; the Commander takes its army with it.
 local LOOKS={
   practice={tex="brickcraft_person_knight.png",name="Practice Target",tag="#d8dde6",hp=MAX_HP},
+  archer={tex="brickcraft_person_blueknight.png^[colorize:#e8d9a8:70",name="Castle Archer",tag="#8fd0ff",hp=MAX_HP,speed=3.4,sight=15},
   blue={tex="brickcraft_person_blueknight.png",name="Blue Knight",tag="#8fd0ff",hp=MAX_HP,speed=3.4,sight=12},
   green={tex="brickcraft_person_blueknight.png^[colorize:#2fae45:150",name="Green Knight",tag="#7be08a",hp=MAX_HP,speed=3.4,sight=12},
   red={tex="brickcraft_person_redknight.png",name="Red Knight",tag="#ff7a6a",hp=6,speed=2.6,sight=14},
@@ -522,7 +532,7 @@ local next_lab_army=0 -- not before this time (not saved: world tables are)
 local function knight_tag(self)
   self.object:set_properties({nametag=self._name.."  "..math.max(0,self._hp).."/"..self._max})
 end
-local function look_of(self) return LOOKS[self._boss and "boss" or self._team or "practice"] end
+local function look_of(self) return LOOKS[self._boss and "boss" or self._archer and "archer" or self._team or "practice"] end
 local function dress(self)
   local l=look_of(self)
   local k=l.size or 1
@@ -692,7 +702,7 @@ end
 red_cannon=function(self)
   if not armies[self._army or 0] then poof(self.object:get_pos()); self.object:remove(); return end
   local t=now()
-  if (self._fired or 0)+6>t then return end
+  if (self._fired or 0)+TUNE.red_cannon_every>t then return end
   local p=self.object:get_pos()
   local foe=find_foe(self,p,30)
   if not foe then return end
@@ -733,6 +743,26 @@ local build -- (below, the Siege Castle) a red builder's turn; true while it bui
 local function think(self)
   local p=self.object:get_pos()
   if self._build and build(self,p) then return end
+  if self._archer then
+    -- A castle archer keeps its post: its sword for a foe right there, else an arrow every
+    -- 1.5 seconds at the closest it sees (aimed a little high for the drop).
+    local foe,fd=find_foe(self,p,1.8)
+    if foe then swing(self,foe,p); return end
+    if flat_dist(p,self._home)>.8 then walk(self,self._home); return end
+    self._still=true
+    foe,fd=find_foe(self,p)
+    if not foe then return end
+    local eye=vector.offset(p,0,1.45,0)
+    local q=vector.offset(foe:get_pos(),0,.9,0)
+    face(self.object,vector.subtract(q,p))
+    local t=now()
+    if (self._shot or 0)+TUNE.archer_every>t then return end
+    self._shot=t
+    local fly=vector.distance(eye,q)/ARROW_SPEED
+    local dir=vector.normalize(vector.subtract(vector.offset(q,0,ARROW_GRAVITY*fly*fly/2,0),eye))
+    loose(vector.add(eye,vector.multiply(dir,.6)),dir,nil,self.object,self._team)
+    return
+  end
   if self._boss then
     -- The Commander keeps 6 to 12 away and lobs a cannonball every 3 seconds; on retreat
     -- or guard it stays put behind its knights.
@@ -740,7 +770,7 @@ local function think(self)
     local foe,fd=find_foe(self,p,nil,nil,o.target)
     if foe then
       if fd<6 then walk(self,foe:get_pos(),true)
-      elseif fd>12 and o.mode~="retreat" and o.mode~="guard" and o.mode~="hold" then walk(self,foe:get_pos())
+      elseif fd>12 and o.mode~="retreat" and o.mode~="guard" and o.mode~="hold" and not (armies[self._army] or {}).stay then walk(self,foe:get_pos())
       else self._still=true end
       face(self.object,vector.subtract(foe:get_pos(),p))
       local t=now()
@@ -837,7 +867,7 @@ C.register_entity(":brickcraft:knight",{
     if self._hp<=0 then
       -- Falls on its back, away from the hit.
       self._down=now()+(self._owner and 5 or self._team=="red" and 1.5 or 3)
-      self._gone=self._team=="red"
+      self._gone=self._team=="red" or self._archer -- archers are out until the next army
       self.object:set_rotation({x=-math.pi/2,y=self.object:get_yaw(),z=0})
       local by=attacker and attacker:is_player() and war[attacker:get_player_name()]
       if by then
@@ -1130,25 +1160,35 @@ local function status(name,player)
 end
 -- A player's AI builder fights beside them. As a soldier (no knights of theirs up, or the
 -- Red Army right on them) it goes for the closest foe with its sword; as a commander it
--- stays by them behind the knights and lobs cannonballs, the Red Commander first. Returns
--- nil with no foe near, else {role="soldier"|"commander", to=where to walk (nil: stand)}.
+-- stays by them behind the knights and lobs cannonballs, the Red Commander first. Told to
+-- fix the castle (repairs[name]), it mends it instead (mend, below), fighting only a foe
+-- right on it. Returns nil with no foe near, else {role="soldier"|"commander"|"repair",
+-- to=where to walk (nil: stand), say=what it says taking that role}.
+local repairs={} -- player name -> {say=their builder's voice}: their builder mends the castle
+local mend -- (below, the Siege Castle)
 local function bot_fight(player,bot)
   local name=player:get_player_name()
   if not war[name] then return end
   local BOT={_team=team_of(name)}
   local pp,bp=player:get_pos(),bot:get_pos()
   local foe,fd=find_foe(BOT,bp,16,pp)
-  if not foe then return end
   local st=bot:get_luaentity()
   local t=now()
-  local close=find_foe(BOT,bp,4,pp)
-  local role=(#blue_knights(name)==0 or close) and "soldier" or "commander"
   local function strike(f)
     face(bot,vector.subtract(f:get_pos(),bp))
     -- A knight's blow for players (it can't be hurt back), its sword for knights.
     local move=f:is_player() and "knight" or "sword"
     if (st._swung or 0)+MOVES[move].cool*1.5<t then st._swung=t; hit(f,bot,move,nil,BOT._team) end
   end
+  if repairs[name] then
+    local near=find_foe(BOT,bp,2)
+    if near then strike(near); return {role="soldier"} end
+    local r=mend(name,bot)
+    if r then return r end
+  end
+  if not foe then return end
+  local close=find_foe(BOT,bp,4,pp)
+  local role=(#blue_knights(name)==0 or close) and "soldier" or "commander"
   if role=="soldier" then
     foe,fd=close or foe,close and vector.distance(bp,close:get_pos()) or fd
     if fd<2 then strike(foe); return {role=role} end
@@ -1187,11 +1227,19 @@ local function command(name,text,say,not_order)
   local low=text:lower()
   local who=label(player)
   if low:find("^help") or low:find("orders?%?") or low:find("what can") or low=="" then
-    say("Ready for orders, "..who.."! Say: charge, attack the commander, flank left/right, hold, guard me, follow, retreat, more knights, or status.")
+    say("Ready for orders, "..who.."! Say: charge, attack the commander, flank left/right, hold, guard me, follow, retreat, more knights, status, or (in the Siege Castle) fix the holes.")
     return true
   end
   if low:find("status") or low:find("how are we") or low:find("situation") or low:find("how many") then
     say(status(name,player)); return true
+  end
+  -- "fix the holes", "repair the wall": their builder mends the Siege Castle.
+  if (low:find("fix") or low:find("repair") or low:find("mend") or low:find("patch") or low:find("고쳐") or low:find("수리")) and
+     (low:find("hole") or low:find("wall") or low:find("castle") or low:find("gate") or low:find("crack") or low:find("구멍") or low:find("성")) and
+     brickcraft.war.castle() and brickcraft.world_at(player:get_pos())==brickcraft.war.castle() then
+    repairs[name]={say=say}
+    say("On it, "..who.."! I'll mend the castle's walls, cracks and holes first.")
+    return true
   end
   if low:find("more knights") or low:find("reinforce") or low:find("recruit") or low:find("지원") then
     local n=reinforce(name,player)
@@ -1449,12 +1497,15 @@ end)
 -- Siege Castle (experimental): a world made once, after the War Lab, with a stone castle in
 -- the middle to hold against a Red Army of 52 knights. The castle's walls are rows 9 and 10
 -- out from the center, y 0..4 (walk on top), battlements on row 10, corner towers 8..11
--- out, stairs up the inside of each wall and a gate in the south wall. Its cannons, in
--- gaps of the battlements, need no cannonballs and aim down. The Red Army comes from all
+-- out, stairs up the inside of each wall and a gate in the south wall; inside, a keep and
+-- two towers with stairs. Its cannons, in gaps of the battlements, need no cannonballs
+-- and aim down; its archers (a blue garrison, new with each army) hold the battlements
+-- and the tower tops and shoot at the Red Army. The Red Army comes from all
 -- four sides, its Commander behind the north line, with a red cannon a side that cracks
 -- the walls between it and its foes; four builders a side put up a siege tower, stairs
 -- against the east and west walls up to the battlements. Each army finds the castle whole
 -- again: cracks and holes mended, siege towers gone (bricks players put there stay).
+local INNER={{x0=-2,x1=2,z0=5,z1=8},{x0=-7,x1=-5,z0=-6,z1=-4},{x0=5,x1=7,z0=-6,z1=-4}}
 local STAIRS={{x=-7,z=8,dx=1,dz=0},{x=7,z=-8,dx=-1,dz=0},{x=8,z=-7,dx=0,dz=1},{x=-8,z=7,dx=0,dz=-1}}
 local function castle_cell(x,y,z)
   local ax,az=math.abs(x),math.abs(z)
@@ -1469,6 +1520,16 @@ local function castle_cell(x,y,z)
     if y==5 and m==10 and (ax==10 and z or x)%2==0 then return "brickcraft:castle_wall" end
     return nil
   end
+  -- Inside: the keep against the north wall and two towers in the south of the courtyard
+  -- (solid to y 6, battlements round the top), each tower with stairs up its north side.
+  for _,b in ipairs(INNER) do
+    if x>=b.x0 and x<=b.x1 and z>=b.z0 and z<=b.z1 then
+      if y<=6 then return "brickcraft:castle_wall" end
+      if y==7 and (x==b.x0 or x==b.x1 or z==b.z0 or z==b.z1) and (x+z)%2==0 then return "brickcraft:castle_wall" end
+      return nil
+    end
+  end
+  if z==-3 and ax>=2 and ax<=7 and y<=ax-2 then return "brickcraft:castle_wall" end
   for _,st in ipairs(STAIRS) do
     for i=0,4 do
       if x==st.x+st.dx*i and z==st.z+st.dz*i and y<=i then return "brickcraft:castle_wall" end
@@ -1479,13 +1540,32 @@ end
 -- the siege towers: stairs one block wide along the wall, the top step by a gap.
 local SIDES={north={n={x=0,z=1},a={x=1,z=0}},south={n={x=0,z=-1},a={x=1,z=0}},
   east={n={x=1,z=0},a={x=0,z=1}},west={n={x=-1,z=0},a={x=0,z=1}}}
-local SIEGE_TOWERS={east={x=11,z=-7,dz=1,stand={x=13,z=-5}},west={x=-11,z=7,dz=-1,stand={x=-13,z=5}}}
+-- The Red Army comes from the south (the gate) and the east: a moat, 5 wide and 3 deep,
+-- runs round the north and west from 12 out (knights that fall in can't climb out; players
+-- can swim). Siege towers: stairs along the east and south walls, the top step by a gap.
+local ATTACK={"south","east"}
+local SIEGE_TOWERS={east={x=11,z=-7,dz=1,stand={x=13,z=-5}},south={x=3,z=-11,dx=1,stand={x=5,z=-13}}}
+local function moat(x,z)
+  local m=math.max(math.abs(x),math.abs(z))
+  return m>=12 and m<=16 and (z>=12 or x<=-12)
+end
+local function moat_side(x,z)
+  if moat(x,z) then return false end
+  for dx=-1,1 do for dz=-1,1 do if moat(x+dx,z+dz) then return true end end end
+  return false
+end
+C.register_node(":brickcraft:water",{description="Moat Water",drawtype="liquid",
+  tiles={{name="brickcraft_sky.png^[colorize:#2a6fb8:120",backface_culling=false}},use_texture_alpha="blend",
+  paramtype="light",walkable=false,pointable=false,diggable=false,buildable_to=true,is_ground_content=false,
+  liquidtype="source",liquid_alternative_source="brickcraft:water",liquid_alternative_flowing="brickcraft:water",
+  liquid_range=0,liquid_renewable=false,liquid_viscosity=1,drowning=0,post_effect_color={a=110,r=30,g=90,b=170},
+  groups={not_in_creative_inventory=1,water=1}})
 local function castle() for _,w in ipairs(brickcraft.worlds()) do if w.castle then return w end end end
 local OURS={["brickcraft:siege_tower"]=true}
 for from,to in pairs(CRACKS) do OURS[from]=true end
 local function build_castle(w,first)
   local vm=C.get_voxel_manip()
-  local emin,emax=vm:read_from_map({x=w.x-24,y=0,z=w.z-24},{x=w.x+24,y=8,z=w.z+24})
+  local emin,emax=vm:read_from_map({x=w.x-24,y=-4,z=w.z-24},{x=w.x+24,y=8,z=w.z+24})
   local area=VoxelArea:new({MinEdge=emin,MaxEdge=emax})
   local data=vm:get_data()
   local air=C.get_content_id("air")
@@ -1498,8 +1578,18 @@ local function build_castle(w,first)
     if want and (first or data[i]==air or ours[data[i]]) then data[i]=C.get_content_id(want)
     elseif not want and (first or ours[data[i]]) then data[i]=air end
   end end end
+  -- The moat: water y -3..-1 on a baseplate floor, baseplate sides under the ground.
+  local water,plate=C.get_content_id("brickcraft:water"),C.get_content_id("brickcraft:baseplate")
+  for z=-17,17 do for x=-17,17 do
+    local m,side=moat(x,z),moat_side(x,z)
+    for y=-4,-1 do
+      local i=area:index(w.x+x,y,w.z+z)
+      if m then data[i]=y==-4 and plate or water
+      elseif side and y<=-2 then data[i]=plate end
+    end
+  end end
   vm:set_data(data); vm:write_to_map(true)
-  if first then w.castle_built=true; brickcraft.save_worlds() end
+  if first or not w.castle_moat then w.castle_built,w.castle_moat=true,true; brickcraft.save_worlds() end
 end
 -- A builder's turn: by its stand it puts the next missing step of its siege tower every
 -- 4 seconds, fighting only who comes right up to it. Done, it joins the fight.
@@ -1513,7 +1603,7 @@ build=function(self,p)
       face(self.object,vector.subtract(c,p))
       self._still=true
       local t=now()
-      if (self._built or 0)+4<t and C.get_node(c).name=="air" then
+      if (self._built or 0)+TUNE.build_every<t and C.get_node(c).name=="air" then
         self._built=t
         C.set_node(c,{name="brickcraft:siege_tower"}); poof(vector.offset(c,0,-.5,0))
       end
@@ -1522,28 +1612,104 @@ build=function(self,p)
   end
   self._build=nil
 end
+-- Damage: castle cells cracked, or empty where the castle should be (bricks players put
+-- in a hole stay). Mending puts one back whole.
+local function castle_damage(w)
+  local out={}
+  for x=-11,11 do for z=-11,11 do for y=0,8 do
+    local want=castle_cell(x,y,z)
+    if want then
+      local pos={x=w.x+x,y=y,z=w.z+z}
+      local name=C.get_node(pos).name
+      if name~=want and (name=="air" or CRACKS[name]) then out[#out+1]=pos end
+    end
+  end end end
+  return out
+end
+-- A builder told to fix the castle: to the closest damage, standing on the ground toward
+-- the courtyard, and from within 4.5 a block every 0.6 seconds. All done, it says so.
+mend=function(name,bot)
+  local w=castle()
+  local bp=bot:get_pos()
+  local rep=repairs[name]
+  if not w or brickcraft.world_at(bp)~=w then repairs[name]=nil; return end
+  local t=now()
+  if not rep.list or (rep.scanned or 0)+5<t then rep.list,rep.scanned=castle_damage(w),t end
+  local best,bd
+  for i=#rep.list,1,-1 do
+    local pos=rep.list[i]
+    local name_now=C.get_node(pos).name
+    if name_now~="air" and not CRACKS[name_now] or name_now==castle_cell(pos.x-w.x,pos.y,pos.z-w.z) then table.remove(rep.list,i)
+    else
+      local d=vector.distance(bp,pos)
+      if not bd or d<bd then best,bd=pos,d end
+    end
+  end
+  if not best then
+    repairs[name]=nil
+    rep.say("The castle's all fixed!")
+    return
+  end
+  local eye=vector.offset(bp,0,1.4,0)
+  if vector.distance(eye,best)<=4.5 then
+    face(bot,vector.subtract(best,bp))
+    if (rep.at or 0)+.6<t then
+      rep.at=t
+      C.set_node(best,{name=castle_cell(best.x-w.x,best.y,best.z-w.z)}); poof(vector.offset(best,0,-.5,0))
+    end
+    return {role="repair",say="Mending the castle!"}
+  end
+  -- Stand 2.5 nearer the middle than the damage, on whatever is there.
+  local r={x=best.x-w.x,z=best.z-w.z}
+  local len=math.max(math.sqrt(r.x*r.x+r.z*r.z),.1)
+  local k=math.max(0,len-2.5)/len
+  local g=ground_at(math.floor(w.x+r.x*k+.5),best.y,math.floor(w.z+r.z*k+.5))
+  return {role="repair",to=g or best,say="Mending the castle!"}
+end
+-- The castle's archers: 8 in gaps of the battlements on the two sides the Red Army comes
+-- from (two where the siege towers reach), 2 on each inner tower and the keep.
+local ARCHERS={}
+for _,key in ipairs(ATTACK) do local s=SIDES[key]; for _,t in ipairs({-7,-3,3,7}) do
+  ARCHERS[#ARCHERS+1]={x=s.n.x*10+s.a.x*t,y=5,z=s.n.z*10+s.a.z*t,yaw=math.atan2(-s.n.x,s.n.z)}
+end end
+for _,a in ipairs({{-6,-5},{6,-5},{-1,6},{1,6}}) do ARCHERS[#ARCHERS+1]={x=a[1],y=7,z=a[2],yaw=math.pi} end
+local function garrison(w)
+  for ent in pairs(things) do
+    if ent._archer==w.id and ent.object:get_pos() then things[ent]=nil; ent.object:remove() end
+  end
+  for _,a in ipairs(ARCHERS) do
+    local k=spawn_knight({x=w.x+a.x,y=a.y,z=w.z+a.z},"blue",{yaw=a.yaw})
+    if k then k._archer=w.id; dress(k) end
+  end
+end
 local function siege_army(w)
   build_castle(w)
   local c={x=w.x,y=0,z=w.z}
   local function at(r) return ground_at(math.floor(w.x+r.x+.5),0,math.floor(w.z+r.z+.5)) end
-  local id=spawn_army(at({x=0,z=24}) or vector.offset(c,0,0,24),c,w,{})
+  -- The Commander stays back at the south edge, out of the archers' reach.
+  local id=spawn_army(at({x=0,z=-26}) or vector.offset(c,0,0,-26),c,w,{})
   if not id then return end
-  for key,s in pairs(SIDES) do
+  armies[id].stay=true
+  garrison(w)
+  for _,key in ipairs(ATTACK) do
+    local s=SIDES[key]
     local yaw=math.atan2(s.n.x,-s.n.z) -- facing the castle
     local tw=SIEGE_TOWERS[key]
     local b=tw and {cells={},stand={x=w.x+tw.stand.x,y=0,z=w.z+tw.stand.z}}
     if tw then
-      for i=0,4 do for y=0,i do b.cells[#b.cells+1]={x=w.x+tw.x,y=y,z=w.z+tw.z+tw.dz*i} end end
+      for i=0,4 do for y=0,i do b.cells[#b.cells+1]={x=w.x+tw.x+(tw.dx or 0)*i,y=y,z=w.z+tw.z+(tw.dz or 0)*i} end end
     end
-    for i=1,13 do
-      local t=-9+(i-1)*1.5
+    for i=1,TUNE.siege_per_side do
+      local t=-9+(i-1)*18/math.max(1,TUNE.siege_per_side-1)
       local out=i%2==0 and 23 or 21
       local g=at({x=s.n.x*out+s.a.x*t,z=s.n.z*out+s.a.z*t})
       local k=g and spawn_knight(g,"red",{army=id,yaw=yaw})
       if k and b and i>=5 and i<=8 then k._build=b end
     end
-    local g=at({x=s.n.x*19+s.a.x*2,z=s.n.z*19+s.a.z*2})
-    if g then spawn_red_cannon(g,yaw,id) end
+    for _,t in ipairs({-5,5}) do
+      local g=at({x=s.n.x*19+s.a.x*t,z=s.n.z*19+s.a.z*t})
+      if g then spawn_red_cannon(g,yaw,id) end
+    end
   end
 end
 -- War worlds made once for everyone: the War Lab and the Siege Castle. While someone in
@@ -1599,13 +1765,38 @@ C.register_globalstep(function(dt)
     end
   end
 end)
+-- /resetcastle: the castle as it was first made (bricks in its square go too), its Red
+-- Army sent away, the next 15 seconds later.
+local function reset_castle(w)
+    for id,army in pairs(armies) do
+      if army.lab==w then
+        armies[id]=nil
+        for ent in pairs(things) do if ent._army==id and ent.object:get_pos() then things[ent]=nil; ent.object:remove() end end
+      end
+    end
+    for ent in pairs(things) do
+      if ent._archer==w.id and ent.object:get_pos() then things[ent]=nil; ent.object:remove() end
+    end
+    build_castle(w,true)
+    next_lab_army=now()+15
+end
+C.register_chatcommand("resetcastle",{description="Siege Castle: put the castle back as new and send the Red Army away",
+  func=function(name)
+    local p=C.get_player_by_name(name)
+    local w=castle()
+    if not p or not w or brickcraft.world_at(p:get_pos())~=w then return false,"Go to the Siege Castle world first (Which world?)." end
+    reset_castle(w)
+    tell_war(label(p).." reset the Siege Castle. The next Red Army comes in 15 seconds.")
+    return true,"The castle is new again."
+  end})
 C.after(0,function()
   if brickcraft.testing and not C.settings:get_bool("brickcraft_war_test",false) and
-    not C.settings:get_bool("brickcraft_siege_test",false) then return end
+    not C.settings:get_bool("brickcraft_siege_test",false) and not C.settings:get_bool("brickcraft_siege_sim",false) then return end
   local w=castle()
   if w then
-    if w.built and not w.castle_built then
-      C.emerge_area({x=w.x-24,y=0,z=w.z-24},{x=w.x+24,y=8,z=w.z+24},function(_,_,r) if r==0 then build_castle(w,true) end end)
+    if w.built and not (w.castle_built and w.castle_moat) then
+      -- (a castle from before the moat keeps what players built; it just gets the moat)
+      C.emerge_area({x=w.x-24,y=-4,z=w.z-24},{x=w.x+24,y=8,z=w.z+24},function(_,_,r) if r==0 then build_castle(w,not w.castle_built) end end)
     end
     return
   end
@@ -1614,7 +1805,7 @@ C.after(0,function()
   if w then w.castle=true; brickcraft.save_worlds() end
 end)
 
-brickcraft.war={army_size=army_size,lab=lab,castle=castle,castle_cell=castle_cell,shoot_arrow=shoot_arrow,start=start,stop=stop,hit=hit,fire=fire,fire_from=fire_from,max_hp=MAX_HP,
+brickcraft.war={tune=TUNE,reset_castle=reset_castle,siege_army=siege_army,garrison=garrison,castle_damage=castle_damage,army_size=army_size,lab=lab,castle=castle,castle_cell=castle_cell,shoot_arrow=shoot_arrow,start=start,stop=stop,hit=hit,fire=fire,fire_from=fire_from,max_hp=MAX_HP,
   spawn_knight=spawn_knight,_things=function() return things end,command=command,
   orders=function(name) return blue_orders[name] end,bot_fight=bot_fight,plan_red=plan_red,spawn_army=spawn_army,battle=battle,armies=armies,drop_ammo=drop_ammo,
   on=function(player) return war[player:get_player_name()] end}
