@@ -10,6 +10,7 @@ local checks={
   brickcraft_train_test="train_test.lua",
   brickcraft_technic_test="technic_test.lua",
   brickcraft_war_test="war_test.lua",
+  brickcraft_siege_test="siege_test.lua",
   brickcraft_ai_test="ai_test.lua", -- with brickcraft_ai_builder, which loads the builders
 }
 for setting,file in pairs(checks) do

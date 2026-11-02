@@ -133,6 +133,18 @@ local function run(dad,kid)
   wait(3,function() return hp(dad)==dad_hp-3 end,function() return "stray ball: Dad "..hp(dad) end)
   log("STRAY: a cannonball with no shooter hits too")
 
+  -- Cannonballs break bricks: the first cracks a brick, the second knocks it out; the
+  -- baseplate stays.
+  local brick={x=-12,y=0,z=6}
+  C.set_node(brick,{name="brickcraft:coral"})
+  for i=1,2 do
+    W.fire({x=-12,y=0,z=9},{x=0,y=0,z=-15})
+    sleep(.6)
+    assert((C.get_node(brick).name=="air")==(i==2),"after "..i.." cannonball(s): "..C.get_node(brick).name)
+  end
+  assert(C.get_node({x=-12,y=-1,z=6}).name=="brickcraft:baseplate","the baseplate stays")
+  log("BRICKS BREAK: a brick cracked at the first cannonball, the second knocked it out")
+
   -- A practice knight (War Lab's): five sword strikes knock it down; it gets up at its spot.
   local knight=W.spawn_knight({x=-3,y=0,z=-5},nil)
   assert(knight and knight._hp==10,"practice knight put up")
@@ -228,7 +240,7 @@ local function run(dad,kid)
   red.object:remove()
   for _,c in ipairs(fort) do C.set_node(c,{name="air"}) end
 
-  -- /battle: a Commander and 4 knights. Knock out the Commander and the army falls.
+  -- /battle: a Commander and 8 knights. Knock out the Commander and the army falls.
   kid:set_pos(brickcraft.home_pos(kid)); sleep(.5)
   dad:set_pos({x=0,y=0,z=-14}); face(dad,EAST); sleep(.8)
   local ok=C.registered_chatcommands.battle.func(DAD,"")
@@ -237,11 +249,11 @@ local function run(dad,kid)
   assert(army and army.boss._boss and army.boss._hp==20,"a Red Commander with 20 hearts")
   local members=0
   for ent in pairs(brickcraft.war._things()) do if ent._army==id then members=members+1 end end
-  assert(members==5,"a Commander and 4 knights, got "..members)
+  assert(members==9 and W.army_size(brickcraft.world_at(dad:get_pos()))==8,"a Commander and 8 knights, got "..members)
   -- It lobs cannonballs at Dad within a few seconds.
   local dhp=s.hp
   wait(12,function() return s.hp<dhp end,function() return "the Commander never hit Dad" end)
-  log(("ARMY: Red Commander and 4 knights; the Commander's cannonball hit Dad (%d/10)"):format(s.hp))
+  log(("ARMY: Red Commander and 8 knights; the Commander's cannonball hit Dad (%d/10)"):format(s.hp))
   for _=1,10 do W.hit(army.boss.object,dad,"sword") end
   assert(not W.armies[id] and W.on(dad).kos>=3,"beating the Commander beats the army")
   sleep(2.5)
@@ -280,7 +292,11 @@ local function run(dad,kid)
   wait(10,function()
     for _,k in ipairs(mine) do if flat(k.object:get_pos(),dad:get_pos())>3.5 then return false end end
     return true
-  end,function() return "knights didn't fall back to Dad" end)
+  end,function()
+    local at={}
+    for _,k in ipairs(mine) do at[#at+1]=k.object:get_pos() and ("%.1f"):format(flat(k.object:get_pos(),dad:get_pos())) or "gone" end
+    return "knights didn't fall back to Dad at "..C.pos_to_string(dad:get_pos(),1)..": "..table.concat(at,", ").." away"
+  end)
   log("ORDERS: Dad bot took orders (flank right on the commander, hold, retreat); knights held, then fell back to Dad")
   -- The Red Commander plans for its army (built-in tactics here: brickcraft_war_ai off).
   local rid
@@ -312,7 +328,8 @@ local function run(dad,kid)
   assert(f and f.role=="soldier" and f.to,"with no knights Dad bot goes in with its sword: "..(f and f.role or "no fight"))
   log("BOT FIGHTS: Dad bot lobbed cannonballs as commander, then went in as a soldier when his knights were gone")
   -- The sword Dad holds shows in his hand.
-  wait(2,function() local d=W.on(dad); return d.held_item=="brickcraft:sword" and d.held:get_attach()==dad end,
+  wait(2,function() local d=W.on(dad); return d.held_item=="brickcraft:sword" and d.held:get_attach()==dad and
+    vector.length(select(3,d.held:get_attach()))<1 and d.held:get_properties().visual_size.x<.1 end, -- hand-sized, at the hand
     function() return "Dad's sword isn't in his hand: "..tostring(W.on(dad).held_item) end)
   log("WEAPON: Dad's sword shows in his hand")
   -- Teams: Dad's knights leave blue Leona alone; once she's green, they go for her.
@@ -340,6 +357,20 @@ local function run(dad,kid)
   form(kid,"brickcraft:style",{style_daughter="x"})
   assert(items(kinv,"main")==kid_bricks,"Leona's bricks back after switching mid-war")
   log("BRICKS: leaving war and switching player mid-war give every brick back")
+
+  -- /armysize: the Workshop's Red Armies come with 3 knights, then 8 again.
+  war(DAD,"")
+  local armysize=C.registered_chatcommands.armysize.func
+  assert(armysize(DAD,"3"),"/armysize 3")
+  local small=W.spawn_army({x=12,y=0,z=12},{x=0,y=0,z=0})
+  local n=0
+  for ent in pairs(brickcraft.war._things()) do if ent._army==small then n=n+1 end end
+  assert(n==4,"a Commander and 3 knights, got "..n)
+  for ent in pairs(brickcraft.war._things()) do if ent._army==small then ent.object:remove() end end
+  W.armies[small]=nil
+  assert(armysize(DAD,"99") and W.army_size(brickcraft.world_at(dad:get_pos()))==20,"capped at 20")
+  armysize(DAD,"8"); war(DAD,"")
+  log("ARMY SIZE: /armysize 3 brought a Commander and 3 knights; 99 is capped at 20")
 
   -- War Lab: made at start, walls up, knights stand when someone comes.
   wait(60,function() local w=W.lab(); return w and w.lab_built end,function() return "War Lab not built" end)

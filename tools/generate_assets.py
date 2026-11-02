@@ -213,6 +213,15 @@ def knight_icon(x,y):  # a shield with a coral cross
     if 13<=x<=18 or 11<=y<=15: return (235,93,72,255)
     return (170,176,188,255)
 png('brickcraft_knight.png',32,32,knight_icon)
+def bow_icon(x,y):  # a wooden bow drawn corner to corner, its string and an arrow across
+    t,d=(x-y+31)/2,(x+y-31)/2  # along the bow's line, and off it toward the bottom right
+    bend=6.5-((t-15.5)**2)/37
+    if 2<=t<=29 and abs(-d-bend)<=1.3: return (150,98,58,255) if -d<bend else (118,80,52,255)
+    if 3<=t<=28 and abs(d)<=.5: return (238,229,199,255)  # string
+    if abs(x-y)<=1 and 6<=x<=27: return (196,160,110,255) if x>9 else (235,93,72,255)  # arrow, coral fletching
+    if abs(x-y)<=2 and 25<=x<=28: return (110,116,128,255)  # arrowhead
+    return (0,0,0,0)
+png('brickcraft_bow.png',32,32,bow_icon)
 png('brickcraft_cannonball.png',16,16,lambda x,y:(0,0,0,0) if (x-7.5)**2+(y-7.5)**2>56 else (120,124,134,255) if (x-5)**2+(y-5)**2<5 else (40,42,48,255))
 png('brickcraft_smoke.png',16,16,lambda x,y:(235,232,226,max(0,int(230-((x-7.5)**2+(y-7.5)**2)*4.1))))
 def ammo(x,y):  # a pile of three cannonballs
@@ -309,4 +318,4 @@ def ramp(name,chain):
     m.save(name,'track ramp'+(' with chain lift' if chain else ''))
 ramp('brickcraft_track_ramp.obj',False)
 ramp('brickcraft_track_lift.obj',True)
-print('Generated 37 textures, 3 block person meshes, 5 brick meshes, 5 train meshes and a cannon')
+print('Generated 38 textures, 3 block person meshes, 5 brick meshes, 5 train meshes and a cannon')

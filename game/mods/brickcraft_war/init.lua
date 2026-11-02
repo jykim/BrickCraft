@@ -1,7 +1,7 @@
 -- War mode: a game of cannons, swords, kicks and shoves for players who turn it on (/war,
 -- or I > War mode), against each other and against the Red Army (/battle): Red Knights led
 -- by a Red Commander, fought alongside your own blue Brick Knights. Nobody can be hit
--- unless they are in war too, and builds are never damaged. Hearts are this mode's own (the
+-- unless they are in war too. Cannonballs break bricks (ball_on_node). Hearts are this mode's own (the
 -- engine's damage stays off): out of hearts is a knockout, back to your start spot with
 -- full hearts and a few seconds' shield.
 -- War swaps the hotbar for the war kit. The bricks wait in the war_stash list (saved with
@@ -16,7 +16,7 @@ local SHIELD=3 -- seconds nobody can hit you after a knockout or joining
 local LIVES=3 -- knockouts a player can take; the last one ends their war
 local LOW=3 -- half hearts at or under which a player is hurt: slow and pale
 local HEAL_AFTER=10 -- unhit this long, a half heart back every 3 seconds
-local KIT={"brickcraft:sword","brickcraft:cannon","brickcraft:boot","brickcraft:knight"}
+local KIT={"brickcraft:sword","brickcraft:cannon","brickcraft:boot","brickcraft:knight","brickcraft:bow"}
 local KIT_ITEM={}
 for _,item in ipairs(KIT) do KIT_ITEM[item]=true end
 -- Damage in half hearts; how hard it throws you (along the hit, and up), in nodes/s.
@@ -26,6 +26,7 @@ local MOVES={
   push={dmg=0,push=10,up=3.5,cool=.5},
   cannon={dmg=3,push=12,up=7},
   knight={dmg=1,push=6,up=3,cool=1.1}, -- a knight's sword, red or blue
+  arrow={dmg=2,push=3,up=1.5,cool=.45},
 }
 local CANNONS,KNIGHTS=3,4 -- each player's most at once
 local BALL_SPEED,BALL_GRAVITY,BLAST=18,9.81,1.6
@@ -78,7 +79,7 @@ local function update_hud(player)
   local s=war[player:get_player_name()]
   if not s then return end
   condition(player)
-  local text="WAR ("..s.team.." team)   1 Sword   2 Cannon (left click: fire)   3 Boot   4 Knight      Lives: "..s.lives.."      Cannonballs: "..s.ammo..
+  local text="WAR ("..s.team.." team)   1 Sword   2 Cannon (left click: fire)   3 Boot   4 Knight   5 Bow      Lives: "..s.lives.."      Cannonballs: "..s.ammo..
     "      Knockouts: "..s.kos.."      /battle: Red Army   /war: stop"
   if s.hud.hearts then
     player:hud_change(s.hud.hearts,"number",s.hp)
@@ -160,13 +161,14 @@ local function hit(target,attacker,move,dir,side)
     return true
   end
   local ent=target:get_luaentity()
-  if ent and ent.name=="brickcraft:knight" then return ent:_hit(attacker,m,v) end
+  if ent and ent._hit then return ent:_hit(attacker,m,v) end
   return false
 end
+-- Players, knights and anything else that can take a hit (the siege's cannons).
 local function is_target(obj)
   if obj:is_player() then return true end
   local ent=obj:get_luaentity()
-  return ent and ent.name=="brickcraft:knight"
+  return ent and ent._hit~=nil
 end
 
 -- Sword strikes, boot kicks and shoves; each has its own cooldown.
@@ -239,6 +241,44 @@ end
 
 -- Cannonballs: no engine physics; each step checks the stretch it flew for something in
 -- the way. They burst on anything solid or anyone, hitting everyone within BLAST.
+-- Cannonballs break things within 1.5 of where they burst on a node, a crack first and
+-- the next hit knocks it out: anyone's cannonballs break bricks players put up (a whole
+-- piece at once; hills and trees stay), only the Red Army's crack the Siege Castle, and
+-- anyone else's knock siege towers apart (at once).
+local stone="brickcraft_baseplate.png^[colorize:#a9adb5:210"
+local CRACKS={["brickcraft:castle_wall"]="brickcraft:castle_wall_cracked",["brickcraft:castle_gate"]="brickcraft:castle_gate_cracked",
+  ["brickcraft:castle_wall_cracked"]="air",["brickcraft:castle_gate_cracked"]="air"}
+for _,n in ipairs({{"castle_wall","Castle Wall",stone},{"castle_wall_cracked","Cracked Castle Wall",stone.."^[colorize:#3c3634:120"},
+  {"castle_gate","Castle Gate","brickcraft_brown.png^[colorize:#4a2c18:90"},{"castle_gate_cracked","Cracked Castle Gate","brickcraft_brown.png^[colorize:#24140a:150"},
+  {"siege_tower","Siege Tower",{"brickcraft_trunk_top.png","brickcraft_trunk_top.png","brickcraft_trunk.png"}}}) do
+  C.register_node(":brickcraft:"..n[1],{description=n[2],tiles=type(n[3])=="table" and n[3] or {n[3]},
+    groups={not_in_creative_inventory=1},diggable=false,is_ground_content=false})
+end
+local cracked={} -- bricks cracked once (by position; forgotten on restart)
+local function break_brick(pos,node)
+  if C.get_item_group(node.name,"brick_tail")==1 then
+    pos=vector.subtract(pos,C.facedir_to_dir(node.param2%4))
+    node=C.get_node(pos)
+  end
+  if C.get_item_group(node.name,"brick")~=1 or C.get_item_group(node.name,"scenery")==1 then return end
+  local key=C.pos_to_string(pos)
+  if not cracked[key] then cracked[key]=true; return end
+  cracked[key]=nil
+  C.remove_node(pos) -- a long piece's tail goes with it
+  C.add_particlespawner({amount=8,time=.1,minpos=vector.offset(pos,-.4,-.4,-.4),maxpos=vector.offset(pos,.4,.4,.4),
+    minvel={x=-2,y=1,z=-2},maxvel={x=2,y=3,z=2},minacc={x=0,y=-9,z=0},maxacc={x=0,y=-9,z=0},
+    minexptime=.5,maxexptime=1,minsize=2,maxsize=4,texture="brickcraft_"..(node.name:match("^brickcraft:(%a+)") or "cream")..".png"})
+end
+local function ball_on_node(pt,side)
+  for x=math.floor(pt.x-1),math.ceil(pt.x+1) do for y=math.floor(pt.y-1),math.ceil(pt.y+1) do for z=math.floor(pt.z-1),math.ceil(pt.z+1) do
+    local pos={x=x,y=y,z=z}
+    if vector.distance(pos,pt)<=1.5 then
+      local node=C.get_node(pos)
+      local to=side=="red" and CRACKS[node.name] or side~="red" and node.name=="brickcraft:siege_tower" and "air"
+      if to then C.swap_node(pos,{name=to}) else break_brick(pos,node) end
+    end
+  end end end
+end
 local function burst(pos,shooter,ball_dir,direct,side,from)
   C.add_particlespawner({amount=18,time=.1,minpos=vector.offset(pos,-.2,-.2,-.2),maxpos=vector.offset(pos,.2,.2,.2),
     minvel={x=-2,y=0,z=-2},maxvel={x=2,y=2.5,z=2},minexptime=.4,maxexptime=.9,minsize=3,maxsize=6,
@@ -275,6 +315,7 @@ C.register_entity(":brickcraft:cannonball",{
         if def and def.walkable~=false then stop=pt.intersection_point end
       end
       if stop then
+        if pt.type=="node" then ball_on_node(pt.intersection_point,self._side) end
         burst(pt.intersection_point or stop,self._shooter,vel,pt.ref,self._side,self._from)
         self.object:remove()
         return
@@ -359,7 +400,10 @@ local function fire_from(player)
 end
 
 -- A cannon on wheels. Right click it in war: it turns the way you look and fires where you
--- aim (up to steep lobs; never down into the ground).
+-- aim (up to steep lobs; never down into the ground). A castle's cannons (_castle, on the
+-- walls) need no cannonballs of yours and aim down at the ground below too. A Red Army's
+-- cannons (_team) fire by themselves (red_cannon, below).
+local red_cannon
 C.register_entity(":brickcraft:cannon",{
   initial_properties={visual="mesh",mesh="brickcraft_cannon.obj",
     textures={"brickcraft_brown.png","brickcraft_cannon_metal.png"},visual_size={x=10,y=10},
@@ -371,17 +415,19 @@ C.register_entity(":brickcraft:cannon",{
   end,
   on_deactivate=function(self) things[self]=nil end,
   on_punch=function() return true end,
+  on_step=function(self) if self._team then red_cannon(self) end end,
   on_rightclick=function(self,clicker)
     local name=clicker:get_player_name()
+    if self._team then return end
     if not war[name] then C.chat_send_player(name,"Cannons are for war mode: type /war to play."); return end
     local t=now()
     if (self._fired or 0)+1.2>t then return end
-    if not use_ammo(clicker) then return end
+    if not self._castle and not use_ammo(clicker) then return end
     self._fired=t
     local yaw=clicker:get_look_horizontal()
     self.object:set_yaw(yaw)
     local h={x=-math.sin(yaw),y=0,z=math.cos(yaw)}
-    local e=math.max(-.05,math.min(1.1,math.asin(clicker:get_look_dir().y)))
+    local e=math.max(self._castle and -.8 or -.05,math.min(1.1,math.asin(clicker:get_look_dir().y)))
     local muzzle=vector.add(self.object:get_pos(),{x=h.x*.6,y=.38,z=h.z*.6})
     fire(muzzle,{x=h.x*math.cos(e)*BALL_SPEED,y=math.sin(e)*BALL_SPEED,z=h.z*math.cos(e)*BALL_SPEED},name)
   end,
@@ -401,6 +447,61 @@ C.register_tool(":brickcraft:cannon",{
     if pointed.type~="object" then fire_from(user) end -- a right clicked cannon fires itself
     return stack
   end,
+  on_drop=keep,
+})
+
+-- Arrows: fast and nearly straight, exactly where you look (down off a wall too), a heart
+-- each; as many as you like. A thin stick that turns the way it flies.
+local ARROW_SPEED,ARROW_GRAVITY=30,5
+C.register_entity(":brickcraft:arrow",{
+  initial_properties={visual="cube",textures={"brickcraft_brown.png","brickcraft_brown.png","brickcraft_brown.png",
+    "brickcraft_brown.png","brickcraft_cream.png","brickcraft_cream.png"},visual_size={x=.06,y=.06,z=.75},
+    physical=false,pointable=false,static_save=false},
+  on_step=function(self,dtime)
+    local pos=self.object:get_pos()
+    self._age=(self._age or 0)+dtime
+    local prev=self._prev or pos
+    self._prev=pos
+    if self._age>4 or pos.y< -10 then self.object:remove(); return end
+    local vel=self.object:get_velocity()
+    self.object:set_rotation({x=-math.atan2(vel.y,math.sqrt(vel.x^2+vel.z^2)),y=math.atan2(-vel.x,vel.z),z=0})
+    for pt in C.raycast(prev,pos,true,false) do
+      if pt.type=="object" then
+        local ref=pt.ref
+        local own=(ref:is_player() and ref:get_player_name()==self._shooter) or
+          (self._side and side_of(ref)==self._side and not ref:is_player())
+        if not own and is_target(ref) then
+          hit(ref,self._shooter and C.get_player_by_name(self._shooter),"arrow",vel,self._side)
+          self.object:remove(); return
+        end
+      elseif pt.type=="node" then
+        local def=C.registered_nodes[C.get_node(pt.under).name]
+        if def and def.walkable~=false then self.object:remove(); return end
+      end
+    end
+  end,
+})
+local function shoot_arrow(player)
+  local name=player:get_player_name()
+  local s=war[name]
+  if not s then return end
+  local t=now()
+  if (s.last.arrow or 0)+MOVES.arrow.cool>t then return end
+  s.last.arrow=t
+  local dir=player:get_look_dir()
+  local obj=C.add_entity(vector.add(vector.offset(player:get_pos(),0,1.45,0),vector.multiply(dir,.6)),"brickcraft:arrow")
+  if not obj then return end
+  obj:set_velocity(vector.multiply(dir,ARROW_SPEED)); obj:set_acceleration({x=0,y=-ARROW_GRAVITY,z=0})
+  local ent=obj:get_luaentity()
+  ent._shooter,ent._side=name,team_of(name)
+  return obj
+end
+C.register_tool(":brickcraft:bow",{
+  description="Bow (war)\nLeft click: shoot an arrow where you look (1 heart)\nAs many arrows as you like",
+  inventory_image="brickcraft_bow.png",wield_image="brickcraft_bow.png",range=4,
+  groups={not_in_creative_inventory=1},
+  on_use=function(stack,user) shoot_arrow(user); return stack end,
+  on_secondary_use=function(stack,user) shoot_arrow(user); return stack end,
   on_drop=keep,
 })
 
@@ -570,20 +671,68 @@ end
 local function stay_by(self,spot,p,gap)
   if spot and flat_dist(p,spot)>gap then walk(self,spot) else self._still=true end
 end
--- A cannonball from `from` (a lobbing thrower's hands) at foe, side's own.
-local function lob(from,foe,thrower,side)
+-- A cannonball from `from` (a lobbing thrower's hands, or a cannon: v) at foe, side's own.
+local function lob(from,foe,thrower,side,v)
   local q=vector.offset(foe:get_pos(),0,.8,0)
   local dx,dz=q.x-from.x,q.z-from.z
   local dist=math.max(math.sqrt(dx*dx+dz*dz),.1)
-  local v=13
+  v=v or 13
   -- The low arc that reaches dist on level ground, 45 degrees if it can't.
   local sn=BALL_GRAVITY*dist/(v*v)
   local e=sn<1 and math.asin(sn)/2 or math.pi/4
   e=e+math.atan2(q.y-from.y,math.max(dist,1))*.5
   fire(from,{x=dx/dist*math.cos(e)*v,y=math.sin(e)*v,z=dz/dist*math.cos(e)*v},nil,thrower,side)
 end
+-- A Red Army's cannon fires every 6 seconds at the closest foe within 30, a castle wall in
+-- the way or not. Three cannonballs or a few strikes put one out; it goes with its army.
+local RED_CANNON_HP=9
+local function red_cannon_tag(self)
+  self.object:set_properties({nametag="Red Cannon  "..math.max(0,self._hp).."/"..RED_CANNON_HP})
+end
+red_cannon=function(self)
+  if not armies[self._army or 0] then poof(self.object:get_pos()); self.object:remove(); return end
+  local t=now()
+  if (self._fired or 0)+6>t then return end
+  local p=self.object:get_pos()
+  local foe=find_foe(self,p,30)
+  if not foe then return end
+  self._fired=t+math.random()
+  local d=vector.subtract(foe:get_pos(),p)
+  face(self.object,d)
+  local h=vector.normalize({x=d.x,y=0,z=d.z})
+  lob(vector.add(p,{x=h.x*.7,y=.45,z=h.z*.7}),foe,self.object,"red",BALL_SPEED)
+end
+local function red_cannon_hit(self,attacker,m)
+  if m.dmg==0 or self._hp<=0 then return true end
+  self._hp=self._hp-m.dmg
+  red_cannon_tag(self)
+  if self._hp<=0 then
+    local p=self.object:get_pos()
+    poof(p); drop_ammo(p)
+    local by=attacker and attacker:is_player() and war[attacker:get_player_name()]
+    if by then
+      by.kos=by.kos+1; update_hud(attacker)
+      C.chat_send_player(attacker:get_player_name(),"You knocked out a Red Cannon!")
+    end
+    things[self]=nil; self.object:remove()
+  end
+  return true
+end
+local function spawn_red_cannon(pos,yaw,army)
+  local obj=C.add_entity({x=pos.x,y=pos.y-.5,z=pos.z},"brickcraft:cannon")
+  if not obj then return end
+  obj:set_yaw(yaw)
+  obj:set_properties({textures={"brickcraft_brown.png^[colorize:#8a2418:120","brickcraft_cannon_metal.png"},
+    visual_size={x=14,y=14},nametag_color="#ff7a6a",nametag_bgcolor="#14293699"})
+  local ent=obj:get_luaentity()
+  ent._team,ent._army,ent._name,ent._hp,ent._hit="red",army,"Red Cannon",RED_CANNON_HP,red_cannon_hit
+  red_cannon_tag(ent)
+  return ent
+end
+local build -- (below, the Siege Castle) a red builder's turn; true while it builds
 local function think(self)
   local p=self.object:get_pos()
+  if self._build and build(self,p) then return end
   if self._boss then
     -- The Commander keeps 6 to 12 away and lobs a cannonball every 3 seconds; on retreat
     -- or guard it stays put behind its knights.
@@ -757,9 +906,24 @@ C.register_tool(":brickcraft:knight",{
   on_drop=keep,
 })
 
--- The Red Army: a Commander and 4 knights at center, facing toward. Returns its id.
+-- How many knights come with a Red Army's Commander: each world's own (/armysize), kept
+-- in this mod's storage by world id (the Workshop's too), 8 unless set.
+local ARMY_SIZE,ARMY_MAX=8,20
+local war_storage=C.get_mod_storage()
+local function army_size(w) return war_storage:get_int("army_size_"..w.id)>0 and war_storage:get_int("army_size_"..w.id) or ARMY_SIZE end
+-- Their spots round the Commander: rings of 8, 2 apart from 2.5 out.
+local function escort_of(n)
+  local out={}
+  for i=0,n-1 do
+    local r,a=2.5+math.floor(i/8)*2,(i%8+(math.floor(i/8)%2)*.5)*math.pi/4
+    out[#out+1]={x=math.floor(math.cos(a)*r+.5),z=math.floor(math.sin(a)*r+.5)}
+  end
+  return out
+end
+-- The Red Army: a Commander and its world's army size of knights at center (escort: other
+-- offsets, {} for none), facing toward. Returns its id.
 local army_seq=0
-local function spawn_army(center,toward,lab)
+local function spawn_army(center,toward,lab,escort)
   army_seq=army_seq+1
   local id=army_seq
   local d=vector.subtract(toward,center)
@@ -767,7 +931,7 @@ local function spawn_army(center,toward,lab)
   local boss=spawn_knight(center,"red",{boss=true,army=id,yaw=yaw})
   if not boss then return end
   armies[id]={boss=boss,lab=lab,order={mode="charge",at=now()},next_plan=now()+5}
-  for _,o in ipairs({{x=2,z=1},{x=-2,z=1},{x=2,z=-1},{x=-2,z=-1}}) do
+  for _,o in ipairs(escort or escort_of(army_size(brickcraft.world_at(center)))) do
     local g=ground_at(center.x+o.x,center.y,center.z+o.z) or vector.offset(center,o.x,0,o.z)
     local k=spawn_knight(g,"red",{army=id,yaw=yaw})
     if k then k._offset={x=o.x,y=0,z=o.z} end
@@ -796,7 +960,20 @@ local function battle(player)
   if not g then return false,"No room for an army there: look across open ground." end
   return spawn_army(g,p)~=nil,"Here comes the Red Army!"
 end
-C.register_chatcommand("battle",{description="War mode: call a Red Army to fight (a Commander and 4 knights)",
+C.register_chatcommand("armysize",{params="[1-"..ARMY_MAX.."]",description="War mode: how many knights come with each Red Army in this world",
+  func=function(name,param)
+    local p=C.get_player_by_name(name)
+    if not p then return false,"Player is not connected." end
+    if not war[name] then return false,"Start war mode first: /war" end
+    local w=brickcraft.world_at(p:get_pos())
+    local n=tonumber(param)
+    if not n then return true,"Red Armies in "..w.name.." come with "..army_size(w).." knights. /armysize 1-"..ARMY_MAX.." to change it." end
+    n=math.max(1,math.min(ARMY_MAX,math.floor(n)))
+    war_storage:set_int("army_size_"..w.id,n)
+    tell_war(label(p).." set Red Armies in "..w.name.." to "..n.." knights.")
+    return true
+  end})
+C.register_chatcommand("battle",{description="War mode: call a Red Army to fight (a Commander and this world's army size of knights, 8 unless /armysize)",
   func=function(name)
     local p=C.get_player_by_name(name)
     if not p then return false,"Player is not connected." end
@@ -818,7 +995,7 @@ end
 local function red_knights(id)
   local out={}
   for ent in pairs(things) do
-    if ent._army==id and not ent._boss and ent.object:get_pos() and not ent._down then out[#out+1]=ent end
+    if ent._army==id and ent.name=="brickcraft:knight" and not ent._boss and ent.object:get_pos() and not ent._down then out[#out+1]=ent end
   end
   return out
 end
@@ -1064,10 +1241,13 @@ C.register_chatcommand("orders",{params="<order>",description="War mode: order y
     return true
   end})
 
--- The sword, cannon or boot each player holds shows in their right hand, for everyone.
-local SHOWN={["brickcraft:sword"]=true,["brickcraft:cannon"]=true,["brickcraft:boot"]=true}
+-- The sword, cannon, boot or bow each player holds shows in their right hand, for everyone.
+-- An attached object is drawn in its parent's scale, and players are drawn 10 times their
+-- mesh (visual_size 10): its size and place are a tenth of what they look like (else it
+-- floats, giant, over their head).
+local SHOWN={["brickcraft:sword"]=true,["brickcraft:cannon"]=true,["brickcraft:boot"]=true,["brickcraft:bow"]=true}
 C.register_entity(":brickcraft:held",{
-  initial_properties={visual="wielditem",visual_size={x=.3,y=.3},physical=false,pointable=false,static_save=false},
+  initial_properties={visual="wielditem",visual_size={x=.03,y=.03},physical=false,pointable=false,static_save=false},
   on_step=function(self) if not self.object:get_attach() then self.object:remove() end end,
 })
 local function show_held(player,s)
@@ -1080,7 +1260,7 @@ local function show_held(player,s)
   local obj=C.add_entity(player:get_pos(),"brickcraft:held")
   if not obj then return end
   obj:set_properties({wield_item=item,textures={item}})
-  obj:set_attach(player,"",{x=-4.1,y=6.2,z=1.5},{x=-90,y=0,z=0})
+  obj:set_attach(player,"",{x=-.41,y=.62,z=.15},{x=-90,y=0,z=0})
   s.held=obj
 end
 local held_timer=0
@@ -1206,7 +1386,7 @@ C.register_chatcommand("war",{description="Start or stop war mode: cannons, swor
     if not p then return false,"Player is not connected." end
     if war[name] then stop(p); return true end
     start(p)
-    return true,"War mode! 1 Sword  2 Cannon (left click fires)  3 Boot  4 Blue Knight. /battle calls a Red Army. You have 3 lives; low on hearts you slow down, and hearts come back if you keep out of the fight. Only players in war can be hit; builds are safe. /war again to stop."
+    return true,"War mode! 1 Sword  2 Cannon (left click fires)  3 Boot  4 Blue Knight  5 Bow. /battle calls a Red Army. You have 3 lives; low on hearts you slow down, and hearts come back if you keep out of the fight. Only players in war can be hit; builds are safe. /war again to stop."
   end})
 C.register_on_player_receive_fields(function(player,formname,fields)
   if formname=="" and fields.war then
@@ -1266,47 +1446,175 @@ C.after(0,function()
   C.log("action","BrickCraft War Lab "..(w and "being made at "..w.x..","..w.z or "has no room"))
   if w then w.lab=true; brickcraft.save_worlds() end
 end)
+-- Siege Castle (experimental): a world made once, after the War Lab, with a stone castle in
+-- the middle to hold against a Red Army of 52 knights. The castle's walls are rows 9 and 10
+-- out from the center, y 0..4 (walk on top), battlements on row 10, corner towers 8..11
+-- out, stairs up the inside of each wall and a gate in the south wall. Its cannons, in
+-- gaps of the battlements, need no cannonballs and aim down. The Red Army comes from all
+-- four sides, its Commander behind the north line, with a red cannon a side that cracks
+-- the walls between it and its foes; four builders a side put up a siege tower, stairs
+-- against the east and west walls up to the battlements. Each army finds the castle whole
+-- again: cracks and holes mended, siege towers gone (bricks players put there stay).
+local STAIRS={{x=-7,z=8,dx=1,dz=0},{x=7,z=-8,dx=-1,dz=0},{x=8,z=-7,dx=0,dz=1},{x=-8,z=7,dx=0,dz=-1}}
+local function castle_cell(x,y,z)
+  local ax,az=math.abs(x),math.abs(z)
+  local m=math.max(ax,az)
+  if ax>=8 and ax<=11 and az>=8 and az<=11 then
+    if y<=6 then return "brickcraft:castle_wall" end
+    if y==7 and (ax==11 or az==11) and (x+z)%2==0 then return "brickcraft:castle_wall" end
+    return nil
+  end
+  if m==9 or m==10 then
+    if y<=4 then return (z<=-9 and ax<=1 and y<=2) and "brickcraft:castle_gate" or "brickcraft:castle_wall" end
+    if y==5 and m==10 and (ax==10 and z or x)%2==0 then return "brickcraft:castle_wall" end
+    return nil
+  end
+  for _,st in ipairs(STAIRS) do
+    for i=0,4 do
+      if x==st.x+st.dx*i and z==st.z+st.dz*i and y<=i then return "brickcraft:castle_wall" end
+    end
+  end
+end
+-- The sides (n: outward, a: along the wall), the castle's cannons (in gaps, 5 along) and
+-- the siege towers: stairs one block wide along the wall, the top step by a gap.
+local SIDES={north={n={x=0,z=1},a={x=1,z=0}},south={n={x=0,z=-1},a={x=1,z=0}},
+  east={n={x=1,z=0},a={x=0,z=1}},west={n={x=-1,z=0},a={x=0,z=1}}}
+local SIEGE_TOWERS={east={x=11,z=-7,dz=1,stand={x=13,z=-5}},west={x=-11,z=7,dz=-1,stand={x=-13,z=5}}}
+local function castle() for _,w in ipairs(brickcraft.worlds()) do if w.castle then return w end end end
+local OURS={["brickcraft:siege_tower"]=true}
+for from,to in pairs(CRACKS) do OURS[from]=true end
+local function build_castle(w,first)
+  local vm=C.get_voxel_manip()
+  local emin,emax=vm:read_from_map({x=w.x-24,y=0,z=w.z-24},{x=w.x+24,y=8,z=w.z+24})
+  local area=VoxelArea:new({MinEdge=emin,MaxEdge=emax})
+  local data=vm:get_data()
+  local air=C.get_content_id("air")
+  local ours={}
+  for name in pairs(OURS) do ours[C.get_content_id(name)]=true end
+  -- The first time, the workshop's stacks and arch go.
+  for z=-24,24 do for x=-24,24 do for y=0,8 do
+    local i=area:index(w.x+x,y,w.z+z)
+    local want=castle_cell(x,y,z)
+    if want and (first or data[i]==air or ours[data[i]]) then data[i]=C.get_content_id(want)
+    elseif not want and (first or ours[data[i]]) then data[i]=air end
+  end end end
+  vm:set_data(data); vm:write_to_map(true)
+  if first then w.castle_built=true; brickcraft.save_worlds() end
+end
+-- A builder's turn: by its stand it puts the next missing step of its siege tower every
+-- 4 seconds, fighting only who comes right up to it. Done, it joins the fight.
+build=function(self,p)
+  local foe,fd=find_foe(self,p,1.8)
+  if foe then swing(self,foe,p); return true end
+  local b=self._build
+  for _,c in ipairs(b.cells) do
+    if C.get_node(c).name~="brickcraft:siege_tower" then
+      if flat_dist(p,b.stand)>1.2 then walk(self,b.stand); return true end
+      face(self.object,vector.subtract(c,p))
+      self._still=true
+      local t=now()
+      if (self._built or 0)+4<t and C.get_node(c).name=="air" then
+        self._built=t
+        C.set_node(c,{name="brickcraft:siege_tower"}); poof(vector.offset(c,0,-.5,0))
+      end
+      return true
+    end
+  end
+  self._build=nil
+end
+local function siege_army(w)
+  build_castle(w)
+  local c={x=w.x,y=0,z=w.z}
+  local function at(r) return ground_at(math.floor(w.x+r.x+.5),0,math.floor(w.z+r.z+.5)) end
+  local id=spawn_army(at({x=0,z=24}) or vector.offset(c,0,0,24),c,w,{})
+  if not id then return end
+  for key,s in pairs(SIDES) do
+    local yaw=math.atan2(s.n.x,-s.n.z) -- facing the castle
+    local tw=SIEGE_TOWERS[key]
+    local b=tw and {cells={},stand={x=w.x+tw.stand.x,y=0,z=w.z+tw.stand.z}}
+    if tw then
+      for i=0,4 do for y=0,i do b.cells[#b.cells+1]={x=w.x+tw.x,y=y,z=w.z+tw.z+tw.dz*i} end end
+    end
+    for i=1,13 do
+      local t=-9+(i-1)*1.5
+      local out=i%2==0 and 23 or 21
+      local g=at({x=s.n.x*out+s.a.x*t,z=s.n.z*out+s.a.z*t})
+      local k=g and spawn_knight(g,"red",{army=id,yaw=yaw})
+      if k and b and i>=5 and i<=8 then k._build=b end
+    end
+    local g=at({x=s.n.x*19+s.a.x*2,z=s.n.z*19+s.a.z*2})
+    if g then spawn_red_cannon(g,yaw,id) end
+  end
+end
+-- War worlds made once for everyone: the War Lab and the Siege Castle. While someone in
+-- war is in one, a Red Army comes (a new one 30 s after the last is beaten).
+local WAR_WORLDS={
+  {find=lab,ready="lab_built",welcome="fight the Red Army coming from its red camp in the west. The gray Practice Targets just stand there; your own blue knights come from slot 4 (right click the ground).",
+    army=function(w) spawn_army({x=w.x+LAB_CAMP.x,y=0,z=w.z+LAB_CAMP.z},{x=w.x,y=0,z=w.z},w) end},
+  {find=castle,ready="castle_built",welcome="hold the castle against a Red Army of 50 coming from the hills! Stairs inside each wall lead up; the cannons in the battlements need no cannonballs (right click: aim and fire, down too), and 5 is your Bow. Knock out the Red Commander to win.",
+    army=siege_army},
+}
 local lab_timer,welcomed=0,{}
 C.register_globalstep(function(dt)
   lab_timer=lab_timer+dt
   if lab_timer<2 then return end
   lab_timer=0
-  local w=lab()
-  if not w or not w.lab_built then return end
-  local here=false
-  for _,p in ipairs(C.get_connected_players()) do
-    local name=p:get_player_name()
-    if brickcraft.world_at(p:get_pos())==w then
-      here=true
-      if not welcomed[name] then
-        C.chat_send_player(name,C.colorize("#ff9a76","War Lab (experimental): "..(war[name] and "" or "type /war, then ")..
-          "fight the Red Army coming from its red camp in the west. The gray Practice Targets just stand there; your own blue knights come from slot 4 (right click the ground)."))
+  for _,kind in ipairs(WAR_WORLDS) do
+    local w=kind.find()
+    if w and w[kind.ready] then
+      local here,fighting=false,false
+      for _,p in ipairs(C.get_connected_players()) do
+        local name=p:get_player_name()
+        if brickcraft.world_at(p:get_pos())==w then
+          here=true
+          fighting=fighting or war[name]~=nil
+          if welcomed[name]~=w then
+            C.chat_send_player(name,C.colorize("#ff9a76",w.name..": "..(war[name] and "" or "type /war, then ")..kind.welcome))
+          end
+          welcomed[name]=w
+        elseif welcomed[name]==w then welcomed[name]=nil end
       end
-      welcomed[name]=true
-    else welcomed[name]=nil end
-  end
-  if not here then return end
-  -- A Red Army marches on the west side while someone in war is here (a new one 30 s
-  -- after the last is beaten).
-  local fighting=false
-  for name in pairs(war) do
-    local pl=C.get_player_by_name(name)
-    if pl and brickcraft.world_at(pl:get_pos())==w then fighting=true end
-  end
-  local camp=false
-  for _,army in pairs(armies) do if army.lab==w then camp=true end end
-  if fighting and not camp and next_lab_army<now() then
-    spawn_army({x=w.x+LAB_CAMP.x,y=0,z=w.z+LAB_CAMP.z},{x=w.x,y=0,z=w.z},w)
-  end
-  local up=0
-  for ent in pairs(things) do if ent._lab and not ent._team then up=up+1 end end
-  if up>0 then return end
-  for _,k in ipairs(LAB_KNIGHTS) do
-    spawn_knight({x=w.x+k.x,y=0,z=w.z+k.z},nil,{lab=true,yaw=math.pi/2}) -- facing west, toward the walls
+      local camp=false
+      for _,army in pairs(armies) do if army.lab==w then camp=true end end
+      if fighting and not camp and next_lab_army<now() then kind.army(w) end
+      if here and w.lab then
+        local up=0
+        for ent in pairs(things) do if ent._lab and not ent._team then up=up+1 end end
+        if up==0 then
+          for _,k in ipairs(LAB_KNIGHTS) do
+            spawn_knight({x=w.x+k.x,y=0,z=w.z+k.z},nil,{lab=true,yaw=math.pi/2}) -- facing west, toward the walls
+          end
+        end
+      end
+      if here and w.castle then
+        local up=0
+        for ent in pairs(things) do if ent._castle==w.id and ent.object:get_pos() then up=up+1 end end
+        if up==0 then
+          for _,s in pairs(SIDES) do for _,t in ipairs({-5,5}) do
+            local obj=C.add_entity({x=w.x+s.n.x*10+s.a.x*t,y=4.5,z=w.z+s.n.z*10+s.a.z*t},"brickcraft:cannon")
+            if obj then obj:set_yaw(math.atan2(-s.n.x,s.n.z)); obj:get_luaentity()._castle=w.id end
+          end end
+        end
+      end
+    end
   end
 end)
+C.after(0,function()
+  if brickcraft.testing and not C.settings:get_bool("brickcraft_war_test",false) and
+    not C.settings:get_bool("brickcraft_siege_test",false) then return end
+  local w=castle()
+  if w then
+    if w.built and not w.castle_built then
+      C.emerge_area({x=w.x-24,y=0,z=w.z-24},{x=w.x+24,y=8,z=w.z+24},function(_,_,r) if r==0 then build_castle(w,true) end end)
+    end
+    return
+  end
+  w=brickcraft.make_world("Siege Castle (experimental)","BrickCraft",function(w) build_castle(w,true) end)
+  C.log("action","BrickCraft Siege Castle "..(w and "being made at "..w.x..","..w.z or "has no room"))
+  if w then w.castle=true; brickcraft.save_worlds() end
+end)
 
-brickcraft.war={lab=lab,start=start,stop=stop,hit=hit,fire=fire,fire_from=fire_from,max_hp=MAX_HP,
+brickcraft.war={army_size=army_size,lab=lab,castle=castle,castle_cell=castle_cell,shoot_arrow=shoot_arrow,start=start,stop=stop,hit=hit,fire=fire,fire_from=fire_from,max_hp=MAX_HP,
   spawn_knight=spawn_knight,_things=function() return things end,command=command,
   orders=function(name) return blue_orders[name] end,bot_fight=bot_fight,plan_red=plan_red,spawn_army=spawn_army,battle=battle,armies=armies,drop_ammo=drop_ammo,
   on=function(player) return war[player:get_player_name()] end}
