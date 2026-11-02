@@ -309,7 +309,7 @@ local function run(dad,kid)
   log(("TEAMS: Dad's knights left blue Leona alone; on the green team they went for her (%d/10)"):format(hp(kid) or 0))
   team(KID,"blue"); W.on(kid).hp=10
   -- (Dad's knights and bot may have beaten the army already.)
-  if W.armies[rid] then for _=1,10 do W.hit(W.armies[rid].boss.object,dad,"sword") end end
+  if W.armies[rid] then local boss=W.armies[rid].boss.object; for _=1,10 do W.hit(boss,dad,"sword") end end
   sleep(2)
 
   -- Leaving war: bricks back exactly, cannon and knight gone.
@@ -328,6 +328,12 @@ local function run(dad,kid)
   local lab=W.lab()
   C.load_area({x=lab.x+8,y=0,z=lab.z-8},{x=lab.x+10,y=2,z=lab.z-6})
   assert(C.get_node({x=lab.x+9,y=1,z=lab.z-7}).name=="brickcraft:coral","War Lab cover walls")
+  C.load_area({x=lab.x-21,y=-3,z=lab.z-9},{x=lab.x-15,y=1,z=lab.z-3})
+  local camp=0
+  for dx=-3,3 do for dz=-3,3 do for y=-3,0 do
+    if C.get_node({x=lab.x-18+dx,y=y,z=lab.z-6+dz}).name=="brickcraft:red_camp" then camp=camp+1 end
+  end end end
+  assert(camp==49,"the Red Army's camp is red ground, 7x7: got "..camp)
   war(KID,"")
   kid:set_pos(brickcraft.home_pos(kid,lab))
   wait(10,function()
@@ -338,7 +344,7 @@ local function run(dad,kid)
     end
     return n==5
   end,function() return "War Lab knights not up" end)
-  log(("LAB: War Lab (experimental) at %d,%d with walls and 5 Brick Knights"):format(lab.x,lab.z))
+  log(("LAB: War Lab (experimental) at %d,%d with walls, 5 Brick Knights and a red camp for the Red Army"):format(lab.x,lab.z))
   wait(10,function()
     for _,army in pairs(W.armies) do if army.lab==lab then return true end end
   end,function() return "no Red Army came to War Lab" end)

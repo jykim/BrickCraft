@@ -747,6 +747,10 @@ local function spawn_army(center,toward,lab)
     local k=spawn_knight(g,"red",{army=id,yaw=yaw})
     if k then k._offset={x=o.x,y=0,z=o.z} end
   end
+  -- Red smoke marks where it turned up.
+  C.add_particlespawner({amount=60,time=1.5,minpos=vector.offset(center,-3,0,-3),maxpos=vector.offset(center,3,1,3),
+    minvel={x=-.3,y=1,z=-.3},maxvel={x=.3,y=2.5,z=.3},minexptime=1,maxexptime=2,minsize=6,maxsize=12,
+    texture="brickcraft_smoke.png^[colorize:#d03020:160"})
   tell_war("The Red Army is coming! Knock out the Red Commander to beat it.")
   return id
 end
@@ -1193,27 +1197,44 @@ C.register_on_leaveplayer(function(player)
 end)
 
 -- War Lab (experimental): a world made once for everyone to try war mode in, listed in
--- "Which world?". Coral cover walls on the baseplate east of the start spots, and a row of
--- Brick Knights that stand up whenever someone is there (knights aren't saved). Test
--- worlds skip it (but the war check).
+-- "Which world?". Coral cover walls on the baseplate east of the start spots, a row of
+-- Brick Knights that stand up whenever someone is there (knights aren't saved), and the
+-- Red Army's camp to the west: red ground where its armies turn up. Test worlds skip it
+-- (but the war check).
 local LAB_WALLS={{x=9,z0=-9,z1=-5},{x=9,z0=-1,z1=3},{x=13,z0=-6,z1=0}}
 local LAB_KNIGHTS={{x=17,z=-8},{x=17,z=-4},{x=17,z=0},{x=19,z=-6},{x=19,z=-2}}
+local LAB_CAMP,CAMP_R={x=-18,z=-6},3
+C.register_node(":brickcraft:red_camp",{
+  description="Red Army Camp",tiles={"brickcraft_baseplate.png^[colorize:#c23a2b:150"},
+  groups={not_in_creative_inventory=1},diggable=false,is_ground_content=false,
+})
+local CAMP_GROUND={["brickcraft:baseplate"]=true,["brickcraft:grass"]=true,["brickcraft:dirt"]=true}
 local function lab() for _,w in ipairs(brickcraft.worlds()) do if w.lab then return w end end end
 local function build_lab(w)
-  for _,wall in ipairs(LAB_WALLS) do
-    for z=wall.z0,wall.z1 do for y=0,1 do
-      local pos={x=w.x+wall.x,y=y,z=w.z+z}
-      if C.get_node(pos).name=="air" then C.set_node(pos,{name="brickcraft:coral"}) end
-    end end
+  if not w.lab_built then
+    for _,wall in ipairs(LAB_WALLS) do
+      for z=wall.z0,wall.z1 do for y=0,1 do
+        local pos={x=w.x+wall.x,y=y,z=w.z+z}
+        if C.get_node(pos).name=="air" then C.set_node(pos,{name="brickcraft:coral"}) end
+      end end
+    end
   end
-  w.lab_built=true; brickcraft.save_worlds()
+  -- The camp (added to War Labs made before it): the ground under it turns red.
+  for dx=-CAMP_R,CAMP_R do for dz=-CAMP_R,CAMP_R do
+    local g=ground_at(w.x+LAB_CAMP.x+dx,0,w.z+LAB_CAMP.z+dz)
+    local under=g and {x=g.x,y=g.y-1,z=g.z}
+    if under and CAMP_GROUND[C.get_node(under).name] then C.set_node(under,{name="brickcraft:red_camp"}) end
+  end end
+  w.lab_built,w.lab_camp=true,true; brickcraft.save_worlds()
   C.log("action","BrickCraft War Lab built at "..w.x..","..w.z)
 end
 C.after(0,function()
   if brickcraft.testing and not C.settings:get_bool("brickcraft_war_test",false) then return end
   local w=lab()
   if w then
-    if w.built and not w.lab_built then C.emerge_area({x=w.x,y=0,z=w.z},{x=w.x+20,y=2,z=w.z+20},function(_,_,r) if r==0 then build_lab(w) end end) end
+    if w.built and not (w.lab_built and w.lab_camp) then
+      C.emerge_area({x=w.x-22,y=-3,z=w.z-10},{x=w.x+20,y=2,z=w.z+20},function(_,_,r) if r==0 then build_lab(w) end end)
+    end
     return
   end
   w=brickcraft.make_world("War Lab (experimental)","BrickCraft",build_lab)
@@ -1234,7 +1255,7 @@ C.register_globalstep(function(dt)
       here=true
       if not welcomed[name] then
         C.chat_send_player(name,C.colorize("#ff9a76","War Lab (experimental): "..(war[name] and "" or "type /war, then ")..
-          "fight the Red Army coming from the west. The gray Practice Targets just stand there; your own blue knights come from slot 4 (right click the ground)."))
+          "fight the Red Army coming from its red camp in the west. The gray Practice Targets just stand there; your own blue knights come from slot 4 (right click the ground)."))
       end
       welcomed[name]=true
     else welcomed[name]=nil end
@@ -1250,7 +1271,7 @@ C.register_globalstep(function(dt)
   local camp=false
   for _,army in pairs(armies) do if army.lab==w then camp=true end end
   if fighting and not camp and next_lab_army<now() then
-    spawn_army({x=w.x-18,y=0,z=w.z-6},{x=w.x,y=0,z=w.z},w)
+    spawn_army({x=w.x+LAB_CAMP.x,y=0,z=w.z+LAB_CAMP.z},{x=w.x,y=0,z=w.z},w)
   end
   local up=0
   for ent in pairs(things) do if ent._lab and not ent._team then up=up+1 end end
