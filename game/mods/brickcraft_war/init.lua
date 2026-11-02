@@ -33,7 +33,7 @@ local BALL_SPEED,BALL_GRAVITY,BLAST=18,9.81,1.6
 local AMMO_START,AMMO_MAX,AMMO_PILE=6,30,3
 -- The Siege Castle's balance (seconds between shots or steps; tools/sim_siege.py tries
 -- others): red cannons, siege tower builders, castle archers, knights a side.
-local TUNE={red_cannon_every=12,build_every=12,archer_every=1.5,siege_per_side=26}
+local TUNE={red_cannon_every=8,build_every=12,archer_every=2,siege_per_side=26,castle_cannon_every=12}
 
 local war={} -- name -> {hp, lives, kos, ammo, shield (time), hurt (time), look, last={move->time}, hud={}}
 local things={} -- cannons and knights up now (luaentities)
@@ -246,13 +246,16 @@ end
 -- the way. They burst on anything solid or anyone, hitting everyone within BLAST.
 -- Cannonballs break things within 1.5 of where they burst on a node, a crack first and
 -- the next hit knocks it out: anyone's cannonballs break bricks players put up (a whole
--- piece at once; hills and trees stay), only the Red Army's crack the Siege Castle (its
--- gate only from right on it, within 1), and anyone else's knock siege towers apart (at once).
+-- piece at once; hills and trees stay), only the Red Army's crack the Siege Castle (a block
+-- of wall or gate takes three), and anyone else's knock siege towers apart (at once).
 local stone="brickcraft_baseplate.png^[colorize:#a9adb5:210"
 local CRACKS={["brickcraft:castle_wall"]="brickcraft:castle_wall_cracked",["brickcraft:castle_gate"]="brickcraft:castle_gate_cracked",
-  ["brickcraft:castle_wall_cracked"]="air",["brickcraft:castle_gate_cracked"]="air"}
+  ["brickcraft:castle_wall_cracked"]="brickcraft:castle_wall_broken",["brickcraft:castle_wall_broken"]="air",
+  ["brickcraft:castle_gate_cracked"]="brickcraft:castle_gate_broken",["brickcraft:castle_gate_broken"]="air"}
 for _,n in ipairs({{"castle_wall","Castle Wall",stone},{"castle_wall_cracked","Cracked Castle Wall",stone.."^[colorize:#3c3634:120"},
+  {"castle_wall_broken","Crumbling Castle Wall",stone.."^[colorize:#2a2422:170"},
   {"castle_gate","Castle Gate","brickcraft_brown.png^[colorize:#4a2c18:90"},{"castle_gate_cracked","Cracked Castle Gate","brickcraft_brown.png^[colorize:#24140a:150"},
+  {"castle_gate_broken","Splintered Castle Gate","brickcraft_brown.png^[colorize:#140a05:190"},
   {"siege_tower","Siege Tower",{"brickcraft_trunk_top.png","brickcraft_trunk_top.png","brickcraft_trunk.png"}}}) do
   C.register_node(":brickcraft:"..n[1],{description=n[2],tiles=type(n[3])=="table" and n[3] or {n[3]},
     groups={not_in_creative_inventory=1},diggable=false,is_ground_content=false})
@@ -290,8 +293,7 @@ local function ball_on_node(pt,side)
     local pos={x=x,y=y,z=z}
     if vector.distance(pos,pt)<=1.5 then
       local node=C.get_node(pos)
-      local gate=node.name:find("^brickcraft:castle_gate")
-      local to=side=="red" and (not gate or vector.distance(pos,pt)<=1) and CRACKS[node.name] or
+      local to=side=="red" and CRACKS[node.name] or
         side~="red" and node.name=="brickcraft:siege_tower" and "air"
       if to then C.swap_node(pos,{name=to}) else break_brick(pos,node) end
     end
@@ -767,7 +769,7 @@ end
 local CASTLE_SIDE={_team="blue"}
 castle_cannon=function(self)
   local t=now()
-  if (self._fired or 0)+5>t then return end
+  if (self._fired or 0)+TUNE.castle_cannon_every>t then return end
   local p=self.object:get_pos()
   local foe=find_foe(CASTLE_SIDE,p,25)
   if not foe or not foe:get_luaentity() then return end -- (players are for players)
@@ -835,6 +837,14 @@ local function think(self)
   -- A siege's knights make for the castle's flag (army.flag), fighting what's in the way.
   local army=not self._boss and self._team=="red" and armies[self._army or 0]
   if army and army.flag then
+    -- A siege tower with nobody building it: a knight waiting nearby takes over.
+    for _,b in ipairs(army.towers or {}) do
+      if flat_dist(p,b.stand)<8 and (b.builder_seen or 0)+6<now() then
+        for _,c in ipairs(b.cells) do
+          if C.get_node(c).name~="brickcraft:siege_tower" then self._build=b; b.builder_seen=now(); return end
+        end
+      end
+    end
     local foe,fd=find_foe(self,p,6)
     if foe then engage(self,foe,fd,p)
     elseif vector.distance(p,army.flag)>1.2 then walk(self,army.flag)
@@ -1611,6 +1621,16 @@ end)
 -- against the east and west walls up to the battlements. Each army finds the castle whole
 -- again: cracks and holes mended, siege towers gone (bricks players put there stay).
 local FLAG={x=0,y=7,z=7} -- the flag's foot, on the keep
+-- Spike traps in the floor where the Red Army gets in: inside the gate, at the foot of the
+-- stairs down from both siege towers' landings, inside the east wall, at the foot of the
+-- keep's stairs, and on the keep by the flag.
+local TRAPS={{x=-1,y=-1,z=-8},{x=0,y=-1,z=-8},{x=1,y=-1,z=-8},{x=-1,y=-1,z=-7},{x=0,y=-1,z=-7},{x=1,y=-1,z=-7},
+  {x=7,y=-1,z=-7},{x=6,y=-1,z=-7},{x=2,y=-1,z=-8},{x=2,y=-1,z=-7},{x=7,y=-1,z=0},{x=7,y=-1,z=1},
+  {x=8,y=-1,z=4},{x=7,y=-1,z=4},{x=-1,y=6,z=7},{x=1,y=6,z=7}}
+local TRAP_AT={}
+for _,t in ipairs(TRAPS) do TRAP_AT[t.x..","..t.y..","..t.z]=true end
+C.register_node(":brickcraft:spike_trap",{description="Spike Trap",
+  tiles={"brickcraft_baseplate.png^[colorize:#4a3a30:70"},groups={not_in_creative_inventory=1},diggable=false,is_ground_content=false})
 local INNER={{x0=-2,x1=2,z0=5,z1=8},{x0=-7,x1=-5,z0=-6,z1=-4},{x0=5,x1=7,z0=-6,z1=-4}}
 local STAIRS={{x=-7,z=8,dx=1,dz=0},{x=7,z=-8,dx=-1,dz=0},{x=8,z=-7,dx=0,dz=1},{x=-8,z=7,dx=0,dz=-1}}
 local function castle_cell(x,y,z)
@@ -1627,6 +1647,7 @@ local function castle_cell(x,y,z)
     return nil
   end
   if x==FLAG.x and z==FLAG.z and y>=7 and y<=9 then return y==9 and "brickcraft:castle_flag" or "brickcraft:flag_pole" end
+  if TRAP_AT[x..","..y..","..z] then return "brickcraft:spike_trap" end
   -- Inside: the keep against the north wall and two towers in the south of the courtyard
   -- (solid to y 6, battlements round the top), each tower with stairs up its north side.
   for _,b in ipairs(INNER) do
@@ -1670,7 +1691,7 @@ C.register_node(":brickcraft:water",{description="Moat Water",drawtype="liquid",
   liquid_range=0,liquid_renewable=false,liquid_viscosity=1,drowning=0,post_effect_color={a=110,r=30,g=90,b=170},
   groups={not_in_creative_inventory=1,water=1}})
 local function castle() for _,w in ipairs(brickcraft.worlds()) do if w.castle then return w end end end
-local OURS={["brickcraft:siege_tower"]=true,["brickcraft:flag_pole"]=true,["brickcraft:castle_flag"]=true,
+local OURS={["brickcraft:siege_tower"]=true,["brickcraft:spike_trap"]=true,["brickcraft:flag_pole"]=true,["brickcraft:castle_flag"]=true,
   ["brickcraft:castle_flag_red"]=true,["brickcraft:red_supply"]=true}
 for from,to in pairs(CRACKS) do OURS[from]=true end
 -- Someone inside the castle's stone (it grew round where they stood, or they left the
@@ -1705,6 +1726,8 @@ local function build_castle(w,first)
     if want and (first or data[i]==air or ours[data[i]]) then data[i]=C.get_content_id(want)
     elseif not want and (first or ours[data[i]]) then data[i]=air end
   end end end
+  -- The floor's traps.
+  for _,t in ipairs(TRAPS) do if t.y<0 then data[area:index(w.x+t.x,t.y,w.z+t.z)]=C.get_content_id("brickcraft:spike_trap") end end
   -- The moat: water y -3..-1 on a baseplate floor, baseplate sides under the ground.
   local water,plate=C.get_content_id("brickcraft:water"),C.get_content_id("brickcraft:baseplate")
   for z=-17,17 do for x=-17,17 do
@@ -1725,9 +1748,10 @@ end
 -- A builder's turn: by its stand it puts the next missing step of its siege tower every
 -- 4 seconds, fighting only who comes right up to it. Done, it joins the fight.
 build=function(self,p)
+  local b=self._build
+  b.builder_seen=now() -- (so the knights waiting by know it's taken)
   local foe,fd=find_foe(self,p,1.8)
   if foe then swing(self,foe,p); return true end
-  local b=self._build
   for _,c in ipairs(b.cells) do
     if C.get_node(c).name~="brickcraft:siege_tower" then
       if flat_dist(p,b.stand)>1.2 then walk(self,b.stand); return true end
@@ -1838,6 +1862,7 @@ local function siege_army(w)
     local yaw=math.atan2(s.n.x,-s.n.z) -- facing the castle
     local tw=SIEGE_TOWERS[key]
     local b=tw and {cells={},stand={x=w.x+tw.stand.x,y=0,z=w.z+tw.stand.z}}
+    if b then armies[id].towers=armies[id].towers or {}; table.insert(armies[id].towers,b) end
     if tw then
       for i=0,4 do for y=0,i do b.cells[#b.cells+1]={x=w.x+tw.x+(tw.dx or 0)*i,y=y,z=w.z+tw.z+(tw.dz or 0)*i} end end
     end
@@ -1866,6 +1891,36 @@ local function siege_army(w)
 end
 -- The flag: red knights by it, with no defender (a player in war, a blue knight or an
 -- archer) within 4, take it in 10 seconds; then the castle has fallen.
+-- A red knight stepping on a trap springs it: spikes knock 2 hearts off every red knight
+-- within 1.6 and throw them up; it's set again 4 seconds later.
+MOVES.trap={dmg=4,push=1,up=9}
+local sprung={} -- trap position -> when it's set again
+local trap_timer=0
+C.register_globalstep(function(dt)
+  trap_timer=trap_timer+dt
+  if trap_timer<.25 then return end
+  trap_timer=0
+  local w=castle()
+  if not w then return end
+  for ent in pairs(things) do
+    local p=ent.object:get_pos()
+    if p and ent._team=="red" and not ent._down and ent.name=="brickcraft:knight" and brickcraft.world_at(p)==w then
+      local under=vector.round({x=p.x,y=p.y-.3,z=p.z})
+      local k=C.pos_to_string(under)
+      if (sprung[k] or 0)<now() and C.get_node(under).name=="brickcraft:spike_trap" then
+        sprung[k]=now()+4
+        local top=vector.offset(under,0,.5,0)
+        C.add_particlespawner({amount=16,time=.2,minpos=vector.offset(top,-.4,0,-.4),maxpos=vector.offset(top,.4,0,.4),
+          minvel={x=-.5,y=4,z=-.5},maxvel={x=.5,y=7,z=.5},minacc={x=0,y=-12,z=0},maxacc={x=0,y=-12,z=0},
+          minexptime=.4,maxexptime=.7,minsize=2,maxsize=3,texture="brickcraft_cannon_metal.png"})
+        for _,obj in ipairs(C.get_objects_inside_radius(top,1.6)) do
+          local e=obj:get_luaentity()
+          if e and e._team=="red" and e.name=="brickcraft:knight" then hit(obj,nil,"trap",{x=0,y=0,z=0},"blue") end
+        end
+      end
+    end
+  end
+end)
 local taking={} -- world id -> seconds red knights have held the flag
 local function flag_watch(w,dt)
   local id

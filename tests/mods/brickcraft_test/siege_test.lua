@@ -75,6 +75,14 @@ local function run(dad)
     return red._hp<rhp or red._down
   end,function() return "the archer never hit the Red Knight" end)
   log(("ARCHERS: 12 castle archers; one on the south wall shot a Red Knight below (%d/6)"):format(math.max(0,red._hp)))
+  -- A red knight inside the gate springs the trap there.
+  assert(node(w,0,-1,-7)=="brickcraft:spike_trap" and node(w,1,6,7)=="brickcraft:spike_trap","traps inside the gate and by the flag")
+  local victim
+  for ent in pairs(W._things()) do if ent._army==id and ent.name=="brickcraft:knight" and not ent._boss and not ent._down and ent~=red and not ent._crew then victim=ent end end
+  local vhp=victim._hp
+  victim.object:set_pos({x=w.x,y=-.5,z=w.z-7}); victim._stun=C.get_us_time()/1e6+2
+  wait(3,function() return victim._hp<vhp or victim._down end,function() return "the trap didn't spring" end)
+  log(("TRAP: a red knight inside the gate sprang a spike trap (%d/6)"):format(math.max(0,victim._hp)))
   -- Without its gunner a cannon can't turn: pointed away from everyone, it doesn't fire.
   local still=cannons[2]
   still._gunner.object:remove()
@@ -97,8 +105,10 @@ local function run(dad)
   W.fire(from,v,nil,nil,"red")
   wait(2,function() return C.get_node(wall).name=="brickcraft:castle_wall_cracked" end,function() return "no crack: "..C.get_node(wall).name end)
   W.fire(from,v,nil,nil,"red")
+  wait(2,function() return C.get_node(wall).name=="brickcraft:castle_wall_broken" end,function() return "not crumbling: "..C.get_node(wall).name end)
+  W.fire(from,v,nil,nil,"red")
   wait(2,function() return C.get_node(wall).name=="air" end,function() return "no hole: "..C.get_node(wall).name end)
-  log("WALLS: a red cannonball cracked the wall, the next knocked it out; blue ones don't")
+  log("WALLS: red cannonballs cracked the wall, then crumbled it, the third knocked it out; blue ones don't")
   local tower={x=w.x+20,y=0,z=w.z+20}
   C.set_node(tower,{name="brickcraft:siege_tower"})
   W.fire({x=w.x+20,y=.2,z=w.z+16},{x=0,y=0,z=15},nil,nil,"red")
@@ -128,7 +138,7 @@ local function run(dad)
   dad:set_pos(vector.offset(gun.object:get_pos(),-.0,.5,0)); s.ammo=0
   local before=0
   for _,o in ipairs(C.get_objects_inside_radius(gun.object:get_pos(),3)) do if o:get_luaentity() and o:get_luaentity().name=="brickcraft:cannonball" then before=before+1 end end
-  gun:on_rightclick(dad)
+  gun._fired=0; gun:on_rightclick(dad)
   local after=0
   for _,o in ipairs(C.get_objects_inside_radius(gun.object:get_pos(),3)) do if o:get_luaentity() and o:get_luaentity().name=="brickcraft:cannonball" then after=after+1 end end
   assert(after>before and s.ammo==0,"the castle cannon fired without cannonballs")
