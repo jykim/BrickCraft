@@ -421,6 +421,8 @@ end
 -- Worlds are copies of the workshop around their own centers (init.lua). A player's builder
 -- works in the world its owner is in; jms stays in the Workshop.
 local function center_of(pos) local w=brickcraft.world_at(pos); return {x=w.x,y=0,z=w.z},w end
+-- Where each player's builder watches a race from, in the Kart Circuit's middle (x from it).
+local KART_SEATS={builder=-4,dad=-2,daughter=2,explorer=4}
 local function same_world(a,b) local ca,cb=center_of(a),center_of(b); return ca.x==cb.x and ca.z==cb.z end
 local workers={} -- owner (a player id, or "jms") -> builder
 -- Finds the free baseplate spot nearest to `near` for a w x d footprint with a 1-cell
@@ -2143,7 +2145,12 @@ local function new_worker(owner)
     end
     if job then return work() end
     idle=idle+step
-    if idle>=IDLE and thinking==0 and not next(queue) then
+    -- At the Kart Circuit it keeps off the track (brickcraft_kart): no building of its own,
+    -- and it watches the race from a seat in the middle instead of following its owner.
+    local kw=brickcraft.kart and brickcraft.kart.world()
+    local opl=owner_pl()
+    local racing=kw and opl and brickcraft.world_at(opl:get_pos())==kw
+    if idle>=IDLE and thinking==0 and not next(queue) and not racing then
       -- A quiet moment: first look after what's already there, then build something new.
       idle=0
       if maint_on and maintain() then return end
@@ -2162,6 +2169,12 @@ local function new_worker(owner)
       local pl=owner_pl()
       if not pl then return end
       local op=pl:get_pos()
+      if racing then
+        local seat={x=kw.x+(KART_SEATS[owner] or 0),y=0,z=kw.z-2}
+        if vector.distance(feet_of(p),seat)>1.5 then bot:set_pos(vector.offset(seat,0,-.5,0)); set_path({}) end
+        bot:set_yaw(C.dir_to_yaw(vector.direction(p,op)))
+        return
+      end
       local d=same_world(op,p) and vector.distance(op,p) or math.huge
       if d>24 then hop_to(pl)
       elseif d>6 then if not come_to(pl:get_player_name()) and d>12 then hop_to(pl) end

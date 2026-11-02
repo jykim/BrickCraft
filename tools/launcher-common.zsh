@@ -66,13 +66,14 @@ ensure keymap_forward "SYSTEM_SCANCODE_26|SYSTEM_SCANCODE_82|GAMEPAD_AXIS_MINUS_
 ensure keymap_backward "SYSTEM_SCANCODE_22|SYSTEM_SCANCODE_81|GAMEPAD_AXIS_PLUS_1"
 ensure keymap_left "SYSTEM_SCANCODE_4|SYSTEM_SCANCODE_80|GAMEPAD_AXIS_MINUS_0"
 ensure keymap_right "SYSTEM_SCANCODE_7|SYSTEM_SCANCODE_79|GAMEPAD_AXIS_PLUS_0"
-# Tab picks the next piece too (same control as E).
-ensure keymap_aux1 "SYSTEM_SCANCODE_8|SYSTEM_SCANCODE_43|GAMEPAD_BUTTON_2"
-ensure keymap_zoom "SYSTEM_SCANCODE_56"
+# Tab picks the next piece; E (zoom) and Q (drop) turn the view right and left.
+ensure keymap_aux1 "SYSTEM_SCANCODE_43|GAMEPAD_BUTTON_2"
+ensure keymap_zoom "SYSTEM_SCANCODE_8"
+ensure keymap_drop "SYSTEM_SCANCODE_20"
 ensure keymap_cmd "SYSTEM_SCANCODE_104"
 # F places too, for trackpads without a secondary click.
 ensure keymap_place "KEY_RBUTTON|SYSTEM_SCANCODE_9|GAMEPAD_AXIS_PLUS_4"
-ensure keymap_sneak "SYSTEM_SCANCODE_24"
+ensure keymap_sneak "SYSTEM_SCANCODE_24|SYSTEM_SCANCODE_225|SYSTEM_SCANCODE_229"
 # Trackpad touches must not flip the game into touchscreen controls (auto does), where a
 # click no longer means dig or place.
 ensure touch_controls false

@@ -36,6 +36,7 @@
 | [game/mods/brickcraft_technic/](../game/mods/brickcraft_technic/init.lua) | 축·기어·모터·롤러코스터, Technic Lab |
 | `game/mods/mesecons/` | 원본 그대로의 Mesecons 일부(모드팩). 고치지 않고, 바꿀 때는 원본 커밋을 통째로 교체 |
 | [game/mods/brickcraft_war/](../game/mods/brickcraft_war/init.lua) | 전쟁 모드, War Lab |
+| [game/mods/brickcraft_kart/](../game/mods/brickcraft_kart/init.lua) | 카트 레이싱, Kart Circuit |
 | [game/mods/brickcraft_ai/](../game/mods/brickcraft_ai/init.lua) | AI 빌더(`brickcraft_ai_builder = true`일 때만 동작) |
 | [tests/mods/brickcraft_test/](../tests/mods/brickcraft_test/init.lua) | 엔진 검사 모드. 게임에 포함되지 않고 `tools/test_*.py`가 검사 세계의 `worldmods/`에 링크 |
 | [tools/generate_assets.py](../tools/generate_assets.py) | 원본 PNG 12개와 블록 사람 OBJ 생성 |
@@ -49,7 +50,7 @@
 
 ### 모드 구조
 
-[Luanti 문서](https://docs.luanti.org/for-creators/)의 권고(모드 하나에 한 가지 일, `mod.conf`로 의존성 선언, 전역은 모드 이름 표 하나)를 따라 게임을 모드 다섯 개로 나눴습니다. 의존 방향은 한쪽입니다: `brickcraft` ← `brickcraft_trains` ← `brickcraft_technic` ← `brickcraft_ai`, `brickcraft` ← `brickcraft_war` ← `brickcraft_ai`.
+[Luanti 문서](https://docs.luanti.org/for-creators/)의 권고(모드 하나에 한 가지 일, `mod.conf`로 의존성 선언, 전역은 모드 이름 표 하나)를 따라 게임을 모드 여섯 개로 나눴습니다. 의존 방향은 한쪽입니다: `brickcraft` ← `brickcraft_trains` ← `brickcraft_technic` ← `brickcraft_ai`, `brickcraft` ← `brickcraft_war` ← `brickcraft_ai`, `brickcraft` ← `brickcraft_kart`.
 
 - 핵심 모드는 기능 모드를 직접 부르지 않습니다. 기차·테크닉 조각 놓기는 `brickcraft.placers.train`/`.technic`을 기능 모드가 채우고, 전쟁 모드 버튼·정지는 `brickcraft.war`가 있을 때만 씁니다. 실행 중에만 반대 방향으로 부르는 곳(선로 → `brickcraft.technic.spin`, 전쟁 → `brickcraft.ai.ask`)은 있는지 확인하고 부릅니다.
 - 노드·도구·엔티티 이름은 분리 전과 같은 `brickcraft:` 그대로입니다. 다른 모드에서 등록하므로 `":brickcraft:..."`처럼 앞에 `:`를 붙입니다. 이름을 바꿀 때는 `core.register_alias`로 옛 이름을 남깁니다.
@@ -105,6 +106,26 @@
 - 검사: `python3 tools/test_td.py`(전용 서버 30017 + 클라이언트 1개, `td_test.lua`): 들판·성문·문·레버, 메뉴로 짓기·강화, 웨이브 1 격퇴, 바리케이드, 서리·타르·가시·방패 기사 방어, 성문 도달, 레버, 병영, 주문, 공격 쪽(붉은 팀·보내기·공격 4종), 함락과 새 게임.
 - 검사: `python3 tools/test_war.py`(전용 서버 30014 + 클라이언트 2개): 평화(전쟁 아닌 사람은 안 맞음), 칼·발차기·밀기의 실제 클라이언트 밀림, 대포, 녹아웃·보호, 연습 기사, 탄약(손 발사·빈 탄창·더미 줍기), 파란 기사 대 붉은 기사, 붉은 기사의 공격, `/battle` 사령관 포격과 승리, 브릭 복원, War Lab과 그곳의 붉은 군대.
 
+## 4f. 카트 레이싱(brickcraft_kart)
+
+- 참고한 모드(코드는 가져오지 않음, [출처](THIRD_PARTY.md#kart-racing-references)): 주행은 APercy의 Automobiles Pack(MIT): 속도를 차의 앞(`_vl`)과 옆(`_vt`)으로 나누고 옆 속도는 그립(`GRIP`, 드리프트 중 `DRIFT_GRIP`)만큼 매초 줄며, 조향 회전은 `(1 - 1/(|v|+1))`배라 느릴수록 덜 돕니다. 바퀴 수·역주행 경고·순위표·3-2-1 카운트다운은 PanqKart(pk_checkpoints, pk_core), 출발 신호등은 APercy의 checkpoints, 드리프트 미니터보·부스트 패드·점프·웨이포인트 AI는 마리오카트식 기능 목록에서 왔습니다.
+- 트랙은 `POINTS`(x, z, 높이) 하나로 정의됩니다. Catmull-Rom 곡선을 0.5칸마다 자른 샘플 `S`(위치, 높이 `h`, 접선, 경사, `open`=아래가 빈 다리, `boost`)가 모든 것의 기준입니다. 샘플 1이 출발선이고 그리드는 그 뒤 2.5칸마다 두 줄입니다. 점프대(`JUMPS`: 떨어지는 지점, 샘플 수, 높이)는 오르막 뒤 바로 떨어집니다: S자의 6칸·1.5칸과, 직선의 롱점프 8칸·2칸 둘. 상자(`CRATES`: 위치와 길 가운데에서 오른쪽 거리)는 1칸 높이 노드이고 `BLOCKED` 높이 0.5라 점프해야 넘습니다(CPU는 차선을 바꿔 피함). 다리는 높이 차 3 이상인 길이 `2*HALF+1.5` 안에 있는 높은 샘플입니다.
+- 노드: 칸마다 가장 가까운 샘플(`CELLS`, 입체교차에서는 층 둘)의 높이를 ¼칸 단위로 쌓습니다(꽉 찬 노드 + 높이 1–3/4 반 블록 `_1`.._3`). 길 가장자리 1칸은 빨강·흰색 연석, 다리는 상판만(가장자리에 기둥), 나머지 높은 길은 꽉 찬 둑입니다. `lay_out`은 Tower Defense처럼 처음엔 전부, 그 뒤엔 자기 노드와 공기만 씁니다. 건물과 나무(`PIECES`)는 6칸 격자에 결정적 난수로, 길·게이트에서 2칸, 서로 2칸 떨어지고 가운데(도착 지점)를 피하는 곳에만 놓입니다. `BLOCKED`가 그 칸들의 높이이며 카트는 둑 옆면처럼 튕깁니다. 세계의 `kart_version`이 `LAYOUT_VERSION`보다 낮으면(건물 전 v1) 시작할 때 `lay_out(w,false)`로 더합니다.
+- 카트(`brickcraft:kart`)는 엔진 물리를 쓰지 않는 엔티티입니다(수레와 같은 방식, 저장 안 함). 높이는 `ground`가 줍니다: 근처 샘플(`_i` 주변 ±24, 멀면 전체)에서 길 폭 안이면 곡선의 높이, 아니면 들판(y −0.5). 다리 밑(`open`이고 1.5칸 넘게 위)은 들판, 그 밖의 높은 길 옆면은 벽(0.6칸 넘게 높으면 튕김)입니다. 땅이 자유 낙하보다 빨리 내려가면 공중이고(점프대·드리프트 점프), 0.9칸 넘게 떨어져 길 밖에 내리면 탈선: `RESCUE`초 뒤 `_i`의 길 가운데로 돌아옵니다.
+- 점프: 직진 중 Space(엣지)면 `_vy`=8(약 1.6칸, 상자 위로 약 0.5초), 코너에서는 드리프트. 공중에서 0.1칸 넘게 떠 있으면 놓인 바나나를 밟지 않습니다.
+- 조작 모드: 플레이어 메타 `brickcraft_kart_steer`가 `mouse`면 `controls`가 시선 방향과 카트 방향의 차로 조향하고, 아니면(기본 keys) A/D로 조향하며 `drive`가 매 단계 시선을 카트 방향·아래 0.18로 고정합니다. 사람의 조향은 `_steer`가 초당 5(떼거나 반대로는 9)로 따라가고, `brickcraft_kart_assist`가 off가 아니면 길 가장자리 1.6칸 안에서 밖을 향할 때 `lat*.25 - 각도*1.5`(±0.7)를 더합니다.
+- AI 빌더(`brickcraft_ai`의 `tick`): 주인이 `brickcraft.kart.world()`에 있으면 `KART_SEATS`의 자리(가운데, z −2)로 옮겨 서서 주인을 보고, 혼자 짓기(`auto_build`·`maintain`)를 하지 않습니다.
+- 막힘: 벽 검사는 막힌 칸(둑 옆면·`BLOCKED`)으로 *들어가는* 움직임만 되돌리고, 이미 그 안에 있으면(착지·배치) 빠져나가게 둡니다. 상자 위 0.35칸 안이면 상자 윗면이 땅입니다. 리셋: E(aux1, `controls`의 `reset`)나 `/kart reset`, 경주 중 가속을 누른 채 3초 못 움직이면 `rescue`로 `_i` 샘플의 길 가운데로.
+- 바나나: 길 위 다발(`brickcraft:kart_bunch`, `BOXES` 세 줄 × 4)은 밟으면 1개(25%는 3개), 3초 뒤 다시 나타납니다. 던지거나 떨군 껍질(`brickcraft:kart_banana`)이 스핀을 냅니다.
+- 미니맵: 탈 때 `hud_set_flags{minimap=true}`와 `set_minimap_modes`(위성지도 176칸, 끄기)로 트랙 전체를 보이고, 카트는 `show_on_minimap`이라 점으로 나옵니다. 내리면 엔진 기본 모드(`MAP_MODES`)와 예전 플래그로 돌립니다.
+- 붙은 객체는 부모 메시 노드의 자식이라(엔진 `content_cao.cpp`의 `setParent(parent->getSceneNode())`) 부모의 `visual_size`로 커지고 그 안에서 놓입니다. 그래서 카트는 `visual_size` 1이고 메시를 10배(`save(...,scale=10)`)로 씁니다. 그래야 탄 사람과 CPU 운전사가 제 크기입니다.
+- 진행: `_prog`는 출발선부터 올바른 방향으로 달린 샘플 수(한 번에 60 넘게 건너뛰면 세지 않음), `N`이 한 바퀴. `laps*N`이면 완주. 순위는 완주 순서, 그다음 `_prog`.
+- 타기: 플레이어를 카트에 붙이고(BS 단위 {0,−3,−1.5}), 엔진이 붙은 플레이어의 시선을 부모와 함께 돌리지 않으므로 카트가 돈 만큼 `set_look_horizontal`로 함께 돌립니다. 카트 안에서는 모든 아이템의 `on_place`/`on_use`/`on_secondary_use`를 막고(`register_on_mods_loaded`) 좌·우클릭을 카트가 읽습니다.
+- CPU 레이서는 같은 카트에 `_bot`(모습)과 운전사 엔티티(`brickcraft:kart_driver`)를 붙인 것입니다. `bot_controls`가 속도에 따라 4–10칸 앞 샘플의 자기 차선(`_lane`)을 향해 조향하고, 앞의 바나나를 피해 차선을 바꾸며, 급커브에서 가속을 늦춥니다. 플레이어보다 15% 넘게 뒤면 빨라지고 10% 넘게 앞서면 느려집니다. 바로 뒤 레이서에겐 바나나를 떨구고 앞 레이서에겐 던집니다. 완주한 플레이어의 카트도 이것으로 달립니다(`_autopilot`은 검사용).
+- 경주 상태(`game`: lobby → join(`JOIN`초) → countdown(4초, 신호등) → race → done(결과, 12초 뒤 새 그리드))는 저장하지 않습니다. 경주 중에는 들판 맵블록을 일시 forceload합니다.
+- 에셋: `tools/generate_assets.py`의 카트 메시(`brickcraft_kart.obj`: wheel·body·trim 그룹), 아스팔트·체크무늬·부스트·바나나 껍질·다발 텍스처.
+- 검사: `python3 tools/test_kart.py`(전용 서버 30018 + 클라이언트 1개, `kart_test.lua`): 트랙(출발선·게이트·신호등·다리와 아래 길·기둥·점프대·부스트·평평한 들판), 건물·나무, 그리드 8대와 바나나 다발 12개, 탑승(브릭이 놓이지 않음, 미니맵 켜짐), CPU 5명과 신호등, 주행, 바나나 밟기·던지기, 다리에서 탈선과 복귀, 다발, 부스트, 점프대, 부스트 뒤 롱점프(8칸 넘게), 점프로 바나나·상자 넘기와 상자에 막힘, 둑 옆면과 건물, 1바퀴 완주·결과·새 그리드. 개별 확인은 다른 레이서에게서 가장 먼 곳에서 하고 길의 바나나를 치웁니다.
+
 ## 4e. 테크닉 기계(brickcraft_technic)
 
 - 부품은 `shapes`의 `technic=` 항목과, 바닥에 놓은 `train=motor/battery`입니다. 축·기어는 모델의 y축이 회전축이고 facedir의 축 방향(param2 ÷ 4)으로 눕힙니다. 테크닉 브릭·모터·배터리 박스는 param2 % 4로 돕니다.
@@ -137,7 +158,7 @@ Finder에서 실행 스크립트를 더블클릭해도 됩니다. 앱만 직접 
 4. 게임을 저장 종료한 뒤 실행 스크립트로 다시 엽니다. 현재 별도 핫 리로드 기능은 없습니다.
 5. 변경한 동작을 직접 확인하고, 배치·회수·저장 경로를 변경했다면 아래 통합 검사도 실행합니다.
 
-키 바인딩은 [brickcraft.conf](../brickcraft.conf)의 `keymap_*`에 있습니다. 방향키는 WASD와 `|`로 함께 묶었고, `?`/`/` 키(스캔코드 56)는 `keymap_zoom`으로 보내 `zoom_fov = 0`인 서버 쪽에서 도움말을 엽니다. U(스캔코드 24)는 쓰지 않는 sneak 컨트롤로 보내 마지막 건축 동작을 되돌립니다. 명령 채팅 키는 쓰지 않는 F13으로 옮겼습니다(빈 값은 쓰지 마세요). F 키도 배치(`keymap_place`)에 묶었습니다. 실행기가 시작 전 빠진 `keymap_*` 줄을 다시 추가하고, `SDL_MAC_CTRL_CLICK_EMULATE_RIGHT_CLICK=1`로 Control+클릭을 우클릭으로 바꿉니다(Luanti 5.17 내장 SDL 2.32). Cmd+클릭은 Luanti 키 설정이 수정키+마우스 조합을 지원하지 않아 넣지 않았습니다. **게임이 켜진 동안 이 파일을 고치지 마세요.** 클라이언트가 종료하며 시작 시점 설정으로 파일을 다시 써서 수정이 사라집니다. 조작 전체 목록은 게임 안 `?`·`/keys` 화면이며 `init.lua`의 `help_rows` 표 하나가 내용을 정합니다. 키를 바꾸면 이 표도 함께 고치세요. 조작: WASD 이동, 마우스 시점, Space 점프(`game/minetest.conf`의 `movement_speed_jump = 9.3`, 높이 = 점프²/(4×중력) ≈ 2.2칸이라 2칸 벽에 오름), 1 세퍼레이터/좌클릭 회수, 2–9 색 선택/우클릭 배치, U 되돌리기, I 인벤토리, C 카메라 전환. `/guide` 안내, `/home` 시작점 복귀. Esc만 눌러서는 세계가 닫히지 않으며, Exit to Menu 또는 Exit to OS로 저장 종료합니다.
+키 바인딩은 [brickcraft.conf](../brickcraft.conf)의 `keymap_*`에 있습니다. 방향키는 WASD와 `|`로 함께 묶었고, 서버가 볼 수 있는 키 신호는 aux1·zoom·drop·sneak뿐이라 이렇게 나눴습니다: Tab(43)만 `keymap_aux1`(다음 부품, 카트 리셋), E(8)는 `keymap_zoom`(`zoom_fov = 0`이라 확대 없음)으로 오른쪽 45°, Q(20)는 `keymap_drop`이고 모든 아이템의 `on_drop`(`register_on_mods_loaded`)이 버리지 않고 왼쪽 45°로 돌립니다(빈손이면 Q가 신호를 보내지 않음). U(24)와 Shift(225, 229)는 sneak: 건축 중엔 되돌리기, 카트에서는 바나나 던지기(`brickcraft_kart`가 읽고 되돌리기는 건너뜀), 전쟁 모드에서는 `brickcraft.war.fire_from`. 카트에서 키보드 모드면 시점이 고정이라 Q/E는 무시합니다. 다음 브릭 돌리기는 인벤토리 *Turn next brick*(`fields.turn`)과 세퍼레이터 우클릭(놓은 브릭)입니다. 도움말 키는 없고 I > *Help: all keys*·`/keys`로 엽니다. 명령 채팅 키는 쓰지 않는 F13으로 옮겼습니다(빈 값은 쓰지 마세요). F 키도 배치(`keymap_place`)에 묶었습니다. 실행기가 시작 전 빠진 `keymap_*` 줄을 다시 추가하고, `SDL_MAC_CTRL_CLICK_EMULATE_RIGHT_CLICK=1`로 Control+클릭을 우클릭으로 바꿉니다(Luanti 5.17 내장 SDL 2.32). Cmd+클릭은 Luanti 키 설정이 수정키+마우스 조합을 지원하지 않아 넣지 않았습니다. **게임이 켜진 동안 이 파일을 고치지 마세요.** 클라이언트가 종료하며 시작 시점 설정으로 파일을 다시 써서 수정이 사라집니다. 조작 전체 목록은 게임 안 `?`·`/keys` 화면이며 `init.lua`의 `help_rows` 표 하나가 내용을 정합니다. 키를 바꾸면 이 표도 함께 고치세요. 조작: WASD 이동, 마우스 시점, Space 점프(`game/minetest.conf`의 `movement_speed_jump = 9.3`, 높이 = 점프²/(4×중력) ≈ 2.2칸이라 2칸 벽에 오름), 1 세퍼레이터/좌클릭 회수, 2–9 색 선택/우클릭 배치, U 되돌리기, I 인벤토리, C 카메라 전환. `/guide` 안내, `/home` 시작점 복귀. Esc만 눌러서는 세계가 닫히지 않으며, Exit to Menu 또는 Exit to OS로 저장 종료합니다.
 
 ## 5. 검사 방법과 확인된 범위
 

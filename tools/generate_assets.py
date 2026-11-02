@@ -104,11 +104,12 @@ class Mesh:
         self.poly([(x,y1,z) for x,z in pts]); self.poly([(x,y0,z) for x,z in reversed(pts)])
         for (xa,za),(xb,zb) in zip(pts,pts[1:]+pts[:1]):
             self.poly([(xb,y0,zb),(xb,y1,zb),(xa,y1,za),(xa,y0,za)])
-    def save(self,name,title,flip_x=False):
+    def save(self,name,title,flip_x=False,scale=1):
         # The engine's OBJ loader negates x; flip_x writes it pre-negated so the mesh lands
-        # where it is drawn here (meshes not symmetric in x need it).
+        # where it is drawn here (meshes not symmetric in x need it). scale writes it bigger
+        # (10: engine units, for an entity drawn at visual_size 1).
         k=-1 if flip_x else 1
-        lines=['# Original BrickCraft '+title]+['v %g %g %g'%(k*x,y,z) for x,y,z in self.v]+['vt %g %g'%p for p in self.vt]
+        lines=['# Original BrickCraft '+title]+['v %g %g %g'%(k*x*scale,y*scale,z*scale) for x,y,z in self.v]+['vt %g %g'%p for p in self.vt]
         lines+=['vn %g %g %g'%(k*x,y,z) for x,y,z in self.vn]+self.f
         (root/'models'/name).write_text('\n'.join(lines)+'\n')
 def slope(name,x0,x1,stud_xs,title,inverted=False):
@@ -318,4 +319,51 @@ def ramp(name,chain):
     m.save(name,'track ramp'+(' with chain lift' if chain else ''))
 ramp('brickcraft_track_ramp.obj',False)
 ramp('brickcraft_track_lift.obj',True)
-print('Generated 38 textures, 3 block person meshes, 5 brick meshes, 5 train meshes and a cannon')
+# Kart racing (brickcraft_kart). A go-kart, front +z, wheels on the ground at y 0
+# (textures: wheel, body in the racer's color, dark trim): a low floor, side pods, a nose
+# with a bumper, a seat back, a steering wheel and a rear wing over the engine.
+m=Mesh(); m.mat('wheel')
+for x in (-.4,.4):
+    for z,r in ((-.46,.17),(.46,.15)): m.box(x-.08,0,z-r,x+.08,2*r,z+r)
+m.mat('body')
+m.box(-.3,.08,-.6,.3,.18,.66)                                    # floor
+for x in (-1,1): m.box(x*.26-.06,.18,-.36,x*.26+.06,.4,.28)        # side pods
+m.box(-.2,.14,.5,.2,.34,.78)                                     # nose
+m.box(-.22,.4,-.66,.22,.46,-.54)                                 # wing
+m.mat('trim')
+m.box(-.42,.08,.74,.42,.18,.84)                                  # bumper
+m.box(-.2,.18,-.5,.2,.7,-.42)                                    # seat back
+m.box(-.03,.18,.2,.03,.5,.26); m.box(-.12,.46,.18,.12,.56,.24)   # steering column and wheel
+m.box(-.16,.18,-.66,.16,.36,-.5)                                 # engine
+for x in (-.2,.2): m.box(x-.02,.36,-.62,x+.02,.4,-.58)            # wing posts
+# Drawn at visual_size 1 (so written 10 times bigger): what's attached to an entity is drawn
+# in its scale, and the riders on a kart must stay their own size.
+m.save('brickcraft_kart.obj','go-kart',flip_x=True,scale=10)
+# Asphalt with darker studs; a checkered start line; a boost pad's chevrons pointing +z
+# (up the texture); a banana peel lying open (spins you out) and a bunch (to pick up).
+png('brickcraft_kart_road.png',32,32,lambda x,y:(84,88,96,255) if (x%16-8)**2+(y%16-8)**2<12 else (70,73,80,255) if x not in (0,31) and y not in (0,31) else (62,64,70,255))
+png('brickcraft_kart_check.png',32,32,lambda x,y:(240,240,240,255) if (x//8+y//8)%2 else (34,36,42,255))
+png('brickcraft_kart_boost.png',32,32,lambda x,y:(255,226,92,255) if abs(x-15.5)<9 and 0<=((y+abs(x-15.5))%12)<5 else (245,135,44,255))
+def banana_at(x,y,cx,cy,r0,r1):  # a crescent: a ring's lower-left quarter
+    r=((x-cx)**2+(y-cy)**2)**.5
+    return r0<=r<=r1 and x<=cx and y>=cy
+def peel(x,y):  # a peel lying open: a stalk, a middle and three spotted flaps splayed out
+    import math
+    if 11<=x<=13 and 3<=y<=8: return (118,80,52,255)  # stalk
+    for ex,ey in ((3,19),(12,22),(21,19)):
+        # distance from the flap's line, from the middle (12, 10) to its tip
+        vx,vy,px,py=ex-12,ey-10,x-12,y-10
+        t=max(0,min(1,(px*vx+py*vy)/(vx*vx+vy*vy)))
+        d=math.hypot(px-vx*t,py-vy*t)
+        if d<=2.6*(1-t)+1.2:
+            return (140,96,40,255) if (x*7+y*5)%13==0 else (244,210,62,255) if d<1.6 else (214,170,30,255)
+    return (0,0,0,0)
+png('brickcraft_kart_banana.png',24,24,peel)
+def bunch(x,y):  # three ripe bananas on one green stem
+    if 15<=x<=18 and 1<=y<=6: return (88,171,65,255)
+    for cx,cy in ((21,3),(18,6),(24,6)):
+        if banana_at(x,y,cx,cy,9,13):
+            return (118,80,52,255) if y>=cy+12 and x<=cx-9 else (255,226,70,255) if ((x-cx)**2+(y-cy)**2)**.5<11.5 else (222,178,32,255)
+    return (0,0,0,0)
+png('brickcraft_kart_bunch.png',24,24,bunch)
+print('Generated 43 textures, 3 block person meshes, 5 brick meshes, 5 train meshes, a cannon and a kart')

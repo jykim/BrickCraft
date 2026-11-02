@@ -39,3 +39,15 @@ API references used: https://api.luanti.org/games/ and https://api.luanti.org/
 ## Office Doom read-only comparison
 
 Inspected `/Users/lifidea/dev/AI4G/cyber-doom/README.md` (Three.js) and `/Users/lifidea/dev/AI4G/cyber-doom-godot/README.md` (Godot 4.7). They focus on FPS movement, weapons, NPCs and office themes. A brick world would still need editable voxel storage, placement/removal, inventory and persistence implemented there. Luanti provides those engine primitives already. No files in either Office Doom project were modified, imported or executed.
+
+## Kart racing references
+
+The kart mod (`game/mods/brickcraft_kart`) is original MIT code; no code, model, texture or sound was copied. These were read for ideas (checked 2026-11-02):
+
+| Project | License | What it gave us |
+| --- | --- | --- |
+| [Automobiles Pack](https://github.com/APercy/automobiles_pck) (APercy) | MIT | Driving model: speed split along / across the car, sideways drag as grip, steering limited by `1 - 1/(speed + 1)` |
+| [PanqKart](https://github.com/Panquesito7/panqkart) (Panquesito7) with lib_mount / vehicle_mash | code LGPL-2.1 (lib_mount), media partly non-free | Race flow: lobby, 3-2-1-GO countdown, ordered checkpoints for laps, wrong-way warning, results table |
+| [checkpoints](https://github.com/APercy/checkpoints) (APercy) | MIT | Start lights at the start line |
+| [MineKart](https://content.luanti.org/packages/wsor4035/minekart/), [Kart Car](https://content.luanti.org/packages/apercy/kartcar) | see ContentDB | Surveyed; reviews asked for CPU racers and laps, which we added |
+| Cubic Racers (Minecraft Forge) | see CurseForge | The banana that spins a kart out (none of the Luanti mods have one) |

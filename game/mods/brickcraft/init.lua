@@ -130,7 +130,7 @@ local function is_free(pos)
   return def and def.buildable_to and pos.y>=0
 end
 
-local place_brick, turn_next
+local place_brick, turn_next, turn_view
 local placers={} -- shape kind ("train", "technic") -> place function, filled by those mods
 local strict -- strict LEGO world checks (strict.lua), loaded once worlds are known
 -- In a strict world, check(...) (one of strict's can_* functions) has to pass; tells the player why not.
@@ -194,8 +194,6 @@ for i, color in ipairs(colors) do
       -- from as far away as collecting does (and in third-person view).
       def.range=7
       def.on_place=function(stack,placer,pointed) return place_brick(stack,placer,pointed,item) end
-      -- Q turns the next brick instead of throwing it into the world.
-      def.on_drop=function(stack,dropper) turn_next(dropper); return stack end
     end
     if s.long then
       def.on_destruct=function(pos)
@@ -221,7 +219,7 @@ local watching,last_ctrl={},{} -- /clicks (below): until when, and keys held las
 local function update_hud(player)
   local name=player:get_player_name()
   local sh=get_shape(player)
-  local text="Piece: "..sh.label.." (part "..sh.part..")  [Tab]     Turn: "..(get_turn(player)*90).."°  [Q]"
+  local text="Piece: "..sh.label.." (part "..sh.part..")  [Tab]     Turn: "..(get_turn(player)*90).."°  [I > Turn]"
   if hud[name] then player:hud_change(hud[name],"text",text)
   else
     hud[name]=player:hud_add({type="text",position={x=.5,y=1},offset={x=0,y=-96},
@@ -376,7 +374,6 @@ C.register_tool("brickcraft:separator", {
     if pointed.type=="node" then turn_placed(pointed.under,C.get_node(pointed.under),user) end
     return stack
   end,
-  on_drop=function(stack,dropper) turn_next(dropper); return stack end,
 })
 
 -- The workshop's own pieces at x, z -24..24 and y -1..4, relative to its center:
@@ -596,19 +593,19 @@ local function welcome(player)
     "formspec_version[6]size[10,7.6]bgcolor[#142936;true]"..
     "label[.6,.6;BRICKCRAFT / BUILD TOGETHER]"..
     "textarea[.6,1.3;8.8,5.4;;Welcome to your brick workshop!;"..
-    C.formspec_escape("WASD / arrows: move    Mouse: look    Space: jump (2 blocks high)\n1: orange separator / left click to collect\n2–9, 0, -, = / B, N / wheel: choose a color / right click to place\nTab / E: next piece    Q: turn    U: undo\nSeparator right click: turn a placed brick\nI: inventory    C: see your brick person    ?: all keys\nEsc: pause / Quit to Menu saves and closes world\n\nCollect the colored stacks, trees and hills, then build a tiny home!\n/home takes you back to the start of your world.")..
+    C.formspec_escape("WASD / arrows: move    Mouse: look    Space: jump (2 blocks high)\n1: orange separator / left click to collect\n2–9, 0, -, = / B, N / wheel: choose a color / right click to place\nQ / E: turn left / right    Tab: next piece    U: undo\nSeparator right click: turn a placed brick (I > Turn: the next one)\nI: inventory    C: see your brick person    I > Help: all keys\nEsc: pause / Quit to Menu saves and closes world\n\nCollect the colored stacks, trees and hills, then build a tiny home!\n/home takes you back to the start of your world.")..
     "]button_exit[1.2,6.7;3.6,.6;go;Let's build!]button[5.2,6.7;3.6,.6;help;Keys and commands]")
 end
 -- One list feeds the help screen; keep it in sync with the controls above.
 local help_rows={
   {"MOVE",""},
-  {"W A S D or arrows","Walk"},{"Mouse","Look around"},{"Space","Jump (up to 2 blocks)"},{"C","1st / 3rd person camera"},
+  {"W A S D or arrows","Walk"},{"Mouse","Look around"},{"Q / E","Turn left / right 45° (no mouse needed)"},{"Space","Jump (up to 2 blocks)"},{"C","1st / 3rd person camera"},
   {"BUILD",""},
   {"1","Orange separator"},{"Left click (separator)","Collect a brick"},
   {"Right click (separator)","Turn a placed brick"},
   {"2 – 9 / mouse wheel","Choose a color"},{"0  -  =","Harvested green, brown, tan"},{"B / N","Previous / next hotbar slot (no wheel needed)"},{"Right click (color)","Place a brick"},
   {"F or Control+click","Same as right click (trackpad)"},
-  {"E or Tab","Next piece"},{"Q","Turn the next brick 90°"},
+  {"Tab","Next piece"},{"I > Turn next brick","Turn the next brick 90°"},
   {"Left click tree / hill","Harvest a green, brown or tan brick"},
   {"TECHNIC (Tab or I > Technic, then a color)",""},
   {"Axle / Gear 8, 24, 40, right click","Put one pointing the way you look"},
@@ -616,7 +613,7 @@ local help_rows={
   {"Train Motor / Battery Box on the ground","The motor turns what's in front when the box next to it is on"},
   {"Right click (separator) a battery box","Switch: forward, off, back"},
   {"Right click (separator) an axle or gear","Point it another way"},
-  {"Gear, right click a locomotive (twice)","Gearbox: motor gear, then wheel gear; the ratio sets its speed"},{"U or I > Undo","Undo your last build action"},
+  {"Gear, right click a locomotive (twice)","Gearbox: motor gear, then wheel gear; the ratio sets its speed"},{"U, Shift or I > Undo","Undo your last build action"},
   {"TRAINS (Tab or I > Trains, then a color)",""},
   {"Train Track, right click","Lay track; it joins the track next to it"},
   {"Train Cart, right click a track","Put a cart on; next to another cart it hooks on"},
@@ -629,7 +626,7 @@ local help_rows={
   {"/war","Start or stop: only players in war can be hit, builds are safe"},
   {"/battle","Call a Red Army: a Red Commander and 4 Red Knights"},
   {"1 Sword, left click","Strike (1 heart)"},
-  {"2 Cannon, left click","Fire a cannonball where you look (uses 1)"},
+  {"2 Cannon, left click, or Shift / U","Fire a cannonball where you look (uses 1)"},
   {"2 Cannon, right click the ground","Set up a cannon; right click it to aim and fire"},
   {"Walk over a cannonball pile","+3 cannonballs (they turn up around you)"},
   {"3 Boot, left click","Kick: half a heart, sends them flying"},
@@ -642,7 +639,7 @@ local help_rows={
   {"/orders <order>","The same, without an AI builder"},
   {"Out of hearts","Knocked out: back to your start spot, hearts refilled"},
   {"MENUS",""},
-  {"?","This help screen"},
+  {"I > Help: all keys","This help screen"},
   {"I","Inventory and shape buttons"},{"T","Chat (type a command)"},
   {"Esc","Pause / Exit to Menu saves the world"},{"F1 / F2","Hide HUD / chat"},
   {"COMMANDS",""},
@@ -889,7 +886,7 @@ end
 
 function inventory_formspec(player)
   local current=get_shape(player)
-  local fs="formspec_version[6]size[10.8,12.8]label[.4,.4;BRICKCRAFT / YOUR BRICKS   (Tab or E: next piece)]"
+  local fs="formspec_version[6]size[10.8,12.8]label[.4,.4;BRICKCRAFT / YOUR BRICKS   (Tab: next piece)]"
   -- One row per piece family; the tooltip names the real catalog part.
   local rows,order={}, {}
   local strict_here=strict.on(player:get_pos())
@@ -912,11 +909,12 @@ function inventory_formspec(player)
     end
   end
   return fs.."list[current_player;main;.4,4.9;8,4;]"..
-    "label[.4,10.1;1: Separator | 2-9 0 - =, wheel: Colors | Right click or F: Build | Q: Turn | U: Undo]"..
+    "label[.4,10.1;1: Separator | 2-9 0 - =, wheel: Colors | Right click or F: Build | Q/E: Look left/right | U: Undo]"..
     "label[.4,10.6;2 x 4 pieces and carts use 2 bricks of their color. The others use 1.]listring[current_player;main]"..
     "style[undo;bgcolor=#f5872c]button[.4,11;2.4,.6;undo;Undo last action]"..
     "button[2.95,11;2.4,.6;look;Switch player]button[5.5,11;2.4,.6;world;Switch world]"..
     "button[8.05,11;2.4,.6;help;Help: all keys]"..
+    "button[8.05,11.8;2.4,.6;turn;Turn next brick]"..
     (brickcraft.war and "style[war;bgcolor=#b8402c]button[.4,11.8;2.4,.6;war;"..
       (brickcraft.war.on(player) and "Stop war" or "War mode").."]"..
     "label[3,12.1;Cannons, swords, kicks: only players in war mode can be hit]" or "")
@@ -958,6 +956,7 @@ C.register_on_player_receive_fields(function(player,formname,fields)
   end
   if formname~="" then return end
   if fields.undo then undo_last(player); return true end
+  if fields.turn then turn_next(player); return true end
   if fields.help then show_help(player); return true end
   if fields.look then show_style_picker(player); return true end
   if fields.world then picked[player:get_player_name()]=nil; show_world_picker(player); return true end
@@ -1061,7 +1060,7 @@ C.register_chatcommand("shape",{params="<piece>",description="Choose the piece t
 -- to find out what a trackpad gesture really sends. Right clicks are logged always (the
 -- engine logs left clicks itself, as "uses <item>").
 local CONTROL_WORDS={dig="left button (dig)",place="right button (place)",LMB="left button",RMB="right button",
-  aux1="E / Tab",sneak="U",zoom="?",jump="Space",up="forward",down="back",left="left",right="right"}
+  aux1="Tab",sneak="U / Shift",zoom="E",jump="Space",up="forward",down="back",left="left",right="right"}
 local function pointed_text(pt)
   if not pt or pt.type=="nothing" then return "nothing" end
   if pt.type=="node" then return "a node ("..C.get_node(pt.under).name:gsub("^brickcraft:","")..")" end
@@ -1084,6 +1083,11 @@ C.register_on_mods_loaded(function()
       on_secondary_use=second and function(stack,user,pt)
         if user and user:is_player() then seen(user,"right click with "..iname..", pointing at "..pointed_text(pt)) end
         return second(stack,user,pt)
+      end,
+      -- Q (drop) turns the view left instead of throwing what's held into the world.
+      on_drop=function(stack,dropper)
+        if dropper and dropper:is_player() then turn_view(dropper,math.pi/4) end
+        return stack
       end,
       on_use=use and function(stack,user,pt)
         if user and user:is_player() and watching[user:get_player_name()] then
@@ -1110,16 +1114,26 @@ C.register_chatcommand("clicks",{description="For a minute, show every click and
   end})
 
 local elapsed=0
--- Key presses the server can see: E or Tab (aux1, fast movement is off) picks the next
--- piece, U (sneak) undoes, and the ?/ key (zoom with zoom_fov 0) opens help.
+-- Key presses the server can see: Tab (aux1, fast movement is off) picks the next piece,
+-- E (zoom with zoom_fov 0) turns right and Q (dropping what's held, below) left, 45° at a
+-- time, and U or Shift (sneak) undoes: in a kart it throws a banana (brickcraft_kart reads
+-- it), in war mode it fires the cannon.
+function turn_view(p,by)
+  if brickcraft.kart and brickcraft.kart.riding(p:get_player_name()) then return end -- the kart holds the view
+  p:set_look_horizontal(p:get_look_horizontal()+by)
+end
 local key_actions={
   aux1=function(p)
     local s=shapes[get_shape(p).index%#shapes+1]
     if s.invented and strict.on(p:get_pos()) then s=shapes[s.index%#shapes+1] end
     set_shape(p,s)
   end,
-  sneak=undo_last,
-  zoom=show_help,
+  sneak=function(p)
+    if brickcraft.kart and brickcraft.kart.riding(p:get_player_name()) then return end
+    if brickcraft.war and brickcraft.war.on(p) then brickcraft.war.fire_from(p); return end
+    undo_last(p)
+  end,
+  zoom=function(p) turn_view(p,-math.pi/4) end,
 }
 C.register_globalstep(function(dt)
   for _,p in ipairs(C.get_connected_players()) do
