@@ -353,6 +353,8 @@ function separator(pos,node,player)
   else
     after={name=node.name,param2=(node.param2+1)%4}
   end
+  -- In a strict LEGO world a piece turns only if it still clicks in and holds the rest.
+  if def.brickcraft_power~="battery" and not brickcraft.strict_ok(player,brickcraft.strict.can_replace,pos,after) then return end
   C.swap_node(pos,after)
   brickcraft.remember(player,{kind="turn",pos=vector.copy(pos),before={name=node.name,param2=node.param2},after=after})
   changed()
@@ -387,6 +389,7 @@ local function place(s,stack,placer,pointed,item)
       return stack
     end
   end
+  if not brickcraft.strict_ok(placer,brickcraft.strict.can_place,pos,node) then return stack end
   C.set_node(pos,node)
   stack:take_item(s.cost)
   brickcraft.remember(placer,{kind="place",pos=vector.copy(pos),node=node,drop=item.." "..s.cost})

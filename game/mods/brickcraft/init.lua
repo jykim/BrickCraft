@@ -3,7 +3,7 @@ local C = core
 local testing = C.settings:get_bool("brickcraft_integration_test",false) or
   C.settings:get_bool("brickcraft_multiplayer_test",false) or C.settings:get_bool("brickcraft_house_test",false) or
   C.settings:get_bool("brickcraft_ai_test",false) or C.settings:get_bool("brickcraft_train_test",false) or
-  C.settings:get_bool("brickcraft_war_test",false)
+  C.settings:get_bool("brickcraft_war_test",false) or C.settings:get_bool("brickcraft_strict_test",false)
 -- The first 8 colors are the starter kit; the last 3 come from harvesting the landscape.
 local colors = {"coral", "gold", "mint", "sky", "violet", "cream", "navy", "rose", "green", "brown", "tan"}
 local labels = {"Coral", "Gold", "Mint", "Sky", "Violet", "Cream", "Navy", "Rose", "Green", "Brown", "Tan"}
@@ -78,7 +78,9 @@ local shapes = {
   -- goes on track, and a motor and a battery box go on a cart (right click the cart).
   {id="track", suffix="_track", label="Train Track", part="53401", group="Trains", cost=1, train="track"},
   {id="cart", suffix="_cart", label="Train Cart", part="92339", group="Trains", cost=2, train="cart"},
-  {id="coach", suffix="_coach", label="Passenger Car", part="92339", group="Trains", cost=3, train="coach"},
+  -- invented: no real part looks like it (the coach borrows the cart's number), so strict
+  -- LEGO worlds don't offer it.
+  {id="coach", suffix="_coach", label="Passenger Car", part="92339", group="Trains", cost=3, train="coach", invented=true},
   {id="motor", suffix="_motor", label="Train Motor", part="88002", group="Trains", cost=1, train="motor"},
   {id="battery", suffix="_battery", label="Battery Box", part="8881", group="Trains", cost=1, train="battery"},
   -- Technic (brickcraft_technic): axles and gears turned by a Train Motor and Battery Box put on
@@ -128,6 +130,13 @@ end
 
 local place_brick, turn_next
 local placers={} -- shape kind ("train", "technic") -> place function, filled by those mods
+local strict -- strict LEGO world checks (strict.lua), loaded once worlds are known
+-- In a strict world, check(...) (one of strict's can_* functions) has to pass; tells the player why not.
+local function strict_ok(player,check,...)
+  local ok,why=check(...)
+  if not ok and player and player:is_player() then C.chat_send_player(player:get_player_name(),"Strict LEGO: "..why) end
+  return ok
+end
 local function collect(pos,node,player)
   local clicked=pos
   pos,node=primary_of(pos,node)
@@ -146,6 +155,7 @@ local function collect(pos,node,player)
     C.chat_send_player(name, "Inventory full: place some bricks first.")
     return false
   end
+  if not strict_ok(player,strict.can_remove,pos) then return false end
   local tail,tail_node
   if def.brickcraft_long then
     tail=tail_pos(pos,node.param2)
@@ -237,6 +247,10 @@ function place_brick(stack,placer,pointed,item)
     C.chat_send_player(name,"A "..s.label.." needs "..s.cost.." bricks of this color.")
     return stack
   end
+  if s.invented and strict.on(pointed.above) then
+    C.chat_send_player(name,"Strict LEGO: the "..s.label.." isn't a real part. Pick another piece (Tab).")
+    return stack
+  end
   -- Train and technic pieces are placed by their own mods (brickcraft.placers).
   local kind=s.train and "train" or s.technic and "technic"
   if kind then
@@ -251,6 +265,7 @@ function place_brick(stack,placer,pointed,item)
     C.chat_send_player(name,"No room for a "..s.label.." here. Press Q to turn it.")
     return stack
   end
+  if not strict_ok(placer,strict.can_place,pos,{name=item..s.suffix,param2=param2}) then return stack end
   local _,placed=C.item_place_node(ItemStack(item..s.suffix),placer,pointed,param2)
   if not placed then return stack end
   if tail then C.set_node(tail,{name=item..s.suffix.."_tail",param2=param2}) end
@@ -268,6 +283,7 @@ local function turn_placed(pos,node,player)
   if not def or not def.brickcraft_shape then return end
   if def.brickcraft_turn then return def.brickcraft_turn(pos,node,player) end
   local param2=(node.param2+1)%4
+  if not strict_ok(player,strict.can_replace,pos,{name=node.name,param2=param2}) then return end
   local old_tail,new_tail
   if def.brickcraft_long then
     old_tail,new_tail=tail_pos(pos,node.param2),tail_pos(pos,param2)
@@ -299,6 +315,7 @@ local function undo_last(player)
       C.chat_send_player(name,"Can't undo: your inventory is full.")
       return false
     end
+    if not strict_ok(player,strict.can_remove,action.pos) then return false end
     C.remove_node(action.pos) -- long-piece on_destruct also removes its tail
     inv:add_item("main",action.drop)
   elseif action.kind=="collect" then
@@ -310,6 +327,7 @@ local function undo_last(player)
       C.chat_send_player(name,"Can't undo: you no longer have the collected brick.")
       return false
     end
+    if not strict_ok(player,strict.can_place,action.pos,action.node) then return false end
     inv:remove_item("main",action.drop)
     C.set_node(action.pos,action.node)
     if action.tail then C.set_node(action.tail,action.tail_node) end
@@ -321,6 +339,7 @@ local function undo_last(player)
       C.chat_send_player(name,"Can't undo: that brick was changed by someone else.")
       return false
     end
+    if not strict_ok(player,strict.can_replace,action.pos,action.before) then return false end
     if action.new_tail then C.remove_node(action.new_tail) end
     C.swap_node(action.pos,action.before)
     if action.old_tail then
@@ -429,8 +448,11 @@ local function hill_height(x,z)
   return math.max(-1,math.min(18,math.floor(h)-1))
 end
 -- c is the world's center (the workshop's is the origin); with core, the workshop's
--- baseplate, stacks, arch and mosaic are written too, for a world made in play.
-local function build_landscape(from,c,core)
+-- baseplate, stacks, arch and mosaic are written too, for a world made in play. A strict
+-- LEGO world's arch gets a lintel real bricks could hold up: two courses of 2 x 4s, joints
+-- staggered, so each brick clicks onto one that reaches a pillar (single 2 x 2s would hang
+-- in the air over the opening).
+local function build_landscape(from,c,core,strict_world)
   c=c or {x=0,z=0}
   local minp,maxp={x=c.x-EDGE,y=-2,z=c.z-EDGE},{x=c.x+EDGE,y=26,z=c.z+EDGE}
   local vm=C.get_voxel_manip()
@@ -453,6 +475,16 @@ local function build_landscape(from,c,core)
       local id=workshop_node(x,y,z,base,ids)
       if id then put(x,y,z,id) end
     end end end
+    if strict_world then
+      local p2=vm:get_param2_data()
+      local long,tail=C.get_content_id("brickcraft:gold_2x4"),C.get_content_id("brickcraft:gold_2x4_tail")
+      local function set(x,y,id) local i=area:index(c.x+x,y,c.z-7); data[i]=id; p2[i]=1 end -- long side toward +x
+      for _,course in ipairs({{y=3,from=-4,single=4},{y=4,from=-3,single=-4}}) do
+        for x=course.from,course.from+6,2 do set(x,course.y,long); set(x+1,course.y,tail) end
+        set(course.single,course.y,ids[2])
+      end
+      vm:set_param2_data(p2)
+    end
   end
   for z=-EDGE,EDGE do
     for x=-EDGE,EDGE do
@@ -534,23 +566,25 @@ local function build_world(w,done)
   local c={x=w.x,z=w.z}
   C.emerge_area({x=c.x-EDGE,y=-2,z=c.z-EDGE},{x=c.x+EDGE,y=26,z=c.z+EDGE},function(_,_,remaining)
     if remaining>0 then return end
-    build_landscape(0,c,true)
+    build_landscape(0,c,true,w.strict)
     w.built=true; save_worlds()
     C.log("action","BrickCraft world "..w.id.." ("..w.name..") built at "..c.x..","..c.z)
     if done then done(w) end
   end)
 end
 -- Makes a world for owner; done(world) runs once it is built. nil when the map is full.
-local function make_world(name,owner,done)
+-- opts.strict makes a strict LEGO world (strict.lua): only builds real bricks could make.
+local function make_world(name,owner,done,opts)
   local c=free_center()
   if not c then return nil end
   local id=1
   for _,w in ipairs(worlds) do id=math.max(id,w.id+1) end
-  local w={id=id,name=name,owner=owner,x=c.x,z=c.z,built=false}
+  local w={id=id,name=name,owner=owner,x=c.x,z=c.z,built=false,strict=opts and opts.strict or nil}
   worlds[#worlds+1]=w; save_worlds()
   build_world(w,done)
   return w
 end
+strict=dofile(C.get_modpath("brickcraft").."/strict.lua")({world_at=world_at,primary_of=primary_of,tail_pos=tail_pos})
 -- A world left half-built by a shutdown is finished on the next start.
 C.after(0,function()
   for _,w in ipairs(worlds) do if not w.built then build_world(w) end end
@@ -612,6 +646,7 @@ local help_rows={
   {"/keys","This help screen"},{"/guide","Welcome screen"},{"/home","Back to the start of this world"},
   {"/world","Go to another world or make a new one"},
   {"/undo","Undo your last build action"},
+  {"/checkbuild","List loose pieces nearby (strict LEGO worlds don't allow any)"},
   {"/clicks","For a minute, show every click the game gets (when a click doesn't work)"},
   {"T, then: Lumi, report ...","Your AI builder sends a bug or idea to the game's makers"},
   {"/shape slope_2x2","Pick a piece by name (/shape lists them)"},
@@ -770,6 +805,7 @@ end
 -- "Which world?" comes right after "Who's playing?": go to the Workshop or any world
 -- someone made, or make a new one. Each player's last world is picked to start with.
 local picker_ids,picked,welcome_after={},{},{}
+local strict_pick={} -- player name -> true while "Strict LEGO" is ticked for a new world
 local function owner_label(w)
   if w.id==0 then return "everyone" end
   return style_by_id[w.owner] and style_by_id[w.owner].label or w.owner
@@ -798,12 +834,13 @@ local function show_world_picker(player)
       if w.id==picked[name] then sel=#ids end
       local n=counts[w.id] or 0
       items[#items+1]=(w.id==0 and "#f5872c" or "")..C.formspec_escape(w.name.."  ("..owner_label(w)..")"..
+        (w.strict and "   [strict LEGO]" or "")..
         (n>0 and "   "..n.." here" or "")..(w==here and "   < you are here" or ""))
     end
   end
   picker_ids[name]=ids
   local who=playing_as(player)
-  C.show_formspec(name,"brickcraft:world","formspec_version[6]size[11,8.2]bgcolor[#142936;true]"..
+  C.show_formspec(name,"brickcraft:world","formspec_version[6]size[11,8.9]bgcolor[#142936;true]"..
     "label[.6,.6;BRICKCRAFT / WHICH WORLD?]"..
     "label[.6,1.1;"..C.formspec_escape((who and style_by_id[who].label..", g" or "G")..
       "o to a world, or make a new one of your own.").."]"..
@@ -811,7 +848,8 @@ local function show_world_picker(player)
     "style[go;bgcolor=#f5872c]button[.6,5.3;4.6,.7;go;Go to this world]"..
     "field[.6,6.6;6.4,.7;name;New world;"..C.formspec_escape(new_world_name(player)).."]"..
     "field_close_on_enter[name;false]button[7.2,6.6;3.2,.7;new;Make new world]"..
-    "label[.6,7.7;Switch later: I > Switch world, or /world]")
+    "checkbox[.6,7.6;strict;Strict LEGO: only builds real bricks could make;"..tostring(strict_pick[name]==true).."]"..
+    "label[.6,8.4;Switch later: I > Switch world, or /world]")
 end
 local function after_world(player)
   local name=player:get_player_name()
@@ -824,8 +862,11 @@ local function enter_world(player,w)
   if world_at(player:get_pos())~=w then
     player:set_pos(home_pos(player,w)); player:set_look_horizontal(0)
   end
+  -- A strict world's piece buttons leave out invented pieces.
+  if w.strict and get_shape(player).invented then set_shape(player,shapes[1])
+  else player:set_inventory_formspec(inventory_formspec(player)) end
 end
-local function new_world(player,title)
+local function new_world(player,title,strict_world)
   local name=player:get_player_name()
   title=(title or ""):gsub("[%c,;#%[%]\\]",""):gsub("^%s+",""):gsub("%s+$",""):sub(1,30)
   if title=="" then title=new_world_name(player) end
@@ -834,7 +875,11 @@ local function new_world(player,title)
     if not p then return end
     enter_world(p,w)
     C.chat_send_player(name,"Welcome to "..w.name.."! Your own fresh workshop. /world goes back.")
-  end)
+    if w.strict then
+      C.chat_send_player(name,"Strict LEGO: pieces click onto studs below or hang from a piece above, nothing goes on "..
+        "plates or tiles, and nothing may come loose. /checkbuild finds loose pieces.")
+    end
+  end,{strict=strict_world})
   if not w then C.chat_send_player(name,"There's no room for another world on this map."); return false end
   C.chat_send_player(name,"Making "..w.name.."...")
   return true
@@ -845,9 +890,12 @@ function inventory_formspec(player)
   local fs="formspec_version[6]size[10.8,12.8]label[.4,.4;BRICKCRAFT / YOUR BRICKS   (Tab or E: next piece)]"
   -- One row per piece family; the tooltip names the real catalog part.
   local rows,order={}, {}
+  local strict_here=strict.on(player:get_pos())
   for _,s in ipairs(shapes) do
-    if not rows[s.group] then rows[s.group]={}; order[#order+1]=s.group end
-    table.insert(rows[s.group],s)
+    if not (strict_here and s.invented) then
+      if not rows[s.group] then rows[s.group]={}; order[#order+1]=s.group end
+      table.insert(rows[s.group],s)
+    end
   end
   for r,group in ipairs(order) do
     local y=.8+(r-1)*.68
@@ -897,8 +945,10 @@ C.register_on_player_receive_fields(function(player,formname,fields)
       local w=world_by_id(picked[name] or 0)
       if w then enter_world(player,w) end
       after_world(player)
+    elseif fields.strict then
+      strict_pick[name]=fields.strict=="true" or nil
     elseif fields.new or fields.key_enter_field=="name" then
-      if new_world(player,fields.name) then after_world(player) end
+      if new_world(player,fields.name,strict_pick[name]) then strict_pick[name]=nil; after_world(player) end
     elseif fields.quit then
       if welcome_after[name] then after_world(player) end
     end
@@ -910,7 +960,7 @@ C.register_on_player_receive_fields(function(player,formname,fields)
   if fields.look then show_style_picker(player); return true end
   if fields.world then picked[player:get_player_name()]=nil; show_world_picker(player); return true end
   for _,s in ipairs(shapes) do
-    if fields["shape_"..s.id] then set_shape(player,s); return true end
+    if fields["shape_"..s.id] and not (s.invented and strict.on(player:get_pos())) then set_shape(player,s); return true end
   end
 end)
 C.register_on_joinplayer(function(player)
@@ -980,6 +1030,19 @@ C.register_chatcommand("undo",{description="Undo your last build action",func=fu
   if not p then return false,"Player is not connected." end
   return undo_last(p)
 end})
+C.register_chatcommand("checkbuild",{params="[cells]",
+  description="List pieces nearby that nothing holds up (a real brick build would fall apart)",
+  func=function(name,param)
+    local p=C.get_player_by_name(name)
+    if not p then return false,"Player is not connected." end
+    local r=math.max(1,math.min(32,tonumber(param) or 16))
+    local loose,count=strict.loose_near(p:get_pos(),r)
+    if #loose==0 then return true,"All "..count.." pieces within "..r.." cells click together down to the ground." end
+    local at={}
+    for i=1,math.min(5,#loose) do at[i]=C.pos_to_string(loose[i]) end
+    return true,#loose.." of "..count.." pieces within "..r.." cells hang loose (studs don't hold them): "..
+      table.concat(at,", ")..(#loose>5 and ", ..." or "")
+  end})
 C.register_chatcommand("shape",{params="<piece>",description="Choose the piece to build with",
   func=function(name,param)
     local p,s=C.get_player_by_name(name),shape_by_id[param]
@@ -988,6 +1051,7 @@ C.register_chatcommand("shape",{params="<piece>",description="Choose the piece t
       for _,sh in ipairs(shapes) do ids[#ids+1]=sh.id end
       return false,"Pieces: "..table.concat(ids,", ")
     end
+    if p and s.invented and strict.on(p:get_pos()) then return false,"Strict LEGO: the "..s.label.." isn't a real part." end
     if p then set_shape(p,s) end
     return true,"Shape: "..s.label
   end})
@@ -1047,7 +1111,11 @@ local elapsed=0
 -- Key presses the server can see: E or Tab (aux1, fast movement is off) picks the next
 -- piece, U (sneak) undoes, and the ?/ key (zoom with zoom_fov 0) opens help.
 local key_actions={
-  aux1=function(p) set_shape(p,shapes[get_shape(p).index%#shapes+1]) end,
+  aux1=function(p)
+    local s=shapes[get_shape(p).index%#shapes+1]
+    if s.invented and strict.on(p:get_pos()) then s=shapes[s.index%#shapes+1] end
+    set_shape(p,s)
+  end,
   sneak=undo_last,
   zoom=show_help,
 }
@@ -1084,5 +1152,5 @@ brickcraft={shapes=shape_by_id,shape_list=shapes,colors=colors,set_shape=set_sha
   make_world=make_world,save_worlds=save_worlds,testing=testing,
   -- Mod storage belongs to the mod that asks for it; the BrickCraft mods share this one so
   -- worlds saved before the split keep their data.
-  storage=storage,placers=placers}
+  storage=storage,placers=placers,strict=strict,strict_ok=strict_ok}
 

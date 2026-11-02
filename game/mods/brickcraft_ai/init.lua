@@ -1456,6 +1456,19 @@ local function new_worker(owner)
     local b=bounds(list)
     local plot=at or find_plot(b.x+1,b.z+1,near,by==nil)
     if not plot then return false,"room" end
+    -- In a strict LEGO world each piece has to click onto the ones before it (studs, not
+    -- just touching); pieces that never can are left out.
+    if brickcraft.strict.on(plot) then
+      local items={}
+      for _,it in ipairs(list) do
+        items[#items+1]={it=it,pos=vector.add(plot,{x=it.x,y=it.y,z=it.z}),node={name=node_name(it),param2=it.turn%4}}
+      end
+      local order,stuck=brickcraft.strict.order(items)
+      list={}
+      for i,o in ipairs(order) do list[i]=o.it end
+      if #stuck>0 then C.log("action","BrickCraft AI: strict LEGO left out "..#stuck.." pieces of "..title) end
+      if #list==0 then return false,"empty" end
+    end
     local j={kind="build",title=title,by=by,mine=by and is_owner(by),list=list,origin=plot,size=b,i=1,placed={},scaffold={},waits=0}
     if by and job and not job.by and job.kind=="build" and #(job.scaffold or {})==0 then
       -- A request comes before its own build; that one resumes afterwards.

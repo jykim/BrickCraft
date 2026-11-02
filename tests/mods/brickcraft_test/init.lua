@@ -6,6 +6,7 @@ local checks={
   brickcraft_integration_test="integration.lua",
   brickcraft_multiplayer_test="multiplayer_test.lua",
   brickcraft_house_test="house_test.lua",
+  brickcraft_strict_test="strict_test.lua",
   brickcraft_train_test="train_test.lua",
   brickcraft_technic_test="technic_test.lua",
   brickcraft_war_test="war_test.lua",

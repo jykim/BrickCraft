@@ -704,6 +704,7 @@ local function place(s,stack,placer,pointed,item)
     local pos=(udef and udef.buildable_to) and pointed.under or pointed.above
     local def=C.registered_nodes[C.get_node(pos).name]
     if not (def and def.buildable_to) or pos.y<0 then return stack end
+    if not brickcraft.strict_ok(placer,brickcraft.strict.can_place,pos,{name=track_name(color),param2=0}) then return stack end
     local node=lay(pos,placer:get_look_dir(),color)
     stack:take_item(s.cost)
     brickcraft.remember(placer,{kind="place",pos=vector.copy(pos),node=node,drop=item.." "..s.cost})
