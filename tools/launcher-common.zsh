@@ -42,8 +42,25 @@ WORLDMT
 # A world must only be open in one process: the shared server or single-player.
 server_running() { pgrep -f -- "--server .*--world $WORLD" >/dev/null; }
 
-# Luanti rewrites the config on exit, so restore key bindings that went missing.
-CONF="$ROOT/brickcraft.conf"
+# Luanti rewrites its config on exit, so it gets this Mac's own copy (user/, not in Git)
+# and brickcraft.conf stays as committed. Every launch puts brickcraft.conf's settings back
+# in the copy; settings only the copy has (set in the game's menu) are kept.
+CONF="$ROOT/user/brickcraft.conf"
+typeset -a conf_mine=()
+[[ -f "$CONF" ]] && conf_mine=("${(@f)$(<"$CONF")}")
+typeset -A conf_ours=()
+for conf_line in "${(@f)$(<"$ROOT/brickcraft.conf")}"; do
+  [[ "$conf_line" == [a-z]*" = "* ]] && conf_ours[${conf_line%% = *}]=1
+done
+{
+  for conf_line in "${conf_mine[@]}"; do
+    [[ "$conf_line" == [a-z]*" = "* && -z "${conf_ours[${conf_line%% = *}]:-}" ]] && print -r -- "$conf_line"
+  done
+  print -r -- "$(<"$ROOT/brickcraft.conf")"
+} > "$CONF.new"
+mv "$CONF.new" "$CONF"
+unset conf_mine conf_ours conf_line
+# Key bindings and settings that must be there even if brickcraft.conf lacks them.
 ensure() { grep -q "^$1 = " "$CONF" || print -r -- "$1 = $2" >> "$CONF"; }
 ensure keymap_forward "SYSTEM_SCANCODE_26|SYSTEM_SCANCODE_82|GAMEPAD_AXIS_MINUS_1"
 ensure keymap_backward "SYSTEM_SCANCODE_22|SYSTEM_SCANCODE_81|GAMEPAD_AXIS_PLUS_1"
