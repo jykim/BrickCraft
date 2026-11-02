@@ -13,6 +13,8 @@ PORT="30014"
 world=test/'world'
 world.mkdir()
 (world/'world.mt').write_text('gameid = brickcraft\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_backend = sqlite3\nmod_storage_backend = sqlite3\n')
+(world/'worldmods').mkdir()
+(world/'worldmods'/'brickcraft_test').symlink_to(root/'tests'/'mods'/'brickcraft_test',target_is_directory=True)
 def user_dir(name):
     user=test/name
     (user/'games').mkdir(parents=True)
@@ -20,7 +22,7 @@ def user_dir(name):
     env=os.environ.copy();env['LUANTI_USER_PATH']=str(user)
     return env
 server_conf=test/'server.conf'
-server_conf.write_text((root/'server.conf').read_text()+'\nbrickcraft_war_test = true\n')
+server_conf.write_text((root/'server.conf').read_text()+'\nbrickcraft_war_test = true\n# The Red Commander uses its built-in tactics here, not Claude.\nbrickcraft_war_ai = false\n')
 client_conf=(root/'brickcraft.conf').read_text()+'\nenable_register_confirmation = false\nscreen_w = 800\nscreen_h = 560\nwindow_maximized = false\n'
 log=test/'server.log'
 procs=[]

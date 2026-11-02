@@ -34,6 +34,10 @@ styles=dict(
     jms=dict(shirt=(245,135,44),pants=(48,76,110),hair=(249,193,65)),
     # Brick Knight, war mode's practice target: armor gray, with a steel helmet.
     knight=dict(shirt=(170,176,188),pants=(90,94,104),hair=(140,146,158)),
+    # Your blue knights, and the Red Army: Red Knights and their gold-helmeted Red Commander.
+    blueknight=dict(shirt=(84,168,240),pants=(48,76,110),hair=(206,222,240)),
+    redknight=dict(shirt=(214,52,44),pants=(118,32,30),hair=(150,40,36)),
+    redboss=dict(shirt=(226,40,40),pants=(80,18,18),hair=(249,193,65)),
 )
 for name,st in styles.items():
     rows=[(245,196,134),st['shirt'],st['pants'],(35,38,48),st['hair'] or (35,38,48)]
@@ -181,7 +185,7 @@ m.mat('light')
 m.box(.08,.26,-.36,.2,.31,-.2)
 m.box(-.2,.26,-.32,-.04,.29,-.24)  # switch lever
 m.save('brickcraft_battery_box.obj','battery box',flip_x=True)
-# War mode (war.lua). Item icons are 32 x 32 pixel art; the sword runs corner to corner.
+# War mode (brickcraft_war). Item icons are 32 x 32 pixel art; the sword runs corner to corner.
 def sword(x,y):
     t,d=(x-y+31)/2,abs(x+y-31)  # along the blade from the bottom-left corner, and off it
     if 11<=t<=30 and d<=2: return (236,240,246,255) if x+y<31 else (178,186,198,255)
@@ -211,6 +215,12 @@ def knight_icon(x,y):  # a shield with a coral cross
 png('brickcraft_knight.png',32,32,knight_icon)
 png('brickcraft_cannonball.png',16,16,lambda x,y:(0,0,0,0) if (x-7.5)**2+(y-7.5)**2>56 else (120,124,134,255) if (x-5)**2+(y-5)**2<5 else (40,42,48,255))
 png('brickcraft_smoke.png',16,16,lambda x,y:(235,232,226,max(0,int(230-((x-7.5)**2+(y-7.5)**2)*4.1))))
+def ammo(x,y):  # a pile of three cannonballs
+    for cx,cy in ((10,21),(21,21),(15.5,12)):
+        d=(x-cx)**2+(y-cy)**2
+        if d<=30: return (126,130,140,255) if (x-cx+2)**2+(y-cy+2)**2<5 else (40,42,48,255)
+    return (0,0,0,0)
+png('brickcraft_ammo.png',32,32,ammo)
 png('brickcraft_cannon_metal.png',16,16,lambda x,y:(64,68,78,255))
 # A cannon on a wooden carriage, barrel along +z, standing at y 0 (textures: wood, metal).
 m=Mesh(); m.mat('wood')
@@ -299,4 +309,4 @@ def ramp(name,chain):
     m.save(name,'track ramp'+(' with chain lift' if chain else ''))
 ramp('brickcraft_track_ramp.obj',False)
 ramp('brickcraft_track_lift.obj',True)
-print('Generated 33 textures, 3 block person meshes, 5 brick meshes, 5 train meshes and a cannon')
+print('Generated 37 textures, 3 block person meshes, 5 brick meshes, 5 train meshes and a cannon')

@@ -187,7 +187,7 @@ C.register_on_joinplayer(function(player)
                     for _,w in ipairs(brickcraft.worlds()) do if w.name=="Train Yard" then yard=w end end
                     return yard and yard.track
                   end,function()
-                    local a,b=brickcraft.yard,brickcraft.yard_far
+                    local a,b=brickcraft.trains.yard,brickcraft.trains.yard_far
                     local pieces=0
                     for x=a.x,b.x do for z=a.z,b.z do
                       local pos={x=yard.x+x,y=0,z=yard.z+z}
@@ -209,7 +209,7 @@ C.register_on_joinplayer(function(player)
                         -- The line from the Workshop to Train Yard: one track all the way, two
                         -- curves; the shuttle waits at the Workshop end and rides across.
                         wait(60,function() return yard.line end,function()
-                          local path=brickcraft.line_path(yard)
+                          local path=brickcraft.trains.line_path(yard)
                           C.load_area({x=yard.x+20,y=-1,z=yard.z-4},{x=-20,y=1,z=4})
                           local bends=0
                           for i,pos in ipairs(path) do

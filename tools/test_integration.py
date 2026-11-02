@@ -11,6 +11,8 @@ print('Test artifacts: '+str(test),flush=True)
 world=test/'world'
 world.mkdir(exist_ok=True)
 (world/'world.mt').write_text('gameid = brickcraft\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_backend = sqlite3\nmod_storage_backend = sqlite3\n')
+(world/'worldmods').mkdir()
+(world/'worldmods'/'brickcraft_test').symlink_to(root/'tests'/'mods'/'brickcraft_test',target_is_directory=True)
 user=test/'user'
 (user/'games').mkdir(parents=True,exist_ok=True)
 link=user/'games'/'brickcraft'

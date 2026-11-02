@@ -74,14 +74,14 @@ local shapes = {
   {id="slope_inv_2x2", suffix="_slope_inv_2x2", label="Inverted Slope 45 2 x 2", part="3660", group="Slopes", cost=1,
    mesh="brickcraft_slope_inv_2x2.obj",
    collision={{-.5,0,-.5,.5,.5,.5},{-.5,-.5,0,.5,0,.5}}},
-  -- Train pieces (trains.lua): track is a node that joins the track next to it; a cart
+  -- Train pieces (brickcraft_trains): track is a node that joins the track next to it; a cart
   -- goes on track, and a motor and a battery box go on a cart (right click the cart).
   {id="track", suffix="_track", label="Train Track", part="53401", group="Trains", cost=1, train="track"},
   {id="cart", suffix="_cart", label="Train Cart", part="92339", group="Trains", cost=2, train="cart"},
   {id="coach", suffix="_coach", label="Passenger Car", part="92339", group="Trains", cost=3, train="coach"},
   {id="motor", suffix="_motor", label="Train Motor", part="88002", group="Trains", cost=1, train="motor"},
   {id="battery", suffix="_battery", label="Battery Box", part="8881", group="Trains", cost=1, train="battery"},
-  -- Technic (technic.lua): axles and gears turned by a Train Motor and Battery Box put on
+  -- Technic (brickcraft_technic): axles and gears turned by a Train Motor and Battery Box put on
   -- the ground.
   {id="technic_brick", suffix="_technic_brick", label="Technic Brick", part="32064", group="Technic", cost=1, technic="brick"},
   {id="axle", suffix="_axle", label="Axle", part="3705", group="Technic", cost=1, technic="axle"},
@@ -127,6 +127,7 @@ local function is_free(pos)
 end
 
 local place_brick, turn_next
+local placers={} -- shape kind ("train", "technic") -> place function, filled by those mods
 local function collect(pos,node,player)
   local clicked=pos
   pos,node=primary_of(pos,node)
@@ -204,6 +205,7 @@ end
 
 local hud={}
 local held={} -- keys each player held last step
+local watching,last_ctrl={},{} -- /clicks (below): until when, and keys held last step
 local function update_hud(player)
   local name=player:get_player_name()
   local sh=get_shape(player)
@@ -235,8 +237,13 @@ function place_brick(stack,placer,pointed,item)
     C.chat_send_player(name,"A "..s.label.." needs "..s.cost.." bricks of this color.")
     return stack
   end
-  if s.train then return brickcraft.trains.place(s,stack,placer,pointed,item) end
-  if s.technic then return brickcraft.technic.place(s,stack,placer,pointed,item) end
+  -- Train and technic pieces are placed by their own mods (brickcraft.placers).
+  local kind=s.train and "train" or s.technic and "technic"
+  if kind then
+    local place=placers[kind]
+    if not place then C.chat_send_player(name,"The "..s.label.." isn't in this game."); return stack end
+    return place(s,stack,placer,pointed,item)
+  end
   local pos=(udef and udef.buildable_to) and pointed.under or pointed.above
   local param2=(C.dir_to_facedir(placer:get_look_dir())+get_turn(placer))%4
   local tail=s.long and tail_pos(pos,param2)
@@ -548,145 +555,6 @@ end
 C.after(0,function()
   for _,w in ipairs(worlds) do if not w.built then build_world(w) end end
 end)
--- Train Yard: a world made once for everyone, with a 12 x 12 loop of navy track on the baseplate
--- to the right of the start spots and a train on it: a locomotive, switched off, and two
--- cars. The train goes on when someone first comes by (its area has to be loaded).
--- Test worlds skip it (but the train check).
-local YARD_A,YARD_B={x=9,z=-4},{x=20,z=7}
--- The Train Yard line: a level causeway of navy track from the Workshop's west side to
--- Train Yard's east side, its long middle stretch in the empty strip between worlds
--- (x -65, outside every world's square, so worlds made later never grow hills over it).
--- It cuts through the hills (scenery only: builds are left alone), and over the gap has a
--- protected deck, railings and piers. A shuttle train waits at the Workshop end.
-local function line_path(yard)
-  local path={}
-  for x=-25,-65,-1 do path[#path+1]={x=x,y=0,z=0} end
-  for z=-1,yard.z,-1 do path[#path+1]={x=-65,y=0,z=z} end
-  for x=-66,yard.x+25,-1 do path[#path+1]={x=x,y=0,z=yard.z} end
-  return path
-end
-local building_line=false
-local function build_line(yard)
-  if building_line or yard.line or not yard.track then return end
-  if yard.x~=-128 or yard.z~=-128 then return end -- the route assumes the first square out
-  building_line=true
-  local path=line_path(yard)
-  C.emerge_area({x=yard.x+20,y=-8,z=yard.z-4},{x=-20,y=30,z=4},function(_,_,remaining)
-    if remaining>0 then return end
-    -- Every cell within 2 of the track, with how far it is from it.
-    local band={}
-    for _,p in ipairs(path) do
-      for dz=-2,2 do for dx=-2,2 do
-        local k=(p.x+dx)..","..(p.z+dz)
-        local d=math.max(math.abs(dx),math.abs(dz))
-        if not band[k] or d<band[k].d then band[k]={x=p.x+dx,z=p.z+dz,d=d} end
-      end end
-    end
-    for _,c in pairs(band) do
-      for y=0,26 do
-        local pos={x=c.x,y=y,z=c.z}
-        if C.get_item_group(C.get_node(pos).name,"scenery")>0 then C.remove_node(pos) end
-      end
-      local floor={x=c.x,y=-1,z=c.z}
-      if C.get_node(floor).name=="air" then
-        C.set_node(floor,{name="brickcraft:baseplate"})
-        if c.d==2 then C.set_node({x=c.x,y=0,z=c.z},{name="brickcraft:bridge_rail"}) end
-      end
-    end
-    for i,p in ipairs(path) do
-      if i%12==0 and C.get_node({x=p.x,y=-2,z=p.z}).name=="air" then
-        for y=-6,-2 do C.set_node({x=p.x,y=y,z=p.z},{name="brickcraft:baseplate"}) end
-      end
-    end
-    local laid=0
-    for i,p in ipairs(path) do
-      local nxt=path[i+1] or path[i-1]
-      local look=vector.subtract(nxt,p)
-      if C.get_node(p).name=="air" then brickcraft.trains.lay(p,look,"navy"); laid=laid+1 end
-    end
-    yard.line=true; save_worlds(); building_line=false
-    C.log("action","BrickCraft Train Yard line built: "..laid.." of "..#path.." pieces")
-  end)
-end
-local function lay_train_yard(w)
-  brickcraft.trains.lay_loop({x=w.x+YARD_A.x,y=0,z=w.z+YARD_A.z},{x=w.x+YARD_B.x,y=0,z=w.z+YARD_B.z})
-  w.track=true; save_worlds()
-  C.log("action","BrickCraft Train Yard track laid at "..w.x..","..w.z)
-  build_line(w)
-end
-C.after(0,function()
-  if testing and not C.settings:get_bool("brickcraft_train_test",false) then return end
-  for _,w in ipairs(worlds) do
-    if w.yard then
-      if w.built and not w.track then lay_train_yard(w) else build_line(w) end
-      return
-    end
-  end
-  local w=make_world("Train Yard","BrickCraft",lay_train_yard)
-  C.log("action","BrickCraft Train Yard "..(w and "being made at "..w.x..","..w.z or "has no room"))
-  if w then w.yard=true; save_worlds() end
-end)
-
--- Technic Lab: a world made once for everyone with machines running (technic.lua builds
--- them). Test worlds skip it (but the technic check).
-C.after(0,function()
-  if testing and not technic_test then return end
-  for _,w in ipairs(worlds) do
-    if w.technic then
-      -- An older lab (w.machines true is version 1) is rebuilt once.
-      local built=tonumber(w.machines) or (w.machines and 1 or 0)
-      if w.built and built<brickcraft.technic.lab_version then
-        C.emerge_area({x=w.x+8,y=-1,z=w.z-4},{x=w.x+23,y=7,z=w.z+8},function(_,_,left)
-          if left==0 then w.machines=brickcraft.technic.build_lab(w); save_worlds() end
-        end)
-      end
-      return
-    end
-  end
-  local w=make_world("Technic Lab","BrickCraft",function(w)
-    w.machines=brickcraft.technic.build_lab(w); save_worlds()
-  end)
-  C.log("action","BrickCraft Technic Lab "..(w and "being made at "..w.x..","..w.z or "has no room"))
-  if w then w.technic=true; save_worlds() end
-end)
-
-local yard_timer=0
-C.register_globalstep(function(dt)
-  yard_timer=yard_timer+dt
-  if yard_timer<2 then return end
-  yard_timer=0
-  for _,w in ipairs(worlds) do
-    if w.yard and w.track and not w.train then
-      for _,p in ipairs(C.get_connected_players()) do
-        local pos=p:get_pos()
-        if math.abs(pos.x-w.x)<32 and math.abs(pos.z-w.z)<32 then
-          local z=w.z+YARD_B.z
-          local train=brickcraft.trains.put_train({{x=w.x+17,y=0,z=z},{x=w.x+16,y=0,z=z},{x=w.x+15,y=0,z=z}},"coral")
-          if #train==3 then
-            w.train=true; save_worlds()
-            C.log("action","BrickCraft Train Yard train put on the track")
-          end
-          break
-        end
-      end
-    end
-    -- The shuttle on the line: a locomotive and a car at the Workshop end.
-    if w.yard and w.line and not w.shuttle then
-      for _,p in ipairs(C.get_connected_players()) do
-        local pos=p:get_pos()
-        if math.abs(pos.x+27)<32 and math.abs(pos.z)<32 then
-          local train=brickcraft.trains.put_train({{x=-28,y=0,z=0},{x=-27,y=0,z=0}},"sky")
-          if #train==2 then
-            w.shuttle=true; save_worlds()
-            C.log("action","BrickCraft Train Yard shuttle put on the line")
-          end
-          break
-        end
-      end
-    end
-  end
-end)
-
 local function welcome(player)
   C.show_formspec(player:get_player_name(),"brickcraft:welcome",
     "formspec_version[6]size[10,7.6]bgcolor[#142936;true]"..
@@ -723,12 +591,18 @@ local help_rows={
   {"Left click (separator) track / cart","Collect it (right click turns a track piece)"},
   {"WAR MODE (/war or I > War mode)",""},
   {"/war","Start or stop: only players in war can be hit, builds are safe"},
+  {"/battle","Call a Red Army: a Red Commander and 4 Red Knights"},
   {"1 Sword, left click","Strike (1 heart)"},
-  {"2 Cannon, right click the ground","Set up a cannon (left click it to take it back)"},
-  {"Right click a cannon","Aim where you look and fire (1½ hearts)"},
+  {"2 Cannon, left click","Fire a cannonball where you look (uses 1)"},
+  {"2 Cannon, right click the ground","Set up a cannon; right click it to aim and fire"},
+  {"Walk over a cannonball pile","+3 cannonballs (they turn up around you)"},
   {"3 Boot, left click","Kick: half a heart, sends them flying"},
   {"Right click a player (war kit)","Shove them away"},
-  {"4 Brick Knight, right click the ground","Put up a target to practice on"},
+  {"4 Knight, right click the ground","A blue knight who follows you and fights the Red Army"},
+  {"Knock out the Red Commander","The whole Red Army falls"},
+  {"T, then: Dad bot, flank left","Your AI builder commands your knights in war mode"},
+  {"Orders","charge, attack the commander, flank left/right, hold, guard me, follow, retreat, more knights, status"},
+  {"/orders <order>","The same, without an AI builder"},
   {"Out of hearts","Knocked out: back to your start spot, hearts refilled"},
   {"MENUS",""},
   {"?","This help screen"},
@@ -738,6 +612,7 @@ local help_rows={
   {"/keys","This help screen"},{"/guide","Welcome screen"},{"/home","Back to the start of this world"},
   {"/world","Go to another world or make a new one"},
   {"/undo","Undo your last build action"},
+  {"/clicks","For a minute, show every click the game gets (when a click doesn't work)"},
   {"T, then: Lumi, report ...","Your AI builder sends a bug or idea to the game's makers"},
   {"/shape slope_2x2","Pick a piece by name (/shape lists them)"},
 }
@@ -796,7 +671,7 @@ local function save_bricks(player)
   local id=playing_as(player)
   if not id then return end
   local items={}
-  -- In war mode the bricks wait in war_stash (war.lua) and main holds the war kit.
+  -- In war mode the bricks wait in war_stash (brickcraft_war) and main holds the war kit.
   local inv=player:get_inventory()
   for i,stack in ipairs(inv:get_list(inv:get_size("war_stash")>0 and "war_stash" or "main")) do items[i]=stack:to_string() end
   pstore:set_string("bricks_"..id,C.serialize(items))
@@ -836,7 +711,7 @@ local function choose_player(player,st)
   local current=playing_as(player)
   local fresh=false
   if current~=st.id then
-    brickcraft.war.stop(player) -- the war kit and stashed bricks belong to who was playing
+    if brickcraft.war then brickcraft.war.stop(player) end -- the war kit and stashed bricks belong to who was playing
     save_bricks(player)
     if not load_bricks(player,st.id) then
       -- A player's first time: a new connection keeps the starter kit it just got,
@@ -991,9 +866,9 @@ function inventory_formspec(player)
     "style[undo;bgcolor=#f5872c]button[.4,11;2.4,.6;undo;Undo last action]"..
     "button[2.95,11;2.4,.6;look;Switch player]button[5.5,11;2.4,.6;world;Switch world]"..
     "button[8.05,11;2.4,.6;help;Help: all keys]"..
-    "style[war;bgcolor=#b8402c]button[.4,11.8;2.4,.6;war;"..
+    (brickcraft.war and "style[war;bgcolor=#b8402c]button[.4,11.8;2.4,.6;war;"..
       (brickcraft.war.on(player) and "Stop war" or "War mode").."]"..
-    "label[3,12.1;Cannons, swords, kicks: only players in war mode can be hit]"
+    "label[3,12.1;Cannons, swords, kicks: only players in war mode can be hit]" or "")
 end
 C.register_on_player_receive_fields(function(player,formname,fields)
   if formname=="brickcraft:welcome" and fields.help then show_help(player); return true end
@@ -1061,7 +936,7 @@ end)
 C.register_on_leaveplayer(function(player)
   save_bricks(player)
   local name=player:get_player_name()
-  hud[name]=nil; held[name]=nil; history[name]=nil
+  hud[name]=nil; held[name]=nil; history[name]=nil; watching[name]=nil; last_ctrl[name]=nil
 end)
 C.register_on_shutdown(function()
   for _,p in ipairs(C.get_connected_players()) do save_bricks(p) end
@@ -1115,6 +990,58 @@ C.register_chatcommand("shape",{params="<piece>",description="Choose the piece t
     if p then set_shape(p,s) end
     return true,"Shape: "..s.label
   end})
+-- /clicks: for a minute, chat back every button and click the server gets from this player,
+-- to find out what a trackpad gesture really sends. Right clicks are logged always (the
+-- engine logs left clicks itself, as "uses <item>").
+local CONTROL_WORDS={dig="left button (dig)",place="right button (place)",LMB="left button",RMB="right button",
+  aux1="E / Tab",sneak="U",zoom="?",jump="Space",up="forward",down="back",left="left",right="right"}
+local function pointed_text(pt)
+  if not pt or pt.type=="nothing" then return "nothing" end
+  if pt.type=="node" then return "a node ("..C.get_node(pt.under).name:gsub("^brickcraft:","")..")" end
+  local ent=pt.ref and pt.ref:get_luaentity()
+  return pt.ref and pt.ref:is_player() and "player "..pt.ref:get_player_name() or "object "..(ent and ent.name or "?")
+end
+local function seen(player,what)
+  local name=player:get_player_name()
+  C.log("action","BrickCraft input "..name..": "..what)
+  if watching[name] then C.chat_send_player(name,C.colorize("#9ee6c6","[clicks] "..what)) end
+end
+C.register_on_mods_loaded(function()
+  for iname,def in pairs(C.registered_items) do
+    local place,second,use=def.on_place,def.on_secondary_use,def.on_use
+    C.override_item(iname,{
+      on_place=place and function(stack,placer,pt)
+        if placer and placer:is_player() then seen(placer,"right click with "..iname..", pointing at "..pointed_text(pt)) end
+        return place(stack,placer,pt)
+      end,
+      on_secondary_use=second and function(stack,user,pt)
+        if user and user:is_player() then seen(user,"right click with "..iname..", pointing at "..pointed_text(pt)) end
+        return second(stack,user,pt)
+      end,
+      on_use=use and function(stack,user,pt)
+        if user and user:is_player() and watching[user:get_player_name()] then
+          C.chat_send_player(user:get_player_name(),C.colorize("#9ee6c6","[clicks] left click with "..iname..", pointing at "..pointed_text(pt)))
+        end
+        return use(stack,user,pt)
+      end,
+    })
+  end
+end)
+C.register_on_rightclickplayer(function(target,clicker)
+  seen(clicker,"right click on player "..target:get_player_name())
+end)
+C.register_on_punchnode(function(_,node,puncher)
+  if puncher and puncher:is_player() and watching[puncher:get_player_name()] then
+    seen(puncher,"left click (punch) on "..node.name:gsub("^brickcraft:",""))
+  end
+end)
+C.register_chatcommand("clicks",{description="For a minute, show every click and button the game gets from you",
+  func=function(name)
+    watching[name]=C.get_us_time()+60e6
+    last_ctrl[name]=nil
+    return true,"Watching your clicks for 60 seconds: try the click that doesn't work and read what shows up here."
+  end})
+
 local elapsed=0
 -- Key presses the server can see: E or Tab (aux1, fast movement is off) picks the next
 -- piece, U (sneak) undoes, and the ?/ key (zoom with zoom_fov 0) opens help.
@@ -1126,6 +1053,17 @@ local key_actions={
 C.register_globalstep(function(dt)
   for _,p in ipairs(C.get_connected_players()) do
     local name,ctrl=p:get_player_name(),p:get_player_control()
+    if watching[name] then
+      if C.get_us_time()>watching[name] then
+        watching[name]=nil; C.chat_send_player(name,"[clicks] Done watching.")
+      else
+        local was=last_ctrl[name] or {}
+        for key,word in pairs(CONTROL_WORDS) do
+          if ctrl[key] and not was[key] then seen(p,word.." pressed") end
+        end
+        last_ctrl[name]=ctrl
+      end
+    end
     held[name]=held[name] or {}
     for key,action in pairs(key_actions) do
       if ctrl[key] and not held[name][key] then action(p) end
@@ -1140,35 +1078,10 @@ end)
 
 brickcraft={shapes=shape_by_id,shape_list=shapes,colors=colors,set_shape=set_shape,turn=turn_next,undo=undo_last,styles=style_by_id,
   remember=remember,forget=function(name) history[name]=nil end,
-  refresh_inventory=function(p) p:set_inventory_formspec(inventory_formspec(p)) end,help=help_rows,get_shape=get_shape,line_path=line_path,yard=YARD_A,yard_far=YARD_B,
+  refresh_inventory=function(p) p:set_inventory_formspec(inventory_formspec(p)) end,help=help_rows,get_shape=get_shape,
   get_style=get_style,home_pos=home_pos,playing_as=playing_as,world_at=world_at,worlds=function() return worlds end,
-  make_world=make_world,save_worlds=save_worlds,testing=testing}
+  make_world=make_world,save_worlds=save_worlds,testing=testing,
+  -- Mod storage belongs to the mod that asks for it; the BrickCraft mods share this one so
+  -- worlds saved before the split keep their data.
+  storage=storage,placers=placers}
 
-dofile(C.get_modpath("brickcraft").."/trains.lua")
-dofile(C.get_modpath("brickcraft").."/war.lua")
-
--- AI builders (one per player, and jms) live on the shared server (server.conf) only.
-if C.settings:get_bool("brickcraft_ai_builder",false) then
-  -- Luanti only hands out HTTP from init.lua's main scope (secure.http_mods = brickcraft).
-  brickcraft.http=C.request_http_api and C.request_http_api()
-  dofile(C.get_modpath("brickcraft").."/ai_builder.lua")
-  if C.settings:get_bool("brickcraft_ai_test",false) then
-    dofile(C.get_modpath("brickcraft").."/ai_test.lua")
-  end
-end
--- Opt-in integration checks execute actual engine callbacks, in a disposable world.
-if C.settings:get_bool("brickcraft_integration_test",false) then
-  dofile(C.get_modpath("brickcraft").."/integration.lua")
-end
-if C.settings:get_bool("brickcraft_multiplayer_test",false) then
-  dofile(C.get_modpath("brickcraft").."/multiplayer_test.lua")
-end
-if C.settings:get_bool("brickcraft_house_test",false) then
-  dofile(C.get_modpath("brickcraft").."/house_test.lua")
-end
-if C.settings:get_bool("brickcraft_train_test",false) then
-  dofile(C.get_modpath("brickcraft").."/train_test.lua")
-end
-if C.settings:get_bool("brickcraft_war_test",false) then
-  dofile(C.get_modpath("brickcraft").."/war_test.lua")
-end

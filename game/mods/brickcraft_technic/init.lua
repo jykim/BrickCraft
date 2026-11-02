@@ -49,7 +49,7 @@ local function register(name,def)
   def.brickcraft_shape="technic"
   def.on_construct=changed; def.after_destruct=changed
   def.brickcraft_turn=function(...) return separator(...) end
-  C.register_node(name,def)
+  C.register_node(":"..name,def)
 end
 for _,color in ipairs(brickcraft.colors) do
   local tex="brickcraft_"..color..".png"
@@ -97,7 +97,7 @@ for _,color in ipairs(brickcraft.colors) do
 end
 
 -- Motors are remembered by position, so the machines they drive can be worked out.
-local storage=C.get_mod_storage()
+local storage=brickcraft.storage
 local motors=C.deserialize(storage:get_string("technic_motors")) or {}
 local function save_motors() storage:set_string("technic_motors",C.serialize(motors)) end
 for _,color in ipairs(brickcraft.colors) do
@@ -251,7 +251,7 @@ local function turn(k,pos,w,alpha)
     automatic_rotate=w*dot(i.axis,canon(i.axis))*2*math.pi})
   a.obj:set_rotation(rotation_for(i.axis,alpha))
 end
-C.register_entity("brickcraft:spinner",{
+C.register_entity(":brickcraft:spinner",{
   initial_properties={visual="mesh",mesh="brickcraft_axle.obj",textures={"brickcraft_cream.png"},
     visual_size={x=10,y=10},backface_culling=false,physical=false,pointable=false,static_save=false},
 })
@@ -314,7 +314,7 @@ C.register_globalstep(function(dt)
 end)
 -- A twin left turning when its area unloaded (or the server stopped) is put back still;
 -- the next run turns it again if its motor is on.
-C.register_lbm({name="brickcraft:technic_still",nodenames={"group:technic_spin"},run_at_every_load=true,
+C.register_lbm({name="brickcraft_technic:still",nodenames={"group:technic_spin"},run_at_every_load=true,
   action=function(pos,node)
     if active[key(pos)] then return end
     local def=C.registered_nodes[node.name]
@@ -346,7 +346,7 @@ function separator(pos,node,player)
 end
 
 -- Right click with a color and a technic piece, or a Train Motor or Battery Box on the
--- ground (place_brick in init.lua and trains.lua send them here). Axles and gears point
+-- ground (place_brick in brickcraft and brickcraft_trains send them here). Axles and gears point
 -- the way you look (straight up or down when you look steeply); the rest turn like bricks.
 local SUFFIX={brick="_technic_brick",axle="_axle",gear8="_gear8",gear24="_gear24",gear40="_gear40",
   motor="_motor_node",battery="_battery_node"}
@@ -523,7 +523,28 @@ C.register_globalstep(function(dt)
 end)
 brickcraft.technic.coaster_path=coaster_path
 brickcraft.technic.build_lab=build_lab
+brickcraft.placers.technic=place
 
-if C.settings:get_bool("brickcraft_technic_test",false) then
-  dofile(C.get_modpath("brickcraft").."/technic_test.lua")
-end
+local worlds,save_worlds,make_world=brickcraft.worlds(),brickcraft.save_worlds,brickcraft.make_world
+-- Technic Lab: a world made once for everyone with machines running (brickcraft_technic builds
+-- them). Test worlds skip it (but the technic check).
+C.after(0,function()
+  if brickcraft.testing and not C.settings:get_bool("brickcraft_technic_test",false) then return end
+  for _,w in ipairs(worlds) do
+    if w.technic then
+      -- An older lab (w.machines true is version 1) is rebuilt once.
+      local built=tonumber(w.machines) or (w.machines and 1 or 0)
+      if w.built and built<brickcraft.technic.lab_version then
+        C.emerge_area({x=w.x+8,y=-1,z=w.z-4},{x=w.x+23,y=7,z=w.z+8},function(_,_,left)
+          if left==0 then w.machines=brickcraft.technic.build_lab(w); save_worlds() end
+        end)
+      end
+      return
+    end
+  end
+  local w=make_world("Technic Lab","BrickCraft",function(w)
+    w.machines=brickcraft.technic.build_lab(w); save_worlds()
+  end)
+  C.log("action","BrickCraft Technic Lab "..(w and "being made at "..w.x..","..w.z or "has no room"))
+  if w then w.technic=true; save_worlds() end
+end)

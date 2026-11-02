@@ -31,8 +31,12 @@
 | [Launch BrickCraft.command](../Launch%20BrickCraft.command) | 프로젝트 경로 계산, 사용자 데이터 격리, 게임 링크·세계 초기화, 클라이언트 실행 |
 | [brickcraft.conf](../brickcraft.conf) | 화면·맵 생성·사운드·OpenGL 등 실행 설정 |
 | [game/game.conf](../game/game.conf), [game/minetest.conf](../game/minetest.conf) | 게임 메타데이터와 기본 설정 |
-| [game/mods/brickcraft/init.lua](../game/mods/brickcraft/init.lua) | 노드·도구·맵 생성·플레이어·인벤토리·HUD·명령 |
-| [game/mods/brickcraft/integration.lua](../game/mods/brickcraft/integration.lua) | 명시적으로 활성화할 때만 로드되는 2단계 통합 검사 |
+| [game/mods/brickcraft/init.lua](../game/mods/brickcraft/init.lua) | 핵심 모드: 노드·도구·맵 생성·세계·플레이어·인벤토리·HUD·명령, 공유 API `brickcraft.*` |
+| [game/mods/brickcraft_trains/](../game/mods/brickcraft_trains/init.lua) | 선로·수레·기관차, Train Yard와 그 노선 |
+| [game/mods/brickcraft_technic/](../game/mods/brickcraft_technic/init.lua) | 축·기어·모터·롤러코스터, Technic Lab |
+| [game/mods/brickcraft_war/](../game/mods/brickcraft_war/init.lua) | 전쟁 모드, War Lab |
+| [game/mods/brickcraft_ai/](../game/mods/brickcraft_ai/init.lua) | AI 빌더(`brickcraft_ai_builder = true`일 때만 동작) |
+| [tests/mods/brickcraft_test/](../tests/mods/brickcraft_test/init.lua) | 엔진 검사 모드. 게임에 포함되지 않고 `tools/test_*.py`가 검사 세계의 `worldmods/`에 링크 |
 | [tools/generate_assets.py](../tools/generate_assets.py) | 원본 PNG 12개와 블록 사람 OBJ 생성 |
 | [tools/test_integration.py](../tools/test_integration.py) | 별도 세계에서 실제 GUI 클라이언트를 두 번 실행하는 검사 |
 | `game/mods/brickcraft/textures/`, `models/` | Git에 보존된 생성 에셋 |
@@ -42,6 +46,16 @@
 | `tests/run/session-*/` | 검사별 임시 세계·설정·사용자 데이터·로그 |
 | [preview.png](preview.png), [test-phase1.log](test-phase1.log), [test-phase2.log](test-phase2.log) | 보존된 실제 화면과 통과 증거 |
 
+### 모드 구조
+
+[Luanti 문서](https://docs.luanti.org/for-creators/)의 권고(모드 하나에 한 가지 일, `mod.conf`로 의존성 선언, 전역은 모드 이름 표 하나)를 따라 게임을 모드 다섯 개로 나눴습니다. 의존 방향은 한쪽입니다: `brickcraft` ← `brickcraft_trains` ← `brickcraft_technic` ← `brickcraft_ai`, `brickcraft` ← `brickcraft_war` ← `brickcraft_ai`.
+
+- 핵심 모드는 기능 모드를 직접 부르지 않습니다. 기차·테크닉 조각 놓기는 `brickcraft.placers.train`/`.technic`을 기능 모드가 채우고, 전쟁 모드 버튼·정지는 `brickcraft.war`가 있을 때만 씁니다. 실행 중에만 반대 방향으로 부르는 곳(선로 → `brickcraft.technic.spin`, 전쟁 → `brickcraft.ai.ask`)은 있는지 확인하고 부릅니다.
+- 노드·도구·엔티티 이름은 분리 전과 같은 `brickcraft:` 그대로입니다. 다른 모드에서 등록하므로 `":brickcraft:..."`처럼 앞에 `:`를 붙입니다. 이름을 바꿀 때는 `core.register_alias`로 옛 이름을 남깁니다.
+- 모드 저장소는 부르는 모드마다 따로이므로, 기존 세계의 데이터가 그대로 읽히도록 모든 BrickCraft 모드가 핵심 모드의 `brickcraft.storage` 하나를 씁니다.
+- 공유 세계는 처음 만든 순서(Train Yard, Technic Lab, War Lab)대로 자리를 받습니다. `brickcraft_war`의 `optional_depends`가 이 순서를 지킵니다.
+- 검사 파일은 게임에 들어가지 않습니다. `tests/mods/brickcraft_test`가 설정(`brickcraft_<이름>_test`)에 맞는 검사 파일을 불러옵니다.
+
 현재 [.gitignore](../.gitignore)는 `runtime/`, `user/`, `worlds/`, `logs/`, `tests/run/`을 제외합니다. 코드 커밋만으로 개인 건축물까지 백업되는 것은 아닙니다.
 
 ## 4a. 멀티플레이 구조
@@ -49,18 +63,18 @@
 - 실행기(Admin·Play·Launch)가 [tools/launcher-common.zsh](../tools/launcher-common.zsh)를 공유합니다: Luanti 위치(`runtime/` 또는 `/Applications`), 사용자 데이터 격리, 키 바인딩 복원, Control+클릭, 세계 생성, 접속 이름(`player_name`: `BRICKCRAFT_NAME` → `user/player_name` 파일 → Mac `LocalHostName`, 묻지 않음). 접속 이름은 컴퓨터만 구분하고, 누가 플레이하는지는 게임 안에서 고릅니다. 검사용으로 `BRICKCRAFT_WORLD`·`BRICKCRAFT_PORT`로 세계와 포트를 바꿀 수 있습니다.
 - `Admin BrickCraft.command`는 [server.conf](../server.conf)로 `luanti --server`를 백그라운드로 띄우고 `logs/server.log`에서 수신을 확인한 뒤 127.0.0.1로 접속합니다. 스크립트 종료 시 trap이 서버를 정상 종료해 저장합니다. `Play BrickCraft.command`는 경로를 차례로 시도합니다: 지정 주소(`BRICKCRAFT_SERVER` → `user/server_address`), Tailscale `jms`, 로컬 `jms.local`. jms는 두 네트워크(en0 192.168.4.x, en1 192.168.0.x)와 Tailscale에 동시에 있어 이름 하나가 여러 주소가 되고, 닿는 주소라고 서버가 떠 있다는 보장도 없습니다. 그래서 각 IPv4(`ping`, `.local`은 `dns-sd -G v4`)에 Luanti 저수준 패킷(프로토콜 ID `4f457403`, peer 0, reliable seq 65500, ORIGINAL)을 `nc -u`로 보내 서버 응답(`OEt…`)이 온 첫 주소로 접속합니다. 서버 로그에는 남지 않습니다. 시도 결과는 `logs/play.log`, 응답이 없으면 게임을 열지 않고 종료합니다. 게임은 `exec`하지 않고 기다렸다가, 실행 전 `logs/client.log` 줄 수 이후(이번 세션)에 `Connected to`가 없으면 `timed out`·`denied`·`ERROR` 줄이나 "접속 전 종료"를 이유로 출력하고 다른 경로(`jms` ↔ `jms.local`)를 제안합니다(이슈 #2). 둘 다 먼저 [tools/update.zsh](../tools/update.zsh)를 실행합니다: 묻지 않고 `git pull --ff-only --autostash`(`BRICKCRAFT_UPDATE=0`·`--no-update`면 건너뜀), 실패하면 경고 후 계속, 새 커밋을 받았으면 `LAUNCHER`를 한 번 다시 `exec`. 갱신이 스크립트를 다시 쓸 수 있어 본문을 `{ ... }`로 감싸 zsh가 끝까지 읽은 뒤 실행하게 했고, Luanti 검사(`launcher-common.zsh`)보다 먼저 갱신합니다. `brickcraft.conf`는 Luanti가 종료 때 다시 써서 늘 수정 상태이므로 autostash로 보존합니다.
 - 플레이어(사람)는 `init.lua`의 `styles` 표(메시, 텍스처, 이름표 색, 견본 색)입니다. 매 접속마다 *Who's playing?* 폼(`brickcraft:style`)이 뜨고 `choose_player`가 현재 인벤토리를 모드 저장소 `bricks_<id>`에 저장한 뒤 고른 사람의 것을 불러옵니다(처음이면 기본 세트). 접속의 현재 사람은 메타 `brickcraft_profile`이며, 이전 세계의 접속은 고른 모습(`brickcraft_style`)의 사람으로 간주해 인벤토리를 옮깁니다. 퇴장·서버 종료 때도 저장하고, 다른 접속이 플레이 중인 사람은 고를 수 없습니다. 바꿀 때 되돌리기 기록은 지웁니다. 메시·텍스처는 `generate_assets.py`의 `styles`·`person()`이 만듭니다(텍스처 8행: 피부, 상의, 하의, 눈, 머리). 시작 자리는 `spots` 표와 메타 `brickcraft_spot`, `home_pos()`가 `/home`·리스폰·낙하 복귀에 쓰입니다.
-- 검사: `python3 tools/test_multiplayer.py` (전용 서버 30010 + 클라이언트 2개, `brickcraft_multiplayer_test` 설정으로 `multiplayer_test.lua` 실행).
+- 검사: `python3 tools/test_multiplayer.py` (전용 서버 30010 + 클라이언트 2개, `brickcraft_multiplayer_test` 설정으로 `tests/mods/brickcraft_test/multiplayer_test.lua` 실행).
 
 ## 4b. AI 빌더(플레이어별, jms)
 
-- [ai_builder.lua](../game/mods/brickcraft/ai_builder.lua)는 `brickcraft_ai_builder = true`(server.conf)일 때만 로드되어 공유 서버에만 빌더가 있습니다. 빌더는 `new_worker(owner)`가 만드는 객체이고 owner는 플레이어 id(`builder`·`dad`·`daughter`·`explorer`, 접속 이름이 아님) 또는 `"jms"`입니다. 몸·인벤토리(`brickcraft_ai_<owner>`)·작업·대기열·저장(`ai_state_<owner>`, `ai_bricks_<owner>`, `ai_pos_<owner>`, 이름 `ai_name_<owner>`)이 따로이며, jms는 예전 키(`brickcraft_ai`, `ai_state` 등)를 그대로 씁니다. 전역 스텝이 지금 플레이하는 사람의 빌더만 `tick`하고(`brickcraft_ai_bots`), 주인이 없으면 `despawn`(저장 후 제거)합니다. jms는 `brickcraft_ai_jms = true`일 때만 나옵니다. 작업은 위치로 세계가 정해지고(`world_at`) 빌더는 주인 세계의 작업만 하며 나머지는 대기열에 둡니다. `find_plot`·`survey`·시작 자리는 그 세계 중심 기준이고, `find_plot`은 모든 빌더의 진행·대기 건물 자리와 몸 칸을 막힌 칸으로 봅니다. LuaJIT은 함수 하나에 업밸류 60개까지라 `new_worker`는 위쪽 도우미를 `lib` 표 하나로 받아 지역 변수로 풉니다(실행 중 바뀌는 `quiet`·`IDLE`·잡담 설정만 업밸류). 채팅은 `addressed`가 가장 긴 빌더 이름(또는 `bot`/`my bot` → 말한 사람의 빌더)으로 보냅니다. Claude 요청은 동시 `brickcraft_ai_parallel`(2)개. Luanti는 HTTP를 `init.lua` 최상위에서만 주므로 `init.lua`가 `C.request_http_api()`를 `brickcraft.http`에 넣고 모듈을 불러옵니다(`secure.http_mods = brickcraft`).
+- [brickcraft_ai](../game/mods/brickcraft_ai/init.lua)는 `brickcraft_ai_builder = true`(server.conf)일 때만 로드되어 공유 서버에만 빌더가 있습니다. 빌더는 `new_worker(owner)`가 만드는 객체이고 owner는 플레이어 id(`builder`·`dad`·`daughter`·`explorer`, 접속 이름이 아님) 또는 `"jms"`입니다. 몸·인벤토리(`brickcraft_ai_<owner>`)·작업·대기열·저장(`ai_state_<owner>`, `ai_bricks_<owner>`, `ai_pos_<owner>`, 이름 `ai_name_<owner>`)이 따로이며, jms는 예전 키(`brickcraft_ai`, `ai_state` 등)를 그대로 씁니다. 전역 스텝이 지금 플레이하는 사람의 빌더만 `tick`하고(`brickcraft_ai_bots`), 주인이 없으면 `despawn`(저장 후 제거)합니다. jms는 `brickcraft_ai_jms = true`일 때만 나옵니다. 작업은 위치로 세계가 정해지고(`world_at`) 빌더는 주인 세계의 작업만 하며 나머지는 대기열에 둡니다. `find_plot`·`survey`·시작 자리는 그 세계 중심 기준이고, `find_plot`은 모든 빌더의 진행·대기 건물 자리와 몸 칸을 막힌 칸으로 봅니다. LuaJIT은 함수 하나에 업밸류 60개까지라 `new_worker`는 위쪽 도우미를 `lib` 표 하나로 받아 지역 변수로 풉니다(실행 중 바뀌는 `quiet`·`IDLE`·잡담 설정만 업밸류). 채팅은 `addressed`가 가장 긴 빌더 이름(또는 `bot`/`my bot` → 말한 사람의 빌더)으로 보냅니다. Claude 요청은 동시 `brickcraft_ai_parallel`(2)개. Luanti는 HTTP를 모드 `init.lua` 최상위에서만 주므로 `brickcraft_ai`의 `init.lua`가 맨 앞에서 `C.request_http_api()`를 `brickcraft.http`에 넣습니다(`secure.http_mods = brickcraft_ai`).
 - jms는 플레이어와 같은 규칙으로 짓습니다(브릭만 공짜). 저장하지 않는 물리 엔티티(`static_save = false`, 충돌·중력, 게임의 `movement_speed_walk`·점프·중력 값. 클라이언트가 플레이어에게 중력을 2배로 적용하므로 빌더도 2×`movement_gravity`로 떨어져 같은 점프 높이를 냅니다)이며 `core.find_path`로 장애물을 돌아 걷습니다. 손이 닿는 거리 7, 보이는 면을 가리켜야 하며(`aim_place`가 raycast로 첫 번째로 맞는 면이 놓을 칸 옆 면인지 확인), 이미 있는 조각이나 바닥에 붙여서만 놓습니다. 높은 곳은 기둥 쌓기(점프 중 발밑에 tan 브릭)로 올라가 짓고 내려올 때 그 비계를 세퍼레이터로 회수합니다. 막히면 플레이어처럼 `/home`. 놓기·회수는 가짜 플레이어 `hands`로 브릭 아이템 `on_place`(`place_brick`)와 세퍼레이터 `on_use`(`collect`→`core.node_dig`)를 그대로 부르며, jms의 인벤토리는 플레이어와 같은 32칸 `main`(분리 인벤토리 `brickcraft_ai`, 저장소 `ai_bricks`, 우클릭으로 보기)입니다. 색이 모자라면 99개로 채웁니다. 가짜 플레이어 이름은 `<빌더 이름> (AI)`라 실제 접속과 기록이 섞이지 않습니다(파낸 자리 기록도 이 접미사로 빌더를 뺍니다). 진행 중 작업·대기열·마지막 건물은 `ai_state`에 남습니다.
 - 계획은 지역 좌표 조각 목록 `{piece,color,x,y,z,turn}`입니다. 정면은 -z이고, `finish`가 요청자를 향하도록 90° 단위로 돌린 뒤 0,0,0에 맞춥니다. `find_plot`이 베이스플레이트(±24)에서 y 0..30이 비어 있고 둘레 1칸이 빈 자리 중 목표에 가장 가까운 곳을 고릅니다.
 - 요청은 Local AI API의 OpenAI 형식 `POST /claude/v1/chat/completions`(`brickcraft_ai_url`, `brickcraft_ai_model = opus`)로 보내고, 응답 JSON의 `lines`(`<piece> <color> x y z [turn]`, `box`, `walls`, `clear`)를 `parse_plan`이 검증·제한(18×18×24, 500조각)합니다. 새 부품은 `shapes` 표에서 프롬프트에 자동으로 추가됩니다. 실패하면 `parse_request`가 단어로 내장 설계도를 고릅니다.
 - 설정: `brickcraft_ai_jms`(기본 false), `brickcraft_ai_bots`(기본 true), `brickcraft_ai_bot_auto`(기본 false), `brickcraft_ai_parallel`, `brickcraft_ai_name`(jms 이름), `brickcraft_ai_idle`(혼자 짓기까지 초), `brickcraft_ai_auto_max`, `brickcraft_ai_auto`, `brickcraft_ai_llm`(false면 내장만).
 - 검사: `python3 tools/test_ai_builder.py`(내장, 30012, jms를 켜고 Leona 빌더도 확인: 이름 규칙·`/botname`·주인만 멈추기·겹치지 않는 자리), `--claude`(실제 설계 1회).
 
-## 4c. 선로와 수레(trains.lua)
+## 4c. 선로와 수레(brickcraft_trains)
 
 - 기차 부품은 `shapes`의 `train=` 항목(Trains 줄)입니다. `place_brick`이 `brickcraft.trains.place`로 넘기고, 수레에 대한 우클릭(엔티티의 `on_rightclick`)이 모터·배터리 박스 부품을 붙이거나 세퍼레이터로 스위치를 움직입니다. 타기는 수레의 `people`이 갑판에 내려앉은 플레이어를 붙이고(점프로 내린 뒤 1초는 다시 붙지 않음), 지면에서 수레 쪽으로 걷는 플레이어의 속도를 선로 방향으로 받아 밉니다.
 - 선로 조각은 색마다 노드(`brickcraft:<색>_track`/`_track_curve`, facedir, 정의에 `brickcraft_track`·`brickcraft_color`)이고 `ends_of`가 형태·회전에서 두 끝 방향을 냅니다(직선 r: r, r+2 / 곡선 r: r, r+1). `brick` 그룹이라 세퍼레이터 회수·돌리기와 `remember`(되돌리기)를 브릭과 같이 씁니다. 놓을 때 `lay`가 이웃을 점수로 고릅니다: 이미 이쪽을 향한 끝(4) > 한쪽만 이어진 이웃(1, 돌려 맞춤) > 일직선(+1).
@@ -74,15 +88,18 @@
 
 - 빌더의 `report`가 `brickcraft.reports.queue`로 `<world>/issues/<id>.md`·`.label`·`.title`(마지막에 씀)을 남깁니다. Luanti 모드는 셸을 못 쓰므로 Admin 실행기가 서버를 띄운 동안 15초마다 `tools/post_issues.zsh <world>`를 돌려 `gh issue create`로 올리고 `issues/sent/<id>.url`을 남깁니다. 빌더는 3초마다 그 파일을 보고 링크를 말합니다. `BRICKCRAFT_ISSUES_DRY=1`이면 올리지 않고 출력만 하며, AI 검사가 이것으로 확인합니다.
 
-## 4e. 전쟁 모드(war.lua)
+## 4e. 전쟁 모드(brickcraft_war)
 
 - 켜기·끄기는 `start`/`stop`(`/war`, 인벤토리 `war` 버튼). 켜면 `main`을 `war_stash` 목록으로 옮기고 `main`에 도구 4개를 넣습니다. `init.lua`의 `save_bricks`는 `war_stash`가 있으면 그것을 저장하고, `choose_player`는 바꾸기 전에 `brickcraft.war.stop`을 부릅니다. 접속 시 `war_stash`가 남아 있으면(서버 종료 등) 브릭을 되돌립니다. 켤 때 되돌리기 기록(`brickcraft.forget`)을 지워 브릭이 도구 칸으로 가지 않게 합니다.
 - 하트는 모드 자체 값(`war[name].hp`, 반 칸 단위 10)과 statbar HUD입니다. `enable_damage = false`는 그대로입니다. `hit(target, attacker, move, dir)`가 모든 공격의 한 경로이며 `MOVES` 표가 피해·밀림·쿨다운을 정합니다. 플레이어 밀림은 `add_velocity`라 클라이언트가 움직이고, 땅 마찰이 커서 값이 큽니다(칼 7 → 약 1칸).
 - 대포알은 엔진 물리 없이 매 단계 지난 구간을 `core.raycast`로 확인하고, 단단한 노드나 사람·기사에 닿으면 둘레 `BLAST`(1.6) 안의 대상을 맞힙니다. 쏜 사람은 맞지 않습니다. 대포·기사·대포알은 `static_save = false`이며 주인이 전쟁을 끝내면 지웁니다.
+- 편: 플레이어와 파란 기사는 blue(플레이어끼리는 서로 칠 수 있음), 붉은 군대는 red, 연습 기사·주인 없는 대포알은 편이 없습니다. `hit`가 같은 편 공격을 막습니다. 기사는 `brickcraft:knight` 엔티티 하나이고 `_team`(nil/blue/red)·`_boss`로 `LOOKS` 표의 모습·하트·속도·시야를 고릅니다. 0.3초마다 `think`가 가장 가까운 적(`find_foe`)에게 걷고(막히면 점프) 1.8칸 안이면 칼(`MOVES.knight`)을 휘두르며, 맞으면 0.5초 스스로 못 움직여 밀림이 보입니다. 사령관은 거리를 6–12칸으로 유지하며 저각 탄도로 대포알을 던집니다. 군대는 `armies[id]`, 사령관이 쓰러지면 `defeat_army`.
+- 명령: 한 편의 기사 전원이 한 명령(`{mode,target,side,at}`)을 따릅니다. 파란 기사는 주인의 `blue_orders[name]`, 붉은 기사는 `armies[id].order`. `think`가 mode별로 움직입니다(follow·charge·flank·hold·guard·retreat, 주석 참고). 파란 쪽은 `ai_builder.lua`의 `handle`이 주인이 전쟁 중이면 먼저 `brickcraft.war.command`에 넘기고, 키워드(`ORDER_WORDS`)로 못 알아들으면 `brickcraft.ai.ask`(빌더와 같은 `ask_claude` 대기열)로 Claude가 JSON 명령을 만들며, `"none"`이면 `not_order`로 빌더에게 되돌립니다. 붉은 쪽은 `plan_red`가 15초마다 `red_field` 요약으로 Claude에게 묻고, 실패·바쁨(429)·`brickcraft_war_ai = false`면 `TACTICS` 내장 작전을 씁니다. 검사(`test_war.py`)는 `brickcraft_war_ai = false`로 내장 작전만 씁니다.
+- 탄약은 `war[name].ammo`(처음 6, 최대 30)입니다. 대포알 더미(`brickcraft:ammo`, 저장 안 함)는 3초마다 전쟁 중인 사람 근처에 생기고(`ground_at`), 더미의 `on_step`이 밟은 사람에게 3개를 줍니다. 손 발사는 `fire_from`(대포 도구 좌클릭, 노드·사물을 가리키지 않은 우클릭).
 - War Lab은 Train Yard처럼 `make_world`로 한 번 만들며(`lab`, `lab_built`), 기사는 저장되지 않으므로 누군가 그 세계에 있을 때 다시 세웁니다(`_lab`). 검사 세계에서는 `brickcraft_war_test`일 때만 만듭니다.
-- 검사: `python3 tools/test_war.py`(전용 서버 30014 + 클라이언트 2개): 평화(전쟁 아닌 사람은 안 맞음), 칼·발차기·밀기의 실제 클라이언트 밀림, 대포, 녹아웃·보호, 기사, 브릭 복원, War Lab.
+- 검사: `python3 tools/test_war.py`(전용 서버 30014 + 클라이언트 2개): 평화(전쟁 아닌 사람은 안 맞음), 칼·발차기·밀기의 실제 클라이언트 밀림, 대포, 녹아웃·보호, 연습 기사, 탄약(손 발사·빈 탄창·더미 줍기), 파란 기사 대 붉은 기사, 붉은 기사의 공격, `/battle` 사령관 포격과 승리, 브릭 복원, War Lab과 그곳의 붉은 군대.
 
-## 4e. 테크닉 기계(technic.lua)
+## 4e. 테크닉 기계(brickcraft_technic)
 
 - 부품은 `shapes`의 `technic=` 항목과, 바닥에 놓은 `train=motor/battery`입니다. 축·기어는 모델의 y축이 회전축이고 facedir의 축 방향(param2 ÷ 4)으로 눕힙니다. 테크닉 브릭·모터·배터리 박스는 param2 % 4로 돕니다.
 - 회전 계산(`solve`): 켜진 모터마다 출력 칸에서 시작해 같은 축의 축·기어·테크닉 브릭으로 같은 빠르기를, 같은 평면의 평행한 기어 중 중심 거리가 두 피치 반지름(이빨 수 ÷ 32칸)의 합과 0.1칸 안으로 같은 것(`gears_near`)으로 −잇수비를 전달합니다. 맞물린 기어의 시작 각도 α는 닿는 방향에서 이와 홈이 맞도록 앞 기어에서 정하고(`phase_off`로 검사), 한 기계의 스피너는 바뀔 때 모두 함께 다시 만들어 클라이언트에서 같이 돌기 시작합니다.
@@ -90,7 +107,7 @@
 - 다시 만든 세계의 옛 수레: `clear_carts`가 영역과 시각을 mod storage에 남기고, 그보다 먼저 만들어진 수레(`_born`)는 깨어날 때 사라집니다.
 - 기관차 기어박스: 수레의 `_gear_m`(모터 기어)·`_gear_w`(바퀴 기어)가 있으면 속도 = 모터 회전수 × 잇수비 × 2π × 바퀴 반지름(24 → 24가 초당 3칸, 최대 7). 기어·구동 바퀴는 붙어 다니는 부품 엔티티이며 Luanti가 붙은 엔티티에도 `automatic_rotate`를 적용하므로 빠르기가 바뀔 때만 회전 속도를 보냅니다. 한 칸에 다른 값이 오면 걸림(그 기계 전체 0). 부품을 놓기·회수·돌리기·스위치할 때와 2초마다, 플레이어 80칸 안의 모터만 계산합니다(모터 위치는 mod storage `technic_motors`).
 - 도는 부품은 보이지 않는 짝 노드(`_spin`, 그룹 `technic_spin`)로 바꾸고 그 자리에 `brickcraft:spinner` 엔티티를 둡니다. 엔티티는 `vector.dir_to_rotation`으로 모델 y축을 회전축에 맞추고 `automatic_rotate`(초당 회전 × 2π)로 클라이언트에서 돌아 네트워크 부담이 없습니다. 저장하지 않으며, 블록을 다시 읽을 때 LBM이 짝 노드를 원래대로 돌려놓고 다음 계산이 다시 돌립니다.
-- Technic Lab 세계는 `init.lua`가 만들고(Train Yard와 같은 방식) `technic.lua`의 `build_lab`이 기계를 놓습니다.
+- Technic Lab 세계는 `brickcraft_technic`이 만들고(`brickcraft_trains`의 Train Yard와 같은 방식) `build_lab`이 기계를 놓습니다.
 
 ## 4. 실행과 개발 반복
 

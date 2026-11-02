@@ -13,6 +13,8 @@ PORT='30010'
 world=test/'world'
 world.mkdir()
 (world/'world.mt').write_text('gameid = brickcraft\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_backend = sqlite3\nmod_storage_backend = sqlite3\n')
+(world/'worldmods').mkdir()
+(world/'worldmods'/'brickcraft_test').symlink_to(root/'tests'/'mods'/'brickcraft_test',target_is_directory=True)
 def user_dir(name):
     user=test/name
     (user/'games').mkdir(parents=True)

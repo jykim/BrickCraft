@@ -14,12 +14,14 @@ print('Test artifacts: '+str(test),flush=True)
 world=test/'world'
 world.mkdir()
 (world/'world.mt').write_text('gameid = brickcraft\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_backend = sqlite3\nmod_storage_backend = sqlite3\n')
+(world/'worldmods').mkdir()
+(world/'worldmods'/'brickcraft_test').symlink_to(root/'tests'/'mods'/'brickcraft_test',target_is_directory=True)
 user=test/'user'
 (user/'games').mkdir(parents=True)
 (user/'games'/'brickcraft').symlink_to(root/'game',target_is_directory=True)
 config=test/'test.conf'
 config.write_text((root/'brickcraft.conf').read_text()+'\nbrickcraft_ai_test = true\nbrickcraft_ai_builder = true\n'
-    'brickcraft_ai_jms = true\nbrickcraft_ai_step = 0.03\nbrickcraft_ai_idle = 100000\nsecure.http_mods = brickcraft\n'
+    'brickcraft_ai_jms = true\nbrickcraft_ai_step = 0.03\nbrickcraft_ai_idle = 100000\nsecure.http_mods = brickcraft_ai\n'
     f'brickcraft_ai_llm = {"true" if live else "false"}\nscreen_w = 1024\nscreen_h = 720\nwindow_maximized = false\n')
 env=os.environ.copy();env['LUANTI_USER_PATH']=str(user)
 log=test/'ai.log'

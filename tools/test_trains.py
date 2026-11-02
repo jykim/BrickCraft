@@ -10,6 +10,8 @@ test=Path(tempfile.mkdtemp(prefix='trains-',dir=testroot))
 world=test/'world'
 world.mkdir()
 (world/'world.mt').write_text('gameid = brickcraft\nbackend = sqlite3\nplayer_backend = sqlite3\nauth_backend = sqlite3\nmod_storage_backend = sqlite3\n')
+(world/'worldmods').mkdir()
+(world/'worldmods'/'brickcraft_test').symlink_to(root/'tests'/'mods'/'brickcraft_test',target_is_directory=True)
 user=test/'user'
 (user/'games').mkdir(parents=True)
 (user/'games'/'brickcraft').symlink_to(root/'game',target_is_directory=True)

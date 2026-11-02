@@ -56,6 +56,9 @@ ensure keymap_cmd "SYSTEM_SCANCODE_104"
 # F places too, for trackpads without a secondary click.
 ensure keymap_place "KEY_RBUTTON|SYSTEM_SCANCODE_9|GAMEPAD_AXIS_PLUS_4"
 ensure keymap_sneak "SYSTEM_SCANCODE_24"
+# Trackpad touches must not flip the game into touchscreen controls (auto does), where a
+# click no longer means dig or place.
+ensure touch_controls false
 # A Mac joining for the first time registers without the "Register and Join" dialog,
 # which otherwise waits silently in the game window.
 ensure enable_register_confirmation false

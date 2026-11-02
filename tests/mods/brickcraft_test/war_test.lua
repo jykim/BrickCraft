@@ -123,14 +123,9 @@ local function run(dad,kid)
   wait(3,function() return hp(dad)==dad_hp-3 end,function() return "stray ball: Dad "..hp(dad) end)
   log("STRAY: a cannonball with no shooter hits too")
 
-  -- The Brick Knight: five sword strikes knock it down; it gets up at its spot.
-  local kn_item=dinv:get_stack("main",4)
-  kn_item:get_definition().on_place(kn_item,dad,{type="node",under={x=-3,y=-1,z=-5},above={x=-3,y=0,z=-5}})
-  local knight
-  for _,o in ipairs(C.get_objects_inside_radius({x=-3,y=-.5,z=-5},.6)) do
-    if o:get_luaentity() and o:get_luaentity().name=="brickcraft:knight" then knight=o:get_luaentity() end
-  end
-  assert(knight,"knight put up")
+  -- A practice knight (War Lab's): five sword strikes knock it down; it gets up at its spot.
+  local knight=W.spawn_knight({x=-3,y=0,z=-5},nil)
+  assert(knight and knight._hp==10,"practice knight put up")
   dad:set_pos({x=-5,y=0,z=-5}); sleep(1.2)
   for i=1,5 do
     local was=knight.object:get_pos()
@@ -145,12 +140,129 @@ local function run(dad,kid)
   assert(knight._down and W.on(dad).kos==2,"knight down, Dad's 2nd knockout")
   sleep(3.3)
   assert(not knight._down and knight._hp==10,"knight back up with full hearts")
-  log("KNIGHT: down after 5 strikes, back up 3 s later")
+  knight.object:remove()
+  log("KNIGHT: practice knight down after 5 strikes, back up 3 s later")
+
+  -- Cannonballs: firing from your hands uses one; none left, no shot; a pile gives 3.
+  local s=W.on(dad)
+  local cannon_tool=dinv:get_stack("main",2)
+  local function hand_fire() cannon_tool:get_definition().on_use(cannon_tool,dad,{type="nothing"}) end
+  dad:set_pos({x=-5,y=0,z=-8}); face(dad,EAST); sleep(.9)
+  local ammo=s.ammo
+  hand_fire()
+  assert(s.ammo==ammo-1,"a shot from the hands uses a cannonball")
+  sleep(.9)
+  -- Looking at the ground a few blocks ahead, the shot still flies off in an arc.
+  dad:set_look_vertical(.5); sleep(.3)
+  local ball=W.fire_from(dad)
+  assert(ball,"fired looking down")
+  local start,far=dad:get_pos(),0
+  wait(4,function()
+    local q=ball:get_pos()
+    if q then far=math.max(far,flat(q,start)) end
+    return not q
+  end,function() return "ball still flying" end)
+  assert(far>6,("looking down, the ball still flies (%.1f blocks)"):format(far))
+  face(dad,EAST)
+  ammo=s.ammo+1
+  sleep(.9)
+  s.ammo=0; hand_fire()
+  assert(s.ammo==0,"no cannonballs, no shot")
+  W.drop_ammo(dad:get_pos())
+  wait(3,function() return s.ammo>=3 end,function() return "pile not picked up: "..s.ammo end)
+  log(("AMMO: hand cannon fired, even looking down (flew %.0f blocks), empty refuses, a pile picked up gives %d"):format(far,s.ammo))
+
+  -- Dad's blue knight fights a Red Knight (away from the players).
+  local kn_item=dinv:get_stack("main",4)
+  kn_item:get_definition().on_place(kn_item,dad,{type="node",under={x=14,y=-1,z=-14},above={x=14,y=0,z=-14}})
+  local blue
+  for ent in pairs(brickcraft.war._things()) do if ent._team=="blue" and ent._owner==DAD then blue=ent end end
+  assert(blue and blue._hp==10,"a blue knight for Dad")
+  strike(blue.object); assert(blue._hp==10,"Dad can't hurt his own knight")
+  local red=W.spawn_knight({x=19,y=0,z=-14},"red")
+  assert(red._hp==6 and red._name=="Red Knight","a red knight")
+  wait(15,function() return red._hp<6 end,function() return ("red untouched: blue at %s, red at %s"):format(
+    C.pos_to_string(blue.object:get_pos(),1),C.pos_to_string(red.object:get_pos(),1)) end)
+  log(("ALLY: Dad's blue knight walked up and hit the Red Knight (%d/6)"):format(red._hp))
+  red.object:remove()
+  -- Left click with the Knight tool takes it back.
+  kn_item:get_definition().on_use(kn_item,dad,{type="object",ref=blue.object})
+  assert(not blue.object:get_pos(),"Dad took his knight back")
+
+  -- A Red Knight goes for a player in war.
+  kid:set_pos({x=8,y=0,z=-14}); sleep(3.3)
+  local khp=W.on(kid).hp
+  red=W.spawn_knight({x=12,y=0,z=-14},"red")
+  wait(15,function() return W.on(kid).hp<khp end,function() return "red knight never hit Leona, at "..C.pos_to_string(red.object:get_pos() or {x=0,y=0,z=0},1) end)
+  log(("RED: a Red Knight charged and hit Leona (%d/10)"):format(W.on(kid).hp))
+  red.object:remove()
+
+  -- /battle: a Commander and 4 knights. Knock out the Commander and the army falls.
+  kid:set_pos(brickcraft.home_pos(kid)); sleep(.5)
+  dad:set_pos({x=0,y=0,z=-14}); face(dad,EAST); sleep(.8)
+  local ok=C.registered_chatcommands.battle.func(DAD,"")
+  assert(ok,"battle called")
+  local id,army=next(W.armies)
+  assert(army and army.boss._boss and army.boss._hp==20,"a Red Commander with 20 hearts")
+  local members=0
+  for ent in pairs(brickcraft.war._things()) do if ent._army==id then members=members+1 end end
+  assert(members==5,"a Commander and 4 knights, got "..members)
+  -- It lobs cannonballs at Dad within a few seconds.
+  local dhp=s.hp
+  wait(12,function() return s.hp<dhp end,function() return "the Commander never hit Dad" end)
+  log(("ARMY: Red Commander and 4 knights; the Commander's cannonball hit Dad (%d/10)"):format(s.hp))
+  for _=1,10 do W.hit(army.boss.object,dad,"sword") end
+  assert(not W.armies[id] and W.on(dad).kos>=3,"beating the Commander beats the army")
+  sleep(2.5)
+  local left=0
+  for ent in pairs(brickcraft.war._things()) do if ent._army==id and ent.object:get_pos() then left=left+1 end end
+  assert(left==0,"the whole army is gone, "..left.." left")
+  log("VICTORY: knocking out the Commander beat the Red Army")
+
+  -- Orders. Dad's AI builder ("Dad bot") is his commander in war mode.
+  local heard={}
+  local function said(t) heard[#heard+1]=t end
+  dad:set_pos({x=0,y=0,z=-14}); sleep(.5)
+  assert(W.command(DAD,"more knights",said),"reinforcements")
+  local mine={}
+  for ent in pairs(brickcraft.war._things()) do if ent._team=="blue" and ent._owner==DAD then mine[#mine+1]=ent end end
+  assert(#mine==4,"4 blue knights from reinforcements, got "..#mine)
+  local function tell_bot(words)
+    for _,f in ipairs(C.registered_on_chat_messages) do f(DAD,"Dad bot, "..words) end
+    sleep(.6)
+  end
+  tell_bot("attack the commander from the right")
+  local o=W.orders(DAD)
+  assert(o and o.mode=="flank" and o.target=="commander" and o.side=="right","Dad bot took the flank order: "..(o and o.mode or "none"))
+  tell_bot("hold your ground")
+  assert(W.orders(DAD).mode=="hold","hold order")
+  sleep(1)
+  local spots={}
+  for i,k in ipairs(mine) do spots[i]=k.object:get_pos() end
+  dad:set_pos({x=10,y=0,z=-14}); sleep(3)
+  for i,k in ipairs(mine) do assert(flat(k.object:get_pos(),spots[i])<2,"knight "..i.." holds its spot") end
+  tell_bot("retreat!")
+  assert(W.orders(DAD).mode=="retreat","retreat order")
+  wait(10,function()
+    for _,k in ipairs(mine) do if flat(k.object:get_pos(),dad:get_pos())>3.5 then return false end end
+    return true
+  end,function() return "knights didn't fall back to Dad" end)
+  log("ORDERS: Dad bot took orders (flank right on the commander, hold, retreat); knights held, then fell back to Dad")
+  -- The Red Commander plans for its army (built-in tactics here: brickcraft_war_ai off).
+  local rid
+  ok=C.registered_chatcommands.battle.func(DAD,""); assert(ok,"second battle")
+  for id in pairs(W.armies) do rid=id end
+  local first=W.armies[rid].order.mode
+  wait(20,function() return (W.armies[rid].plan_n or 0)>=1 end,function() return "the Red Commander never planned" end)
+  log(("RED PLAN: the Red Commander changed its order from %s to %s%s"):format(first,W.armies[rid].order.mode,
+    W.armies[rid].order.mode=="flank" and " "..W.armies[rid].order.side or ""))
+  for _=1,10 do W.hit(W.armies[rid].boss.object,dad,"sword") end
+  sleep(2)
 
   -- Leaving war: bricks back exactly, cannon and knight gone.
   war(DAD,"")
   assert(not W.on(dad) and items(dinv,"main")==dad_bricks and dinv:get_size("war_stash")==0,"Dad's bricks back")
-  assert(not cannon.object:get_pos() and not knight.object:get_pos(),"cannon and knight go with him")
+  assert(not cannon.object:get_pos(),"the cannon goes with him")
   -- Switching player mid-war ends it first: Leona's bricks stay Leona's.
   form(kid,"brickcraft:style",{style_explorer="x"})
   assert(not W.on(kid) and kinv:get_size("war_stash")==0,"switching player ends war")
@@ -161,20 +273,27 @@ local function run(dad,kid)
   -- War Lab: made at start, walls up, knights stand when someone comes.
   wait(60,function() local w=W.lab(); return w and w.lab_built end,function() return "War Lab not built" end)
   local lab=W.lab()
+  C.load_area({x=lab.x+8,y=0,z=lab.z-8},{x=lab.x+10,y=2,z=lab.z-6})
   assert(C.get_node({x=lab.x+9,y=1,z=lab.z-7}).name=="brickcraft:coral","War Lab cover walls")
+  war(KID,"")
   kid:set_pos(brickcraft.home_pos(kid,lab))
   wait(10,function()
     local n=0
     for _,o in ipairs(C.get_objects_inside_radius({x=lab.x+18,y=0,z=lab.z-4},6)) do
-      if o:get_luaentity() and o:get_luaentity().name=="brickcraft:knight" then n=n+1 end
+      local e=o:get_luaentity()
+      if e and e.name=="brickcraft:knight" and not e._team then n=n+1 end
     end
     return n==5
   end,function() return "War Lab knights not up" end)
   log(("LAB: War Lab (experimental) at %d,%d with walls and 5 Brick Knights"):format(lab.x,lab.z))
+  wait(10,function()
+    for _,army in pairs(W.armies) do if army.lab==lab then return true end end
+  end,function() return "no Red Army came to War Lab" end)
+  log("LAB ARMY: a Red Army marched into War Lab for Leona (in war)")
   kid:set_pos({x=-1,y=0,z=-1})
 
   -- Leave a scene to look at: both in war, a cannon and a knight.
-  war(DAD,""); war(KID,"")
+  war(DAD,"")
   dad:set_pos({x=-6,y=0,z=0}); face(dad,EAST)
   cannon_item=dinv:get_stack("main",2)
   cannon_item:get_definition().on_place(cannon_item,dad,{type="node",under={x=-4,y=-1,z=0},above={x=-4,y=0,z=0}})

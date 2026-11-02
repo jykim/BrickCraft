@@ -8,6 +8,10 @@
 -- same nodes a player places, so anyone can collect or change them. Builders' bricks are free.
 local C=core
 local S=C.settings
+-- Builders live on the shared server (server.conf) only.
+if not S:get_bool("brickcraft_ai_builder",false) then return end
+-- Luanti only hands out HTTP from init.lua's main scope (secure.http_mods = brickcraft_ai).
+brickcraft.http=C.request_http_api and C.request_http_api()
 local NAME=S:get("brickcraft_ai_name") or "jms"
 local LNAME=NAME:lower()
 local STEP=tonumber(S:get("brickcraft_ai_step")) or .35       -- seconds per piece
@@ -18,10 +22,10 @@ local URL=S:get("brickcraft_ai_url") or "http://127.0.0.1:8099/claude/v1/chat/co
 local http=brickcraft.http
 local use_claude=http and URL~="" and S:get_bool("brickcraft_ai_llm",true)
 local shapes,colors=brickcraft.shapes,brickcraft.colors
-local storage=C.get_mod_storage()
+local storage=brickcraft.storage
 local EDGE=24 -- the baseplate
 C.log("action","BrickCraft AI builders: "..(use_claude and "Claude Code ("..MODEL..") via "..URL or
-  "built-in blueprints"..(http and "" or " (no HTTP access: add brickcraft to secure.http_mods)")))
+  "built-in blueprints"..(http and "" or " (no HTTP access: add brickcraft_ai to secure.http_mods)")))
 
 local quiet=0 -- seconds since anyone (builders included) said something in chat
 local function display_name(name)
@@ -1021,6 +1025,9 @@ local function ask_claude(system,content,done,ok)
     end)
 end
 
+-- War mode's commanders (brickcraft_war) ask Claude through the same queue.
+brickcraft.ai={ask=use_claude and ask_claude or nil}
+
 local function list_blueprints()
   return "house, tower, castle, wall, pyramid, tree, car, rocket, flower, heart, arch, stairs, or \"write HELLO\""
 end
@@ -1058,7 +1065,7 @@ local function owner_player(owner)
 end
 
 -- A builder: a block person steered like a player's controls.
-C.register_entity("brickcraft:ai_builder",{
+C.register_entity(":brickcraft:ai_builder",{
   initial_properties={visual="mesh",mesh="brickcraft_person_short.obj",textures={"brickcraft_person_jms.png"},
     visual_size={x=10,y=10},collisionbox={-.3,0,-.3,.3,1.75,.3},selectionbox={-.3,0,-.3,.3,1.75,.3},
     physical=true,collide_with_objects=false,stepheight=.6,pointable=true,static_save=false,
@@ -1612,11 +1619,17 @@ local function new_worker(owner)
 
   -- how: "named" (it was called by name), "unnamed" (a follow-up, or its owner playing
   -- alone) or "do" (what talking turned into).
-  function handle(name,text,how)
+  function handle(name,text,how,not_war)
     text=text:gsub("^%s+",""):gsub("%s+$","")
     local low=text:lower()
     local who=display_name(name)
     idle=0 -- someone's talking to it: not a quiet moment to start something of its own
+    -- In war mode it is its owner's commander: their words are orders for their knights
+    -- first (brickcraft_war); what isn't about the battle comes back here.
+    if not not_war and not w.jms and is_owner(name) and brickcraft.war.on(C.get_player_by_name(name)) and
+       brickcraft.war.command(name,text,say,function() handle(name,text,how,true) end) then
+      return
+    end
     if low=="" or low=="help" or low=="?" or low:find("what can you") or low:find("도움") then
       say("Hi "..who.."! Ask me to build anything: \""..w.name..", build a big red castle\". I know "..
         list_blueprints()..(use_claude and ", and I can try anything else you imagine" or "")..
@@ -1837,7 +1850,7 @@ local function new_worker(owner)
     local f=feet_of(bot:get_pos())
     if job.climb then
       local c=job.climb; job.climb=nil
-      if vector.equals(f,c.g) then mode="climb"; climb={top=c.top}; return end
+      if vector.equals(f,c.g) then mode="climb"; climb={top=c.top}; job.pillar=c.g; return end
     end
     if job.stop then job.i=#job.list+1 end
     local it=job.list[job.i]
@@ -1897,8 +1910,18 @@ local function new_worker(owner)
       can=function(e) return aim_collect(e,target,it.name)~=nil end
     end
     -- Out of reach from here: come down off any scaffold, then walk (or build a pillar).
-    if on_scaffold() then return descend(eye) end
-    if job.bad_for~=job.i then job.bad,job.bad_for={},job.i end
+    if job.bad_for~=job.i then job.bad,job.bad_for,job.pillars,job.pillar={},job.i,0,nil end
+    if on_scaffold() then
+      -- The pillar it climbed didn't help after all: not that column again for this piece,
+      -- or it builds and digs the same pillar forever.
+      local g=job.pillar
+      if g then
+        job.pillar=nil; job.pillars=(job.pillars or 0)+1
+        job.bad[key(g.x,g.y,g.z)]=true
+      end
+      return descend(eye)
+    end
+    if (job.pillars or 0)>=3 then return skip("out of reach from 3 pillars") end
     for k in pairs(job.bad) do avoid[k]=true end
     local stand,p=find_stand(target,avoid,can,inside)
     if stand and vector.equals(stand,f) then
