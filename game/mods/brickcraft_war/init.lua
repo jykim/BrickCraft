@@ -82,9 +82,14 @@ local function update_hud(player)
     "      Knockouts: "..s.kos.."      /battle: Red Army   /war: stop"
   if s.hud.hearts then
     player:hud_change(s.hud.hearts,"number",s.hp)
+    player:hud_change(s.hud.ammo,"number",s.ammo*2)
     player:hud_change(s.hud.text,"text",text)
     return
   end
+  -- Cannonballs as a row of balls above the text (a statbar counts halves: 2 per ball).
+  s.hud.ammo=player:hud_add({type="statbar",position={x=.5,y=1},offset={x=-AMMO_MAX*8,y=-200},
+    text="brickcraft_cannonball.png",text2="brickcraft_cannonball.png^[opacity:50",number=s.ammo*2,item=AMMO_MAX*2,
+    direction=0,size={x=16,y=16}})
   s.hud.hearts=player:hud_add({type="statbar",position={x=.5,y=1},offset={x=-60,y=-150},
     text="heart.png",text2="heart_gone.png",number=s.hp,item=MAX_HP,direction=0,size={x=24,y=24}})
   s.hud.text=player:hud_add({type="text",position={x=.5,y=1},offset={x=0,y=-166},

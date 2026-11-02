@@ -181,6 +181,8 @@ local function run(dad,kid)
   assert(s.ammo==0,"no cannonballs, no shot")
   W.drop_ammo(dad:get_pos())
   wait(3,function() return s.ammo>=3 end,function() return "pile not picked up: "..s.ammo end)
+  local ds=W.on(dad)
+  assert(dad:hud_get(ds.hud.ammo).number==ds.ammo*2,"the HUD shows "..ds.ammo.." cannonballs")
   log(("AMMO: hand cannon fired, even looking down (flew %.0f blocks), empty refuses, a pile picked up gives %d"):format(far,s.ammo))
 
   -- Dad's blue knight fights a Red Knight (away from the players).
