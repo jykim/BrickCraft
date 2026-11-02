@@ -1588,8 +1588,11 @@ local function build_castle(w,first)
       elseif side and y<=-2 then data[i]=plate end
     end
   end end
-  vm:set_data(data); vm:write_to_map(true)
-  if first or not w.castle_moat then w.castle_built,w.castle_moat=true,true; brickcraft.save_worlds() end
+  -- Light is worked out again with the sky above loaded too: on a fresh start only these
+  -- blocks are, and lighting them alone left the castle pitch black.
+  vm:set_data(data); vm:write_to_map(false)
+  C.fix_light({x=w.x-24,y=-4,z=w.z-24},{x=w.x+24,y=31,z=w.z+24})
+  if first or not w.castle_lit then w.castle_built,w.castle_moat,w.castle_lit=true,true,true; brickcraft.save_worlds() end
 end
 -- A builder's turn: by its stand it puts the next missing step of its siege tower every
 -- 4 seconds, fighting only who comes right up to it. Done, it joins the fight.
@@ -1794,9 +1797,10 @@ C.after(0,function()
     not C.settings:get_bool("brickcraft_siege_test",false) and not C.settings:get_bool("brickcraft_siege_sim",false) then return end
   local w=castle()
   if w then
-    if w.built and not (w.castle_built and w.castle_moat) then
-      -- (a castle from before the moat keeps what players built; it just gets the moat)
-      C.emerge_area({x=w.x-24,y=-4,z=w.z-24},{x=w.x+24,y=8,z=w.z+24},function(_,_,r) if r==0 then build_castle(w,not w.castle_built) end end)
+    if w.built and not (w.castle_built and w.castle_moat and w.castle_lit) then
+      -- (a castle from before the moat, or left dark by it, keeps what players built: it
+      -- gets the moat and its light worked out again)
+      C.emerge_area({x=w.x-24,y=-4,z=w.z-24},{x=w.x+24,y=31,z=w.z+24},function(_,_,r) if r==0 then build_castle(w,not w.castle_built) end end)
     end
     return
   end

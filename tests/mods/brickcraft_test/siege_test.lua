@@ -33,6 +33,8 @@ local function run(dad)
     node(w,0,-1,-14)=="brickcraft:baseplate" and node(w,14,-1,0)=="brickcraft:baseplate","a moat on the north and west only")
   assert(node(w,0,6,6)=="brickcraft:castle_wall" and node(w,-6,6,-5)=="brickcraft:castle_wall" and node(w,6,6,-5)=="brickcraft:castle_wall","the keep and two inner towers")
   assert(node(w,4,2,-3)=="brickcraft:castle_wall" and node(w,4,3,-3)=="air" and node(w,-7,5,-3)=="brickcraft:castle_wall","stairs up the inner towers")
+  local light=C.get_node_light({x=w.x,y=1,z=w.z+2},.5)
+  assert(light and light>=10,"the courtyard is lit at noon, got "..tostring(light))
   log(("CASTLE: walls, battlements, a gate and stairs at %d,%d"):format(w.x,w.z))
 
   -- Dad goes to war in the castle; the Red Army comes.
