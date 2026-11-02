@@ -1060,7 +1060,7 @@ C.register_chatcommand("shape",{params="<piece>",description="Choose the piece t
 -- to find out what a trackpad gesture really sends. Right clicks are logged always (the
 -- engine logs left clicks itself, as "uses <item>").
 local CONTROL_WORDS={dig="left button (dig)",place="right button (place)",LMB="left button",RMB="right button",
-  aux1="Tab",sneak="U / Shift",zoom="E",jump="Space",up="forward",down="back",left="left",right="right"}
+  aux1="Tab",sneak="U / Shift",zoom="E (turn right)",jump="Space",up="forward",down="back",left="left",right="right"}
 local function pointed_text(pt)
   if not pt or pt.type=="nothing" then return "nothing" end
   if pt.type=="node" then return "a node ("..C.get_node(pt.under).name:gsub("^brickcraft:","")..")" end
@@ -1086,7 +1086,10 @@ C.register_on_mods_loaded(function()
       end,
       -- Q (drop) turns the view left instead of throwing what's held into the world.
       on_drop=function(stack,dropper)
-        if dropper and dropper:is_player() then turn_view(dropper,math.pi/4) end
+        if dropper and dropper:is_player() then
+          if watching[dropper:get_player_name()] then seen(dropper,"Q pressed (turn left)") end
+          turn_view(dropper,math.pi/4)
+        end
         return stack
       end,
       on_use=use and function(stack,user,pt)
@@ -1118,8 +1121,17 @@ local elapsed=0
 -- E (zoom with zoom_fov 0) turns right and Q (dropping what's held, below) left, 45° at a
 -- time, and U or Shift (sneak) undoes: in a kart it throws a banana (brickcraft_kart reads
 -- it), in war mode it fires the cannon.
+local turned={} -- player name -> when they last turned: a held Q repeats fast, so at most every 0.3 s
 function turn_view(p,by)
-  if brickcraft.kart and brickcraft.kart.riding(p:get_player_name()) then return end -- the kart holds the view
+  local name=p:get_player_name()
+  -- In a kart Q steers it left instead (E, held, steers right: brickcraft_kart reads it).
+  if brickcraft.kart and brickcraft.kart.riding(name) then
+    if by>0 then brickcraft.kart.steer_left(name) end
+    return
+  end
+  local t=C.get_us_time()
+  if t-(turned[name] or 0)<3e5 then return end
+  turned[name]=t
   p:set_look_horizontal(p:get_look_horizontal()+by)
 end
 local key_actions={

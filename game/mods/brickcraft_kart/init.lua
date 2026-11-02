@@ -380,6 +380,7 @@ local function kart_world() for _,w in ipairs(brickcraft.worlds()) do if w.kart 
 local game -- the race on now (one Kart Circuit): {w, phase, karts={}, next, t0, places={}}
 local riding={} -- player name -> the kart they're in
 local map_was={} -- player name -> whether their minimap was allowed before
+local q_until={} -- player name -> until when Q steers their kart left
 local MAP_MODES={{type="off"},{type="surface",size=256},{type="surface",size=128},{type="surface",size=64},
   {type="radar",size=512},{type="radar",size=256},{type="radar",size=128}} -- the engine's own
 local bananas,boxes={},{} -- entity -> true
@@ -422,6 +423,7 @@ local function drop_rider(kart,move)
   if not name then return end
   kart._rider=nil
   riding[name]=nil
+  C.log("action","BrickCraft kart: "..name.." got out")
   local p=C.get_player_by_name(name)
   if p and p:get_attach()==kart.object then
     p:set_detach()
@@ -445,6 +447,7 @@ local function board(kart,player)
   if riding[name] or kart._rider or kart._bot then return false end
   kart._rider=name
   riding[name]=kart
+  C.log("action","BrickCraft kart: "..name.." got in")
   local st=brickcraft.playing_as(player) and brickcraft.styles[brickcraft.playing_as(player)]
   kart._name=st and st.label or name
   player:set_attach(kart.object,"",{x=0,y=-3,z=-1.5},{x=0,y=0,z=0})
@@ -571,7 +574,9 @@ local function controls(kart,karts)
   local p=rider_of(kart)
   if not p then return {} end
   local c=p:get_player_control()
-  local steer=(c.left and 1 or 0)-(c.right and 1 or 0)
+  -- A/D or the arrows steer; so do Q (each press steers left for a moment: the engine only
+  -- sends it as repeated presses) and E (held: zoom).
+  local steer=clamp((c.left and 1 or 0)-(c.right and 1 or 0)+((q_until[p:get_player_name()] or 0)>now() and 1 or 0)-(c.zoom and 1 or 0),-1,1)
   -- Steering with the mouse (/kart mouse): the kart turns the way its driver looks.
   if steer_mode(p)=="mouse" then steer=clamp(wrap_angle(p:get_look_horizontal()-kart._yaw)*2.5,-1,1) end
   return {up=c.up,down=c.down,steer=steer,drift=c.jump,throw=c.dig or c.sneak,drop=c.place,jump=c.jump,reset=c.aux1,human=true}
@@ -780,7 +785,7 @@ C.register_entity(":"..KART,{
     end
     if self._rider or self._bot then C.chat_send_player(name,"Someone's in that kart: pick another."); return end
     if board(self,clicker) then
-      C.chat_send_player(name,C.colorize("#9ee6c6","W: go   S: brake   A/D: steer   Space: jump (in a turn: drift)   left click or Shift: throw a banana   right click: drop one behind   Tab: back on the track   Space standing still: hop out"))
+      C.chat_send_player(name,C.colorize("#9ee6c6","W: go   S: brake   A/D or Q/E: steer   Space: jump (in a turn: drift)   left click or Shift: throw a banana   right click: drop one behind   Tab: back on the track   Space standing still: hop out"))
     end
   end,
   on_punch=function() return true end,
@@ -1027,7 +1032,7 @@ C.register_globalstep(function(dt)
     if welcomed[name]~=w then
       welcomed[name]=w
       C.chat_send_player(name,C.colorize("#ff9a76",w.name..": right click a kart on the grid at the start (or type /kart) to race! "..
-        "W go, S brake, A/D steer, Space jumps (in a turn: drifts). Drive over the banana bunches on the road to pick bananas up: left click or Shift throws one ahead, right click drops one behind."))
+        "W go, S brake, A/D or Q/E steer, Space jumps (in a turn: drifts). Drive over the banana bunches on the road to pick bananas up: left click or Shift throws one ahead, right click drops one behind."))
     end
   end
   for name in pairs(welcomed) do if not names[name] then welcomed[name]=nil end end
@@ -1170,7 +1175,7 @@ C.register_chatcommand("kart",{params="[reset|leave|start|keys|mouse|assist on/o
 for _,row in ipairs({
   {"KART CIRCUIT (its own world: Which world?)",""},
   {"Right click a kart on the grid, or /kart","Get in; the race starts 15 s later"},
-  {"W / S","Go / brake (and back up)"},{"A / D","Steer"},
+  {"W / S","Go / brake (and back up)"},{"A / D, Q / E or arrows","Steer"},
   {"Space going straight","Jump: over bananas and crates (and off the big ramps)"},
   {"Space in a turn","Drift; let go after 1 s (blue sparks) or 2 s (orange) for a boost"},
   {"Left click or Shift / right click","Throw a banana ahead / drop one behind (drive over a bunch to pick some up)"},
@@ -1198,7 +1203,7 @@ C.after(0,function()
 end)
 
 brickcraft.kart={world=kart_world,game=function() return game end,new_game=new_game,start=start_race,board=board,
-  drop_rider=drop_rider,spin=spin,throw=throw,ground=ground,riding=function(name) return riding[name] end,
+  drop_rider=drop_rider,spin=spin,steer_left=function(name) q_until[name]=now()+.35 end,throw=throw,ground=ground,riding=function(name) return riding[name] end,
   bananas=function() return bananas end,S=S,N=N,HALF=HALF,LIGHTS=LIGHTS,BOX_AT=BOX_AT,CRATE_AT=CRATE_AT,JUMPS=JUMPS,key=key,CELLS=CELLS,PIECES=PIECES,BLOCKED=BLOCKED,
   set_laps=function(n) laps=n end,set_racers=function(n) racers=n end,laps=function() return laps end,
   nearest=nearest_to,lay_out=lay_out}
