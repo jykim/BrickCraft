@@ -600,7 +600,7 @@ local help_rows={
   {"Right click a player (war kit)","Shove them away"},
   {"4 Knight, right click the ground","A blue knight who follows you and fights the Red Army"},
   {"Knock out the Red Commander","The whole Red Army falls"},
-  {"T, then: Dad bot, flank left","Your AI builder commands your knights in war mode"},
+  {"T, then: Dad bot, flank left","Your AI builder commands your knights in war mode, and fights by your side: with its sword when the Red Army comes close or you have no knights, else throwing cannonballs from behind them. An order when you have no knights brings 4"},
   {"Orders","charge, attack the commander, flank left/right, hold, guard me, follow, retreat, more knights, status"},
   {"/orders <order>","The same, without an AI builder"},
   {"Out of hearts","Knocked out: back to your start spot, hearts refilled"},

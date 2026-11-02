@@ -116,6 +116,16 @@ local function run(dad,kid)
   strike(kid)
   assert(hp(kid)==10,"the shield after a knockout")
   log("KNOCKOUT: Leona back at her start spot with 10/10, shielded")
+  -- Low on hearts she is slow and pale; three knockouts and her war is over.
+  local ks=W.on(kid)
+  assert(ks.lives==2,"2 lives left after a knockout, got "..ks.lives)
+  ks.shield,ks.hp=0,4; sleep(.5); strike(kid)
+  assert(hp(kid)==2 and kid:get_physics_override().speed<1 and kid:get_properties().textures[1]:find("colorize"),"hurt: slow and pale")
+  for _=1,2 do W.on(kid).shield,W.on(kid).hp=0,1; sleep(.5); strike(kid) end
+  assert(not W.on(kid) and items(kinv,"main")==kid_bricks,"out of lives: out of the war, bricks back")
+  assert(kid:get_physics_override().speed==1 and not kid:get_properties().textures[1]:find("colorize"),"herself again out of war")
+  war(KID,""); assert(W.on(kid).lives==3,"back in with 3 lives")
+  log("LIVES: hurt Leona went slow and pale; her third knockout ended her war; back in with 3 lives")
 
   -- A cannonball nobody fired hits Dad.
   dad:set_pos({x=-5,y=0,z=-2}); sleep(.6)
@@ -127,6 +137,7 @@ local function run(dad,kid)
   local knight=W.spawn_knight({x=-3,y=0,z=-5},nil)
   assert(knight and knight._hp==10,"practice knight put up")
   dad:set_pos({x=-5,y=0,z=-5}); sleep(1.2)
+  local kos=W.on(dad).kos
   for i=1,5 do
     local was=knight.object:get_pos()
     strike(knight.object)
@@ -137,7 +148,7 @@ local function run(dad,kid)
     end
     knight.object:set_pos(knight._home); sleep(.45)
   end
-  assert(knight._down and W.on(dad).kos==2,"knight down, Dad's 2nd knockout")
+  assert(knight._down and W.on(dad).kos==kos+1,"knight down, a knockout for Dad")
   sleep(3.3)
   assert(not knight._down and knight._hp==10,"knight back up with full hearts")
   knight.object:remove()
@@ -223,10 +234,13 @@ local function run(dad,kid)
   local heard={}
   local function said(t) heard[#heard+1]=t end
   dad:set_pos({x=0,y=0,z=-14}); sleep(.5)
-  assert(W.command(DAD,"more knights",said),"reinforcements")
+  -- An order with no knights calls a squad up first.
+  assert(W.command(DAD,"protect me",said),"guard order")
+  assert(W.orders(DAD).mode=="guard" and heard[#heard]:find("4 knights came"),"guard order brought knights: "..heard[#heard])
   local mine={}
   for ent in pairs(brickcraft.war._things()) do if ent._team=="blue" and ent._owner==DAD then mine[#mine+1]=ent end end
-  assert(#mine==4,"4 blue knights from reinforcements, got "..#mine)
+  assert(#mine==4,"4 blue knights came with the order, got "..#mine)
+  assert(W.command(DAD,"more knights",said) and heard[#heard]:find("already have"),"no more than 4 knights")
   local function tell_bot(words)
     for _,f in ipairs(C.registered_on_chat_messages) do f(DAD,"Dad bot, "..words) end
     sleep(.6)
@@ -256,6 +270,27 @@ local function run(dad,kid)
   wait(20,function() return (W.armies[rid].plan_n or 0)>=1 end,function() return "the Red Commander never planned" end)
   log(("RED PLAN: the Red Commander changed its order from %s to %s%s"):format(first,W.armies[rid].order.mode,
     W.armies[rid].order.mode=="flank" and " "..W.armies[rid].order.side or ""))
+  -- Dad bot fights too: a commander lobbing cannonballs while Dad's knights are up, a
+  -- soldier with its sword when they're gone.
+  local bot
+  for _,ent in pairs(C.luaentities) do
+    if ent.name=="brickcraft:ai_builder" and ent._worker and not ent._worker.jms and ent.object:get_pos() then bot=ent end
+  end
+  assert(bot,"Dad bot is up")
+  local boss=W.armies[rid].boss
+  bot.object:set_pos(vector.offset(dad:get_pos(),1,0,0))
+  boss.object:set_pos(vector.offset(dad:get_pos(),12,0,0))
+  for ent in pairs(brickcraft.war._things()) do
+    if ent._army==rid and not ent._boss then ent.object:set_pos(vector.offset(dad:get_pos(),14,0,2)) end
+  end
+  local f=W.bot_fight(dad,bot.object)
+  assert(f and f.role=="commander","with knights up Dad bot commands: "..(f and f.role or "no fight"))
+  wait(8,function() return bot._lobbed end,function() return "Dad bot never threw a cannonball" end)
+  for ent in pairs(brickcraft.war._things()) do if ent._team=="blue" and ent._owner==DAD then ent.object:remove() end end
+  sleep(.2)
+  f=W.bot_fight(dad,bot.object)
+  assert(f and f.role=="soldier" and f.to,"with no knights Dad bot goes in with its sword: "..(f and f.role or "no fight"))
+  log("BOT FIGHTS: Dad bot lobbed cannonballs as commander, then went in as a soldier when his knights were gone")
   for _=1,10 do W.hit(W.armies[rid].boss.object,dad,"sword") end
   sleep(2)
 

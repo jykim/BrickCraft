@@ -13,6 +13,9 @@
 local C=core
 local MAX_HP=10 -- in half hearts: 5 hearts
 local SHIELD=3 -- seconds nobody can hit you after a knockout or joining
+local LIVES=3 -- knockouts a player can take; the last one ends their war
+local LOW=3 -- half hearts at or under which a player is hurt: slow and pale
+local HEAL_AFTER=10 -- unhit this long, a half heart back every 3 seconds
 local KIT={"brickcraft:sword","brickcraft:cannon","brickcraft:boot","brickcraft:knight"}
 local KIT_ITEM={}
 for _,item in ipairs(KIT) do KIT_ITEM[item]=true end
@@ -28,7 +31,7 @@ local CANNONS,KNIGHTS=3,4 -- each player's most at once
 local BALL_SPEED,BALL_GRAVITY,BLAST=18,9.81,1.6
 local AMMO_START,AMMO_MAX,AMMO_PILE=6,30,3
 
-local war={} -- name -> {hp, kos, ammo, shield (time), last={move->time}, hud={}}
+local war={} -- name -> {hp, lives, kos, ammo, shield (time), hurt (time), look, last={move->time}, hud={}}
 local things={} -- cannons and knights up now (luaentities)
 local piles={} -- cannonball piles lying about (luaentities)
 local function now() return C.get_us_time()/1e6 end
@@ -47,10 +50,28 @@ local function tell_war(msg)
   for name in pairs(war) do C.chat_send_player(name,C.colorize("#ff9a76",msg)) end
 end
 
+-- How hurt a player looks and moves: a bit slower under half hearts; at LOW and under,
+-- slower still, lower jumps and a pale, bruised look. Out of war: themselves again.
+local function body_tex(player)
+  local s=war[player:get_player_name()]
+  local tex=brickcraft.get_style(player).tex
+  return s and s.hp<=LOW and tex.."^[colorize:#5a4a60:90" or tex
+end
+local function condition(player)
+  local s=war[player:get_player_name()]
+  local hp=s and s.hp or MAX_HP
+  player:set_physics_override({speed=hp<=LOW and .6 or hp<=MAX_HP/2 and .85 or 1,jump=hp<=LOW and .85 or 1})
+  local tex=body_tex(player)
+  if not s or s.look~=tex then
+    player:set_properties({textures={tex}})
+    if s then s.look=tex end
+  end
+end
 local function update_hud(player)
   local s=war[player:get_player_name()]
   if not s then return end
-  local text="WAR   1 Sword   2 Cannon (left click: fire)   3 Boot   4 Knight      Cannonballs: "..s.ammo..
+  condition(player)
+  local text="WAR   1 Sword   2 Cannon (left click: fire)   3 Boot   4 Knight      Lives: "..s.lives.."      Cannonballs: "..s.ammo..
     "      Knockouts: "..s.kos.."      /battle: Red Army   /war: stop"
   if s.hud.hearts then
     player:hud_change(s.hud.hearts,"number",s.hp)
@@ -69,10 +90,11 @@ local function flash(obj,tex)
   C.after(.2,function() if obj:get_pos() then obj:set_properties({textures={tex}}) end end)
 end
 
+local stop -- (below) a player's war ends
 local function knockout(player,by)
   local name=player:get_player_name()
   local s=war[name]
-  s.hp,s.shield=MAX_HP,now()+SHIELD
+  s.hp,s.shield,s.lives=MAX_HP,now()+SHIELD,s.lives-1
   player:set_pos(brickcraft.home_pos(player))
   if by and by~=player and by:is_player() and war[by:get_player_name()] then
     local b=war[by:get_player_name()]
@@ -83,6 +105,12 @@ local function knockout(player,by)
   else
     tell_war(label(player).." got knocked out!")
   end
+  if s.lives<=0 then
+    tell_war(label(player).." is out of lives!")
+    stop(player)
+    return
+  end
+  C.chat_send_player(name,C.colorize("#ff9a76","Knocked out! "..s.lives.." "..(s.lives==1 and "life" or "lives").." left."))
   update_hud(player)
 end
 
@@ -114,9 +142,8 @@ local function hit(target,attacker,move,dir,side)
     if s.shield>now() then return false end
     target:add_velocity(v)
     if m.dmg>0 then
-      flash(target,brickcraft.get_style(target).tex)
-      s.hp=s.hp-m.dmg
-      if s.hp<=0 then knockout(target,attacker) else update_hud(target) end
+      s.hp,s.hurt=s.hp-m.dmg,now()
+      if s.hp<=0 then knockout(target,attacker) else update_hud(target); flash(target,body_tex(target)) end
     end
     return true
   end
@@ -505,6 +532,18 @@ end
 local function stay_by(self,spot,p,gap)
   if spot and flat_dist(p,spot)>gap then walk(self,spot) else self._still=true end
 end
+-- A cannonball from `from` (a lobbing thrower's hands) at foe, side's own.
+local function lob(from,foe,thrower,side)
+  local q=vector.offset(foe:get_pos(),0,.8,0)
+  local dx,dz=q.x-from.x,q.z-from.z
+  local dist=math.max(math.sqrt(dx*dx+dz*dz),.1)
+  local v=13
+  -- The low arc that reaches dist on level ground, 45 degrees if it can't.
+  local sn=BALL_GRAVITY*dist/(v*v)
+  local e=sn<1 and math.asin(sn)/2 or math.pi/4
+  e=e+math.atan2(q.y-from.y,math.max(dist,1))*.5
+  fire(from,{x=dx/dist*math.cos(e)*v,y=math.sin(e)*v,z=dz/dist*math.cos(e)*v},nil,thrower,side)
+end
 local function think(self)
   local p=self.object:get_pos()
   if self._boss then
@@ -520,16 +559,7 @@ local function think(self)
       local t=now()
       if (self._lobbed or 0)+3<t then
         self._lobbed=t
-        local q=vector.offset(foe:get_pos(),0,.8,0)
-        local from=vector.offset(p,0,2.2,0)
-        local dx,dz=q.x-from.x,q.z-from.z
-        local dist=math.sqrt(dx*dx+dz*dz)
-        local v=13
-        -- The low arc that reaches dist on level ground, 45 degrees if it can't.
-        local sn=BALL_GRAVITY*dist/(v*v)
-        local e=sn<1 and math.asin(sn)/2 or math.pi/4
-        e=e+math.atan2(q.y-from.y,math.max(dist,1))*.5
-        fire(from,{x=dx/dist*math.cos(e)*v,y=math.sin(e)*v,z=dz/dist*math.cos(e)*v},nil,self.object,"red")
+        lob(vector.offset(p,0,2.2,0),foe,self.object,"red")
       end
     elseif flat_dist(p,self._home)>3 then walk(self,self._home) else self._still=true end
     return
@@ -879,6 +909,56 @@ local function status(name,player)
   return ("You have %d blue knight%s (order: %s). %s."):format(#mine,#mine==1 and "" or "s",o and o.mode or "follow",
     #reds>0 and table.concat(reds,"; ") or "No Red Army near: /battle calls one")
 end
+-- A player's AI builder fights beside them. As a soldier (no knights of theirs up, or the
+-- Red Army right on them) it goes for the closest foe with its sword; as a commander it
+-- stays by them behind the knights and lobs cannonballs, the Red Commander first. Returns
+-- nil with no foe near, else {role="soldier"|"commander", to=where to walk (nil: stand)}.
+local BOT={_team="blue"}
+local function bot_fight(player,bot)
+  local name=player:get_player_name()
+  if not war[name] then return end
+  local pp,bp=player:get_pos(),bot:get_pos()
+  local foe,fd=find_foe(BOT,bp,16,pp)
+  if not foe then return end
+  local st=bot:get_luaentity()
+  local t=now()
+  local close=find_foe(BOT,bp,4,pp)
+  local role=(#blue_knights(name)==0 or close) and "soldier" or "commander"
+  local function strike(f)
+    face(bot,vector.subtract(f:get_pos(),bp))
+    if (st._swung or 0)+MOVES.sword.cool*1.5<t then st._swung=t; hit(f,bot,"sword",nil,"blue") end
+  end
+  if role=="soldier" then
+    foe,fd=close or foe,close and vector.distance(bp,close:get_pos()) or fd
+    if fd<2 then strike(foe); return {role=role} end
+    return {role=role,to=foe:get_pos()}
+  end
+  local near=find_foe(BOT,bp,2)
+  if near then strike(near); return {role=role} end
+  local aim=find_foe(BOT,bp,20,nil,"commander") or foe
+  face(bot,vector.subtract(aim:get_pos(),bp))
+  if (st._lobbed or 0)+2.5<t then st._lobbed=t; lob(vector.offset(bp,0,2,0),aim,bot,"blue") end
+  if flat_dist(bp,pp)>4 then return {role=role,to=pp} end
+  return {role=role}
+end
+-- Fills name's blue knights up to KNIGHTS in a ring round them; returns how many came.
+local function reinforce(name,player)
+  local n=KNIGHTS-#blue_knights(name)
+  if n<=0 then return 0 end
+  local p=player:get_pos()
+  for i=1,n do
+    local a=i*2*math.pi/n
+    local g=ground_at(math.floor(p.x+math.cos(a)*2+.5),p.y,math.floor(p.z+math.sin(a)*2+.5))
+    if g then spawn_knight(g,"blue",{owner=name,yaw=player:get_look_horizontal()}) end
+  end
+  return n
+end
+-- An order with nobody to follow it calls up a squad first ("protect me" with no knights).
+local function first_knights(name,player)
+  if #blue_knights(name)>0 then return "" end
+  local n=reinforce(name,player)
+  return n>0 and " ("..n.." knights came to help!)" or ""
+end
 local function command(name,text,say,not_order)
   local player=C.get_player_by_name(name)
   local s=war[name]
@@ -893,22 +973,15 @@ local function command(name,text,say,not_order)
     say(status(name,player)); return true
   end
   if low:find("more knights") or low:find("reinforce") or low:find("recruit") or low:find("지원") then
-    local n=KNIGHTS-#blue_knights(name)
+    local n=reinforce(name,player)
     if n<=0 then say("You already have "..KNIGHTS.." knights, "..who.."!"); return true end
-    local p=player:get_pos()
-    for i=1,n do
-      local a=i*2*math.pi/n
-      local g=ground_at(math.floor(p.x+math.cos(a)*2+.5),p.y,math.floor(p.z+math.sin(a)*2+.5))
-      if g then spawn_knight(g,"blue",{owner=name,yaw=player:get_look_horizontal()}) end
-    end
     say("Reinforcements! "..n.." more knight"..(n==1 and "" or "s").." for "..who..".")
     return true
   end
   local o=parse_order(low)
   if o then
     blue_orders[name]=o
-    local mine=#blue_knights(name)
-    say(announce(o,who)..(mine==0 and " (You have no knights yet: hold 4 and right click the ground, or say \"more knights\".)" or ""))
+    say(announce(o,who)..first_knights(name,player))
     return true
   end
   local ask=brickcraft.ai and brickcraft.ai.ask
@@ -934,7 +1007,8 @@ You are the commander of ]]..who..[['s blue knights. Turn what they just said in
       local ord=clean_order(reply)
       if not ord or not war[name] then say("I didn't catch that order, "..who..". Try: charge, flank left, hold, guard me, retreat."); return end
       blue_orders[name]=ord
-      say(type(reply.say)=="string" and reply.say~="" and reply.say:sub(1,140) or announce(ord,who))
+      local came=first_knights(name,player)
+      say((type(reply.say)=="string" and reply.say~="" and reply.say:sub(1,140) or announce(ord,who))..came)
     end,function(r) return type(r)=="table" and (r.mode=="none" or clean_order(r)~=nil) end)
   return true
 end
@@ -953,9 +1027,11 @@ C.register_globalstep(function(dt)
   supply_timer=supply_timer+dt
   if supply_timer<3 then return end
   supply_timer=0
-  for name in pairs(war) do
+  for name,s in pairs(war) do
     local pl=C.get_player_by_name(name)
     local p=pl and pl:get_pos()
+    -- Out of the fight a while, hearts come back slowly (and with them, speed).
+    if pl and s.hp<MAX_HP and now()-(s.hurt or 0)>HEAL_AFTER then s.hp=s.hp+1; update_hud(pl) end
     if p then
       local near=0
       for ent in pairs(piles) do
@@ -1009,19 +1085,20 @@ local function start(player)
   inv:set_list("main",{})
   for i,item in ipairs(KIT) do inv:set_stack("main",i,item) end
   brickcraft.forget(name) -- an undo would put bricks in the kit, lost when war ends
-  war[name]={hp=MAX_HP,kos=0,ammo=AMMO_START,shield=now()+SHIELD,last={},hud={}}
+  war[name]={hp=MAX_HP,lives=LIVES,kos=0,ammo=AMMO_START,shield=now()+SHIELD,last={},hud={}}
   update_hud(player)
   brickcraft.refresh_inventory(player)
   tell_war(label(player).." is in the war! ("..(function()
     local n=0 for _ in pairs(war) do n=n+1 end return n end)().." playing)")
   return true
 end
-local function stop(player)
+function stop(player)
   local name=player:get_player_name()
   local s=war[name]
   if not s then unstash(player); return false end
   for _,id in pairs(s.hud) do player:hud_remove(id) end
   war[name]=nil
+  condition(player)
   blue_orders[name]=nil
   remove_things(name)
   unstash(player)
@@ -1037,7 +1114,7 @@ C.register_chatcommand("war",{description="Start or stop war mode: cannons, swor
     if not p then return false,"Player is not connected." end
     if war[name] then stop(p); return true end
     start(p)
-    return true,"War mode! 1 Sword  2 Cannon (left click fires)  3 Boot  4 Blue Knight. /battle calls a Red Army. Only players in war can be hit; builds are safe. /war again to stop."
+    return true,"War mode! 1 Sword  2 Cannon (left click fires)  3 Boot  4 Blue Knight. /battle calls a Red Army. You have 3 lives; low on hearts you slow down, and hearts come back if you keep out of the fight. Only players in war can be hit; builds are safe. /war again to stop."
   end})
 C.register_on_player_receive_fields(function(player,formname,fields)
   if formname=="" and fields.war then
@@ -1122,5 +1199,5 @@ end)
 
 brickcraft.war={lab=lab,start=start,stop=stop,hit=hit,fire=fire,fire_from=fire_from,max_hp=MAX_HP,
   spawn_knight=spawn_knight,_things=function() return things end,command=command,
-  orders=function(name) return blue_orders[name] end,plan_red=plan_red,spawn_army=spawn_army,battle=battle,armies=armies,drop_ammo=drop_ammo,
+  orders=function(name) return blue_orders[name] end,bot_fight=bot_fight,plan_red=plan_red,spawn_army=spawn_army,battle=battle,armies=armies,drop_ammo=drop_ammo,
   on=function(player) return war[player:get_player_name()] end}

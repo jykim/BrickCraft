@@ -2015,6 +2015,21 @@ local function new_worker(owner)
       -- Its owner went to another world: come down, keep the job for later and go along.
       if on_scaffold() then return descend(eye_of(bot:get_pos())) end
       say("I'll finish the "..job.title.." when we're back in "..brickcraft.world_at(spot_of(job)).name..".")
+  -- War: it fights beside its owner (brickcraft_war picks soldier or commander) and its
+  -- builds wait. Returns true while it fights.
+  local fighting
+  local function fight()
+    local pl=not w.jms and brickcraft.war and owner_pl()
+    local f=pl and mode~="climb" and not on_scaffold() and brickcraft.war.on(pl) and brickcraft.war.bot_fight(pl,bot)
+    if not f then fighting=nil; return false end
+    if f.role~=fighting then
+      fighting=f.role
+      say(f.role=="soldier" and "I've got your back, "..display_name(pl:get_player_name()).."!" or "Knights, at them! I'll cover you with cannonballs.")
+    end
+    set_path(f.to and find_path(feet_of(f.to)) or {})
+    return true
+  end
+
       job.paused=true
       table.insert(queue,1,job); job=nil; save_state()
     end
@@ -2023,6 +2038,7 @@ local function new_worker(owner)
       if job and job.paused then job.paused=nil; say("Back to the "..job.title.."!") end
       if job then save_state() end
     end
+    if grounded and fight() then return end
     if job then return work() end
     idle=idle+step
     if idle>=IDLE and thinking==0 and not next(queue) then
