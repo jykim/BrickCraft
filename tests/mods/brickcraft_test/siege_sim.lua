@@ -65,7 +65,7 @@ local function battle(w,run,watcher)
       if C.get_node({x=w.x+c[1],y=c[2],z=w.z+c[3]}).name=="brickcraft:siege_tower" then tower=tower+1 end
     end
     stats=("red knights %d/%d (up on walls %d, at the walls %d, back %d), red cannons %d, archers %d/12, Commander %s, castle damage %d, tower ends %d/4"):format(
-      red,red0,walls,foot,far,cannons,archers,army and army.boss._hp.."/20" or "out",#W.castle_damage(w),tower)
+      red,red0,walls,foot,far,cannons,archers,army and army.boss._hp.."/40" or "out",#W.castle_damage(w),tower)
     if math.floor(t)%20==0 then log(("  %s at %.0f s: %s"):format(run.name,t,stats)) end
     if inside>0 and not first then first=t end
     if not army then

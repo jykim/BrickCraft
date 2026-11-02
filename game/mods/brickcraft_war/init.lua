@@ -33,7 +33,7 @@ local BALL_SPEED,BALL_GRAVITY,BLAST=18,9.81,1.6
 local AMMO_START,AMMO_MAX,AMMO_PILE=6,30,3
 -- The Siege Castle's balance (seconds between shots or steps; tools/sim_siege.py tries
 -- others): red cannons, siege tower builders, castle archers, knights a side.
-local TUNE={red_cannon_every=12,build_every=12,archer_every=2,siege_per_side=26}
+local TUNE={red_cannon_every=12,build_every=12,archer_every=1.5,siege_per_side=26}
 
 local war={} -- name -> {hp, lives, kos, ammo, shield (time), hurt (time), look, last={move->time}, hud={}}
 local things={} -- cannons and knights up now (luaentities)
@@ -420,8 +420,9 @@ end
 -- A cannon on wheels. Right click it in war: it turns the way you look and fires where you
 -- aim (up to steep lobs; never down into the ground). A castle's cannons (_castle, on the
 -- walls) need no cannonballs of yours and aim down at the ground below too. A Red Army's
--- cannons (_team) fire by themselves (red_cannon, below).
-local red_cannon
+-- cannons (_team) fire by themselves (red_cannon, below), and so do a castle's
+-- (castle_cannon) between players' shots.
+local red_cannon,castle_cannon
 C.register_entity(":brickcraft:cannon",{
   initial_properties={visual="mesh",mesh="brickcraft_cannon.obj",
     textures={"brickcraft_brown.png","brickcraft_cannon_metal.png"},visual_size={x=10,y=10},
@@ -433,7 +434,9 @@ C.register_entity(":brickcraft:cannon",{
   end,
   on_deactivate=function(self) things[self]=nil end,
   on_punch=function() return true end,
-  on_step=function(self) if self._team then red_cannon(self) end end,
+  on_step=function(self)
+    if self._team then red_cannon(self) elseif self._castle then castle_cannon(self) end
+  end,
   on_rightclick=function(self,clicker)
     local name=clicker:get_player_name()
     if self._team then return end
@@ -538,7 +541,7 @@ local LOOKS={
   blue={tex="brickcraft_person_blueknight.png",name="Blue Knight",tag="#8fd0ff",hp=MAX_HP,speed=3.4,sight=12},
   green={tex="brickcraft_person_blueknight.png^[colorize:#2fae45:150",name="Green Knight",tag="#7be08a",hp=MAX_HP,speed=3.4,sight=12},
   red={tex="brickcraft_person_redknight.png",name="Red Knight",tag="#ff7a6a",hp=6,speed=2.6,sight=14},
-  boss={tex="brickcraft_person_redboss.png",name="Red Commander",tag="#ff5040",hp=20,speed=2,sight=20,size=1.3},
+  boss={tex="brickcraft_person_redboss.png",name="Red Commander",tag="#ff5040",hp=40,speed=2,sight=20,size=1.3} -- 20 hearts,
 }
 local armies={} -- id -> {boss=luaentity, lab=the War Lab world when it camps there}
 local next_lab_army=0 -- not before this time (not saved: world tables are)
@@ -759,6 +762,21 @@ local function crew(self,p)
   else self._still=true end
   return true
 end
+-- A castle's cannon with nobody firing it fires every 5 seconds at the closest of the Red
+-- Army within 25.
+local CASTLE_SIDE={_team="blue"}
+castle_cannon=function(self)
+  local t=now()
+  if (self._fired or 0)+5>t then return end
+  local p=self.object:get_pos()
+  local foe=find_foe(CASTLE_SIDE,p,25)
+  if not foe or not foe:get_luaentity() then return end -- (players are for players)
+  self._fired=t+math.random()
+  local d=vector.subtract(foe:get_pos(),p)
+  face(self.object,d)
+  local h=vector.normalize({x=d.x,y=0,z=d.z})
+  lob(vector.add(p,{x=h.x*.7,y=.45,z=h.z*.7}),foe,self.object,"blue",BALL_SPEED)
+end
 local function red_cannon_hit(self,attacker,m)
   if m.dmg==0 or self._hp<=0 then return true end
   self._hp=self._hp-m.dmg
@@ -789,11 +807,31 @@ local function spawn_red_cannon(pos,yaw,army)
   red_cannon_tag(ent)
   return ent
 end
+-- Nothing solid between a and b (water, flags and the like don't count).
+local function clear_shot(a,b)
+  for pt in C.raycast(a,b,false,false) do
+    if pt.type=="node" then
+      local def=C.registered_nodes[C.get_node(pt.under).name]
+      if not def or def.walkable~=false then return false end
+    end
+  end
+  return true
+end
 local build -- (below, the Siege Castle) a red builder's turn; true while it builds
 local function think(self)
   local p=self.object:get_pos()
   if self._build and build(self,p) then return end
   if self._crew and crew(self,p) then return end
+  -- The Commander's guards stay by him and fight what comes within 6 of him.
+  if self._guard then
+    local army=armies[self._army or 0]
+    if army and alive(army.boss) then
+      local lp=army.boss.object:get_pos()
+      local foe,fd=find_foe(self,p,6,lp)
+      if foe then engage(self,foe,fd,p) else stay_by(self,vector.add(lp,self._offset or {x=0,y=0,z=0}),p,1.2) end
+      return
+    end
+  end
   -- A siege's knights make for the castle's flag (army.flag), fighting what's in the way.
   local army=not self._boss and self._team=="red" and armies[self._army or 0]
   if army and army.flag then
@@ -804,16 +842,22 @@ local function think(self)
     return
   end
   if self._archer then
-    -- A castle archer keeps its post: its sword for a foe right there, else an arrow every
-    -- 1.5 seconds at the closest it sees (aimed a little high for the drop).
+    -- A castle archer keeps its post: its sword for a foe right there, else an arrow at the
+    -- closest foe it can see, nothing solid in between (aimed a little high for the drop).
     local foe,fd=find_foe(self,p,1.8)
     if foe then swing(self,foe,p); return end
     if flat_dist(p,self._home)>.8 then walk(self,self._home); return end
     self._still=true
-    foe,fd=find_foe(self,p)
-    if not foe then return end
     local eye=vector.offset(p,0,1.45,0)
-    local q=vector.offset(foe:get_pos(),0,.9,0)
+    local q,qd
+    for _,obj in ipairs(C.get_objects_inside_radius(p,look_of(self).sight)) do
+      if foe_of(self,obj) then
+        local at=vector.offset(obj:get_pos(),0,.9,0)
+        local d=vector.distance(eye,at)
+        if (not qd or d<qd) and clear_shot(vector.add(eye,vector.multiply(vector.direction(eye,at),.7)),at) then q,qd=at,d end
+      end
+    end
+    if not q then return end
     face(self.object,vector.subtract(q,p))
     local t=now()
     if (self._shot or 0)+TUNE.archer_every>t then return end
@@ -926,8 +970,8 @@ C.register_entity(":brickcraft:knight",{
     self._hp=self._hp-m.dmg
     if self._hp<=0 then
       -- Falls on its back, away from the hit.
-      self._down=now()+(self._owner and 5 or self._team=="red" and 1.5 or 3)
-      self._gone=self._team=="red" or self._archer -- archers are out until the next army
+      self._down=now()+(self._archer and 8 or self._owner and 5 or self._team=="red" and 1.5 or 3)
+      self._gone=self._team=="red"
       self.object:set_rotation({x=-math.pi/2,y=self.object:get_yaw(),z=0})
       local by=attacker and attacker:is_player() and war[attacker:get_player_name()]
       if by then
@@ -958,7 +1002,7 @@ C.register_entity(":brickcraft:knight",{
         self._down,self._hp=nil,self._max
         self.object:set_rotation({x=0,y=self.object:get_yaw(),z=0})
         self.object:set_velocity({x=0,y=0,z=0})
-        if not self._team and self._home then self.object:set_pos(self._home) end
+        if (not self._team or self._archer) and self._home then self.object:set_pos(self._home) end -- back at their post
         knight_tag(self)
       end
     elseif self._team and (self._stun or 0)<now() then
@@ -1011,7 +1055,7 @@ local function escort_of(n)
   return out
 end
 -- The Red Army: a Commander and its world's army size of knights at center (escort: other
--- offsets, {} for none), facing toward. Returns its id.
+-- offsets, {} for none), facing toward; the first two are his guards. Returns its id.
 local army_seq=0
 local function spawn_army(center,toward,lab,escort)
   army_seq=army_seq+1
@@ -1021,10 +1065,10 @@ local function spawn_army(center,toward,lab,escort)
   local boss=spawn_knight(center,"red",{boss=true,army=id,yaw=yaw})
   if not boss then return end
   armies[id]={boss=boss,lab=lab,order={mode="charge",at=now()},next_plan=now()+5}
-  for _,o in ipairs(escort or escort_of(army_size(brickcraft.world_at(center)))) do
+  for i,o in ipairs(escort or escort_of(army_size(brickcraft.world_at(center)))) do
     local g=ground_at(center.x+o.x,center.y,center.z+o.z) or vector.offset(center,o.x,0,o.z)
     local k=spawn_knight(g,"red",{army=id,yaw=yaw})
-    if k then k._offset={x=o.x,y=0,z=o.z} end
+    if k then k._offset={x=o.x,y=0,z=o.z}; k._guard=i<=2 or nil end
   end
   -- Red smoke marks where it turned up.
   C.add_particlespawner({amount=60,time=1.5,minpos=vector.offset(center,-3,0,-3),maxpos=vector.offset(center,3,1,3),
@@ -1128,7 +1172,7 @@ local function red_field(army,id)
   local mine=red_knights(id)
   local hearts={}
   for _,k in ipairs(mine) do hearts[#hearts+1]=k._hp.."/6" end
-  local lines={("You: %d/20 hearts. Your knights: %d left%s."):format(army.boss._hp,#mine,
+  local lines={("You: %d/%d hearts. Your knights: %d left%s."):format(army.boss._hp,LOOKS.boss.hp,#mine,
     #mine>0 and " (hearts "..table.concat(hearts,", ")..")" or "")}
   local foes,weakest=0,nil
   for name,s in pairs(war) do
@@ -1212,7 +1256,7 @@ local function status(name,player)
   for id,army in pairs(armies) do
     local bp=army.boss.object:get_pos()
     if bp and vector.distance(p,bp)<80 then
-      reds[#reds+1]=("a Red Army %s of you: Commander %d/20, %d knights"):format(rel(p,bp),army.boss._hp,#red_knights(id))
+      reds[#reds+1]=("a Red Army %s of you: Commander %d/%d, %d knights"):format(rel(p,bp),army.boss._hp,LOOKS.boss.hp,#red_knights(id))
     end
   end
   return ("You're on the %s team with %d knight%s (order: %s). %s."):format(war[name].team,#mine,#mine==1 and "" or "s",o and o.mode or "follow",
@@ -1560,7 +1604,8 @@ end)
 -- out, stairs up the inside of each wall and a gate in the south wall; inside, a keep and
 -- two towers with stairs. Its cannons, in gaps of the battlements, need no cannonballs
 -- and aim down; its archers (a blue garrison, new with each army) hold the battlements
--- and the tower tops and shoot at the Red Army. The Red Army comes from all
+-- and the tower tops and shoot at the Red Army; knocked out, they're back up at their post
+-- 8 seconds later. The Red Army comes from all
 -- four sides, its Commander behind the north line, with a red cannon a side that cracks
 -- the walls between it and its foes; four builders a side put up a siege tower, stairs
 -- against the east and west walls up to the battlements. Each army finds the castle whole
@@ -1777,6 +1822,15 @@ local function siege_army(w)
   if not id then return end
   armies[id].stay=true
   armies[id].flag={x=w.x+FLAG.x,y=FLAG.y-.5,z=w.z+FLAG.z}
+  -- Six guards round the Commander.
+  local bp=armies[id].boss.object:get_pos()
+  for i=0,5 do
+    local a=i*math.pi/3
+    local o={x=math.floor(math.cos(a)*2.5+.5),y=0,z=math.floor(math.sin(a)*2.5+.5)}
+    local g=ground_at(math.floor(bp.x+o.x+.5),0,math.floor(bp.z+o.z+.5))
+    local k=g and spawn_knight(g,"red",{army=id,yaw=0})
+    if k then k._guard,k._offset=true,o end
+  end
   garrison(w)
   local crews={}
   for _,key in ipairs(ATTACK) do

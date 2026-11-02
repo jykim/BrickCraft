@@ -246,7 +246,7 @@ local function run(dad,kid)
   local ok=C.registered_chatcommands.battle.func(DAD,"")
   assert(ok,"battle called")
   local id,army=next(W.armies)
-  assert(army and army.boss._boss and army.boss._hp==20,"a Red Commander with 20 hearts")
+  assert(army and army.boss._boss and army.boss._hp==40,"a Red Commander with 20 hearts")
   local members=0
   for ent in pairs(brickcraft.war._things()) do if ent._army==id then members=members+1 end end
   assert(members==9 and W.army_size(brickcraft.world_at(dad:get_pos()))==8,"a Commander and 8 knights, got "..members)
@@ -254,7 +254,7 @@ local function run(dad,kid)
   local dhp=s.hp
   wait(12,function() return s.hp<dhp end,function() return "the Commander never hit Dad" end)
   log(("ARMY: Red Commander and 8 knights; the Commander's cannonball hit Dad (%d/10)"):format(s.hp))
-  for _=1,10 do W.hit(army.boss.object,dad,"sword") end
+  for _=1,20 do W.hit(army.boss.object,dad,"sword") end
   assert(not W.armies[id] and W.on(dad).kos>=3,"beating the Commander beats the army")
   sleep(2.5)
   local left=0
@@ -344,7 +344,7 @@ local function run(dad,kid)
   log(("TEAMS: Dad's knights left blue Leona alone; on the green team they went for her (%d/10)"):format(hp(kid) or 0))
   team(KID,"blue"); W.on(kid).hp=10
   -- (Dad's knights and bot may have beaten the army already.)
-  if W.armies[rid] then local boss=W.armies[rid].boss.object; for _=1,10 do W.hit(boss,dad,"sword") end end
+  if W.armies[rid] then local boss=W.armies[rid].boss.object; for _=1,20 do W.hit(boss,dad,"sword") end end
   sleep(2)
 
   -- Leaving war: bricks back exactly, cannon and knight gone.

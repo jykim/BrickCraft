@@ -56,7 +56,10 @@ local function run(dad)
   for _,c in ipairs(cannons) do
     assert(c._gunner and c._gunner._crew==c and c._ammo>=1 and c._ammo<=3,"each red cannon has a gunner and up to 3 cannonballs: "..tostring(c._gunner).." "..c._ammo)
   end
-  log(("ARMY: a Red Commander, %d knights and %d red cannons, each with a gunner, a feeder and 3 cannonballs"):format(knights,#cannons))
+  local guards=0
+  for ent in pairs(W._things()) do if ent._army==id and ent._guard then guards=guards+1 end end
+  assert(guards==6 and army.boss._hp==40,"6 guards and a Commander of 20 hearts, got "..guards)
+  log(("ARMY: a Red Commander (20 hearts) with 6 guards, %d knights and %d red cannons, each with a gunner, a feeder and 3 cannonballs"):format(knights,#cannons))
   local archers={}
   for ent in pairs(W._things()) do if ent._archer==w.id then archers[#archers+1]=ent end end
   assert(#archers==12,"12 castle archers, got "..#archers)
@@ -130,6 +133,15 @@ local function run(dad)
   for _,o in ipairs(C.get_objects_inside_radius(gun.object:get_pos(),3)) do if o:get_luaentity() and o:get_luaentity().name=="brickcraft:cannonball" then after=after+1 end end
   assert(after>before and s.ammo==0,"the castle cannon fired without cannonballs")
   log("CASTLE CANNON: fired with no cannonballs")
+  -- With nobody at them, the castle's cannons fire at the Red Army by themselves.
+  local own=false
+  wait(15,function()
+    for _,e in pairs(C.luaentities) do
+      if e.name=="brickcraft:cannonball" and e._from and e._from:get_luaentity() and e._from:get_luaentity()._castle then own=true end
+    end
+    return own
+  end,function() return "no castle cannon fired by itself" end)
+  log("CASTLE CANNONS: they fire at the Red Army by themselves")
 
   -- A red cannon: Dad's cannonballs knock it out, each one landing beside it.
   local rc=cannons[1]
@@ -174,9 +186,14 @@ local function run(dad)
     on_wall and (", on the walls after %.0f s"):format(on_wall) or "",built))
 
   -- Knock out the Commander and the army is beaten.
-  for _=1,10 do W.hit(army.boss.object,dad,"sword") end
+  for _=1,20 do W.hit(army.boss.object,dad,"sword") end
   assert(not W.armies[id],"beating the Commander beats the army")
-  log("VICTORY: knocking out the Commander beat the Red Army")
+  -- The whole army goes with him: knights, guards, crews and cannons.
+  wait(4,function()
+    for ent in pairs(W._things()) do if ent._army==id and ent.object:get_pos() then return false end end
+    return true
+  end,function() local n=0; for ent in pairs(W._things()) do if ent._army==id and ent.object:get_pos() then n=n+1 end end; return n.." of the army still up" end)
+  log("VICTORY: knocking out the Commander (20 hearts) beat the whole Red Army")
 
   -- Dad's builder mends the castle when he says so.
   local holes={{x=w.x+2,y=1,z=w.z+9},{x=w.x+2,y=2,z=w.z+9},{x=w.x+3,y=1,z=w.z+9}} -- the north wall, by the moat
