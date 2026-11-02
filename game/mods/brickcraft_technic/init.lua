@@ -43,6 +43,12 @@ end
 local brick_axle={{-.05,-.13,-.5,.05,.13,.5},{-.13,-.05,-.5,.13,.05,.5}}
 local function with(a,b) local t={} for _,v in ipairs(a) do t[#t+1]=v end for _,v in ipairs(b) do t[#t+1]=v end return t end
 local separator -- the separator's right click on a piece (below)
+-- With Mesecons, a signal switches a battery box: on runs it forward, off stops it.
+local function switch_to(suffix) return function(pos,node)
+  C.swap_node(pos,{name=C.registered_nodes[node.name].brickcraft_battery..suffix,param2=node.param2})
+  changed()
+end end
+local battery_signal=C.global_exists("mesecon") and {effector={action_on=switch_to("_fwd"),action_off=switch_to("")}} or nil
 local function register(name,def)
   def.paramtype="light"; def.paramtype2="facedir"; def.sunlight_propagates=true
   def.groups=def.groups or {brick=1,technic=1,not_in_creative_inventory=1}
@@ -92,7 +98,14 @@ for _,color in ipairs(brickcraft.colors) do
       tiles={{name=tex,backface_culling=false},{name=LIGHT[state],backface_culling=false}},
       collision_box={type="fixed",fixed={-.3,-.5,-.34,.3,.18,.3}},selection_box={type="fixed",fixed={-.3,-.5,-.34,.3,.18,.3}},
       drop=drop,brickcraft_power="battery",brickcraft_color=color,brickcraft_state=state,
-      brickcraft_battery=base.."_battery_node"})
+      brickcraft_battery=base.."_battery_node",mesecons=battery_signal})
+  end
+end
+
+-- Mesecons pistons push blocks a cell at a time; half a machine pushed away would break it.
+if C.global_exists("mesecon") and mesecon.register_mvps_stopper then
+  for name,def in pairs(C.registered_nodes) do
+    if def.groups and def.groups.technic then mesecon.register_mvps_stopper(name) end
   end
 end
 
@@ -403,9 +416,10 @@ brickcraft.technic={place=place,solve=solve,run=run,spin=spin,phase_off=phase_of
 -- two 24s on a diagonal, and two motors jammed against each other (switch one the other way
 -- to free it). On the left, a coaster: a motor turns an 8 that turns a 24 beside a chain
 -- lift, which pulls three cars up six levels; from the top gravity does the rest: a drop,
--- a small hill and curves back round to the lift. init.lua makes the world; LAB_VERSION
--- rebuilds an older lab once (version 3's geared train and its loop go).
-local LAB_VERSION=4
+-- a small hill and curves back round to the station, where (with Mesecons) it waits for the
+-- next ride. The world is made below; LAB_VERSION rebuilds an older lab once (version 3's
+-- geared train and its loop go; version 5 adds the Mesecons station).
+local LAB_VERSION=5
 local COASTER_AREA={a={x=-23,z=-6},b={x=-7,z=8}}
 -- The coaster's track, cell by cell in the direction the cars go, from the station.
 local function coaster_path()
@@ -439,6 +453,54 @@ local function coaster_pieces(path,color)
     out[i]={pos=p,name="brickcraft:"..color..name,param2=param2}
   end
   return out
+end
+-- The coaster's station runs on Mesecons. The train waits on five booster pieces (braking,
+-- unpowered) until someone presses the button; a LuaController (its program is below, and
+-- anyone can change it with a right click) then starts the chain lift's battery box and
+-- powers the boosters so they push the train off, unpowers them again so they stop the
+-- train when it comes back, and stops the lift after the ride. Wires: the controller's
+-- port A to the lift's battery box, port C along the boosters; the button is on port D.
+local STATION_CODE=[[
+-- Coaster station. Button on D. A: the chain lift. C: the boosters.
+if event.type == "program" then
+  port.a = false
+  port.c = false
+  mem.riding = false
+elseif event.type == "on" and event.pin.name == "D" and not mem.riding then
+  mem.riding = true
+  port.a = true -- the lift starts
+  port.c = true -- the boosters push the train off
+  interrupt(3, "brake")
+elseif event.type == "interrupt" and event.iid == "brake" then
+  port.c = false -- the boosters stop the train when it comes back
+  interrupt(25, "done")
+elseif event.type == "interrupt" and event.iid == "done" then
+  port.a = false -- the lift stops until the next ride
+  mem.riding = false
+end
+]]
+local CONTROLLER,WIRE,BUTTON="mesecons_luacontroller:luacontroller0000","mesecons:wire_00000000_off","mesecons_button:button_off"
+-- Builds it (at gives a lab cell's position); false without Mesecons.
+local function build_station(at)
+  if not (C.global_exists("mesecon") and C.registered_nodes[CONTROLLER] and C.registered_nodes[WIRE]
+      and C.registered_nodes[BUTTON]) then return false end
+  local parts={}
+  local function put(x,y,z,name,param2)
+    local p=at(x,y,z)
+    C.set_node(p,{name=name,param2=param2 or 0}); parts[#parts+1]=p
+  end
+  put(-23,1,0,"brickcraft:navy_battery_node")
+  for x=-13,-17,-1 do put(x,0,-4,"brickcraft:coral_track_booster",C.get_node(at(x,0,-4)).param2) end
+  for x=-13,-17,-1 do put(x,0,-5,WIRE) end -- port C, beside the boosters
+  for x=-19,-22,-1 do put(x,0,-5,WIRE) end -- port A, round to the lift's battery box
+  for z=-4,0 do put(-22,0,z,WIRE) end
+  put(-18,0,-5,CONTROLLER)
+  put(-18,0,-6,BUTTON,0) -- on the controller's south side
+  -- set_node skips Mesecons' own placing: wires join up and signals start here.
+  for _,p in ipairs(parts) do mesecon.on_placenode(p,C.get_node(p)) end
+  C.registered_nodes[CONTROLLER].on_receive_fields(at(-18,0,-5),"",{program=true,code=STATION_CODE},
+    {get_player_name=function() return "BrickCraft" end,is_player=function() return false end})
+  return true
 end
 local function build_lab(w)
   local function at(x,y,z) return {x=w.x+x,y=y,z=w.z+z} end
@@ -489,8 +551,10 @@ local function build_lab(w)
     end
   end
   put(-23,0,-1,"cream"); put(-23,0,0,"cream")
-  put(-23,1,0,"navy_battery_node_fwd"); put(-23,1,-1,"navy_motor_node",1)
+  put(-23,1,-1,"navy_motor_node",1)
   put(-22,1,-1,"gold_gear8",X); put(-22,1,-2,"coral_gear24",X)
+  -- Without Mesecons the lift just runs and the train goes round and round.
+  if not build_station(at) then put(-23,1,0,"navy_battery_node_fwd") end
   storage:set_int("lab_coaster_"..w.id,0)
   C.log("action","BrickCraft Technic Lab machines built at "..w.x..","..w.z)
   changed()
@@ -509,8 +573,11 @@ C.register_globalstep(function(dt)
         local p=pl:get_pos()
         if math.abs(p.x-w.x)<40 and math.abs(p.z-w.z)<40 then
           local z=w.z-4
-          local cars=brickcraft.trains.put_coaster({{x=w.x-18,y=0,z=z},{x=w.x-17,y=0,z=z},{x=w.x-16,y=0,z=z}},
-            {"gold","mint","sky"},3)
+          -- On a station's boosters the train stands and waits (the first car on the
+          -- first of them, so they all push it off); otherwise it rolls off.
+          local station=C.registered_nodes[C.get_node({x=w.x-13,y=0,z=z}).name].brickcraft_booster
+          local cars=brickcraft.trains.put_coaster({{x=w.x-13,y=0,z=z},{x=w.x-12,y=0,z=z},{x=w.x-11,y=0,z=z}},
+            {"gold","mint","sky"},station and 0 or 3)
           if #cars==3 then
             storage:set_int("lab_coaster_"..w.id,1)
             C.log("action","BrickCraft Technic Lab coaster cars put on the track")
@@ -535,7 +602,7 @@ C.after(0,function()
       -- An older lab (w.machines true is version 1) is rebuilt once.
       local built=tonumber(w.machines) or (w.machines and 1 or 0)
       if w.built and built<brickcraft.technic.lab_version then
-        C.emerge_area({x=w.x+8,y=-1,z=w.z-4},{x=w.x+23,y=7,z=w.z+8},function(_,_,left)
+        C.emerge_area({x=w.x-23,y=-1,z=w.z-6},{x=w.x+23,y=9,z=w.z+8},function(_,_,left)
           if left==0 then w.machines=brickcraft.technic.build_lab(w); save_worlds() end
         end)
       end

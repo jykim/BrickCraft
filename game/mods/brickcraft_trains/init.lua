@@ -17,6 +17,8 @@ local MAX_SPEED,ACCEL,FRICTION,MOTOR_SPEED=5,3,.6,3
 -- slope), up to FAST. A chain lift pulls cars up at LIFT_PER_TURN cells per second for each
 -- turn per second of the fastest gear or axle touching its run of lift pieces.
 local GRAVITY,FAST,LIFT_PER_TURN=6,12,6
+-- A booster (Mesecons powered track) pushes a car its way up to BOOST; unpowered it brakes.
+local BOOST,BOOST_ACCEL,BRAKE=4,4,8
 -- A locomotive's gearbox: the motor's gear drives the gear on the drive wheels' axle, so
 -- the wheels turn motor_teeth/wheel_teeth as fast as the motor. The motor turns
 -- MOTOR_RPS times a second and a drive wheel is WHEEL_R cells in radius, so 24 to 24 runs
@@ -125,6 +127,32 @@ for color in pairs(colors) do
       groups={brick=1,track=1,not_in_creative_inventory=1},drop="brickcraft:"..color,
       brickcraft_shape="track",brickcraft_track="ramp",brickcraft_lift=kind=="lift" or nil,brickcraft_color=color,
     })
+  end
+end
+-- Boosters: straight track that a Mesecons signal powers (lit rails). Powered, it pushes a
+-- car the way it is turned (its first end); unpowered, it brakes the car to a stop and
+-- holds it. A coaster's station uses them to wait for a ride and release the train.
+for color in pairs(colors) do
+  for _,on in ipairs({false,true}) do
+    local name="brickcraft:"..color.."_track_booster"..(on and "_on" or "")
+    local def={
+      description="Booster Track (Mesecons powered)",
+      drawtype="mesh",mesh="brickcraft_track_straight.obj",
+      tiles={{name="brickcraft_"..color..".png",backface_culling=false},
+        {name="brickcraft_track_rail.png^[colorize:"..(on and "#ffd34d:170" or "#d8402c:150"),backface_culling=false}},
+      paramtype="light",paramtype2="facedir",sunlight_propagates=true,
+      collision_box=track_box,selection_box=track_box,
+      groups={brick=1,track=1,not_in_creative_inventory=1},drop="brickcraft:"..color,
+      brickcraft_shape="track",brickcraft_track="straight",brickcraft_color=color,
+      brickcraft_booster=on and "on" or "off",
+    }
+    if C.global_exists("mesecon") then
+      local function set(to) return function(pos,node)
+        C.swap_node(pos,{name="brickcraft:"..color.."_track_booster"..to,param2=node.param2})
+      end end
+      def.mesecons={effector={action_on=set("_on"),action_off=set("")}}
+    end
+    C.register_node(":"..name,def)
   end
 end
 -- Track and carts from before trains were pieces: old track is navy now, and the old train
@@ -594,6 +622,11 @@ C.register_entity(":"..CART,{
       if front then v=approach(v,front*(self._flip and -1 or 1),ACCEL*dtime)
       elseif pushed then v=math.max(-MAX_SPEED,math.min(MAX_SPEED,pushed))
       else v=approach(v,0,FRICTION*dtime) end
+      -- A booster under it pushes it the booster's way, or brakes it.
+      local bnode=C.get_node(self._cell)
+      local boost=(C.registered_nodes[bnode.name] or {}).brickcraft_booster
+      if boost=="on" then v=approach(v,same(b.d,D(bnode.param2)) and BOOST or -BOOST,BOOST_ACCEL*dtime)
+      elseif boost=="off" then v=approach(v,0,BRAKE*dtime) end
       -- Gravity along a ramp (uphill slows it, downhill speeds it up), and a running chain
       -- lift that catches it on the way up.
       v=v-GRAVITY*tan.y*dtime

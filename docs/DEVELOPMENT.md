@@ -18,7 +18,7 @@
 - [공식 다운로드](https://www.luanti.org/en/downloads/), [고정한 5.17.0 공식 아카이브](https://github.com/luanti-org/luanti/releases/download/5.17.0/luanti_5.17.0_macos12.3_arm64.zip).
 - 아카이브 SHA-256: `0ba118b537d3cc6fd07cd2268fef25e515fc6d87c27ad69b476144a8e28dba3c`. 최초 준비 시 Homebrew cask 값과 대조했습니다.
 - [해당 버전 엔진 소스](https://github.com/luanti-org/luanti/tree/5.17.0), [게임 구조 API](https://api.luanti.org/games/), [Lua API](https://api.luanti.org/).
-- 게임/모드 외부 의존성은 없습니다. 자체 `brickcraft` 모드 하나가 Luanti 기본 API를 사용합니다. Minetest Game과 DevTest는 비교 후보였으며 설치된 게임 의존성이 아닙니다.
+- 외부 게임 의존성은 없습니다. BrickCraft 모드들은 Luanti 기본 API를 쓰고, [Mesecons](https://github.com/minetest-mods/mesecons)(`aca87db`, 2026-09-08)의 일부(코어, 전선, 버튼·리시버, LuaController, 피스톤·mvps)를 `game/mods/mesecons/`에 그대로 넣어 함께 배포합니다(코드 LGPL-3, 텍스처 CC BY-SA 3.0, [출처](THIRD_PARTY.md)). Minetest Game과 DevTest는 비교 후보였으며 설치된 게임 의존성이 아닙니다.
 - 에셋 생성과 테스트 도구는 Python 3 표준 라이브러리만 사용합니다. Pillow, pip 패키지, 별도 Lua 설치가 필요하지 않습니다.
 - 엔진은 LGPL-2.1-or-later이며 엔진 미디어는 별도 고지를 따릅니다. BrickCraft 원본 코드·생성 에셋은 MIT입니다.
 
@@ -34,6 +34,7 @@
 | [game/mods/brickcraft/init.lua](../game/mods/brickcraft/init.lua) | 핵심 모드: 노드·도구·맵 생성·세계·플레이어·인벤토리·HUD·명령, 공유 API `brickcraft.*` |
 | [game/mods/brickcraft_trains/](../game/mods/brickcraft_trains/init.lua) | 선로·수레·기관차, Train Yard와 그 노선 |
 | [game/mods/brickcraft_technic/](../game/mods/brickcraft_technic/init.lua) | 축·기어·모터·롤러코스터, Technic Lab |
+| `game/mods/mesecons/` | 원본 그대로의 Mesecons 일부(모드팩). 고치지 않고, 바꿀 때는 원본 커밋을 통째로 교체 |
 | [game/mods/brickcraft_war/](../game/mods/brickcraft_war/init.lua) | 전쟁 모드, War Lab |
 | [game/mods/brickcraft_ai/](../game/mods/brickcraft_ai/init.lua) | AI 빌더(`brickcraft_ai_builder = true`일 때만 동작) |
 | [tests/mods/brickcraft_test/](../tests/mods/brickcraft_test/init.lua) | 엔진 검사 모드. 게임에 포함되지 않고 `tools/test_*.py`가 검사 세계의 `worldmods/`에 링크 |
@@ -53,6 +54,7 @@
 - 핵심 모드는 기능 모드를 직접 부르지 않습니다. 기차·테크닉 조각 놓기는 `brickcraft.placers.train`/`.technic`을 기능 모드가 채우고, 전쟁 모드 버튼·정지는 `brickcraft.war`가 있을 때만 씁니다. 실행 중에만 반대 방향으로 부르는 곳(선로 → `brickcraft.technic.spin`, 전쟁 → `brickcraft.ai.ask`)은 있는지 확인하고 부릅니다.
 - 노드·도구·엔티티 이름은 분리 전과 같은 `brickcraft:` 그대로입니다. 다른 모드에서 등록하므로 `":brickcraft:..."`처럼 앞에 `:`를 붙입니다. 이름을 바꿀 때는 `core.register_alias`로 옛 이름을 남깁니다.
 - 모드 저장소는 부르는 모드마다 따로이므로, 기존 세계의 데이터가 그대로 읽히도록 모든 BrickCraft 모드가 핵심 모드의 `brickcraft.storage` 하나를 씁니다.
+- Mesecons는 `brickcraft_trains`·`brickcraft_technic`의 `optional_depends`입니다. 없으면 부스터와 신호 연결 없이 예전처럼 동작합니다(`C.global_exists("mesecon")`로 확인).
 - 공유 세계는 처음 만든 순서(Train Yard, Technic Lab, War Lab)대로 자리를 받습니다. `brickcraft_war`의 `optional_depends`가 이 순서를 지킵니다.
 - 검사 파일은 게임에 들어가지 않습니다. `tests/mods/brickcraft_test`가 설정(`brickcraft_<이름>_test`)에 맞는 검사 파일을 불러옵니다.
 
@@ -78,6 +80,7 @@
 
 - 기차 부품은 `shapes`의 `train=` 항목(Trains 줄)입니다. `place_brick`이 `brickcraft.trains.place`로 넘기고, 수레에 대한 우클릭(엔티티의 `on_rightclick`)이 모터·배터리 박스 부품을 붙이거나 세퍼레이터로 스위치를 움직입니다. 타기는 수레의 `people`이 갑판에 내려앉은 플레이어를 붙이고(점프로 내린 뒤 1초는 다시 붙지 않음), 지면에서 수레 쪽으로 걷는 플레이어의 속도를 선로 방향으로 받아 밉니다.
 - 선로 조각은 색마다 노드(`brickcraft:<색>_track`/`_track_curve`, facedir, 정의에 `brickcraft_track`·`brickcraft_color`)이고 `ends_of`가 형태·회전에서 두 끝 방향을 냅니다(직선 r: r, r+2 / 곡선 r: r, r+1). `brick` 그룹이라 세퍼레이터 회수·돌리기와 `remember`(되돌리기)를 브릭과 같이 씁니다. 놓을 때 `lay`가 이웃을 점수로 고릅니다: 이미 이쪽을 향한 끝(4) > 한쪽만 이어진 이웃(1, 돌려 맞춤) > 일직선(+1).
+- 부스터 선로(`<색>_track_booster`/`_on`, `brickcraft_booster`)는 직선 조각이고 Mesecons 이펙터입니다(Mesecons가 있을 때). 켜지면 앞 차를 조각의 방향(첫 끝)으로 초당 `BOOST`(4)까지 밀고, 꺼져 있으면 `BRAKE`(8)로 세워 붙잡습니다. 연결된 뒷 차는 앞 차를 따르므로 앞 차 칸만 봅니다. 램프처럼 플레이어 조각 목록에는 없고 Technic Lab 역에만 있습니다.
 - 수레는 엔진 물리를 쓰지 않는 엔티티입니다(minetest_game carts와 advtrains 방식). 상태는 칸(`_cell`), 들어온 끝(`_from`), 조각 안 거리(`_s`), 속도(`_v`), 운전자 없이 유지할 속도(`_cruise`)이며 staticdata에 저장됩니다. 매 단계 `centerline`(직선, 또는 모서리 중심 반지름 0.5의 사분원)으로 목표 위치를 구해 속도 = 접선×v + (목표−현재)×4로 움직여 클라이언트 보간이 부드럽습니다. 0.6칸 넘게 벗어나면 `set_pos`로 맞춥니다.
 - 모터·배터리 박스는 수레의 `_motor`·`_battery`이고 모습은 붙어 다니는 `brickcraft:cart_part` 엔티티(저장 안 함, 수레가 켜질 때 다시 붙임)입니다. 배터리 박스 부품의 우클릭이 스위치(`_power` 1/0/−1)입니다. `_flip`은 수레의 앞이 진행 방향 반대인지이며 진행 방향을 뒤집을 때마다 바뀌어, 모터의 "앞으로"와 모습의 방향이 기관차 기준으로 유지됩니다.
 - 연결: 따라가는 수레는 `_leader`(앞 수레 `_id`, `carts` 표로 찾음)와의 선로 거리 `gap`을 1칸으로 맞춥니다. 속도 = 앞 수레의 선로 속도(서로의 `gap` 부호로 방향 판단) + 3×(거리−1). 세계 속도를 접선에 투영하면 곡선에서 0에 가까워져 한 칸 가까이 처지므로 쓰지 않습니다. 기관차는 따라가지 않고, 연결할 수 없는 두 차가 닿으면 움직이던 쪽이 멈춥니다.
@@ -108,6 +111,7 @@
 - 기관차 기어박스: 수레의 `_gear_m`(모터 기어)·`_gear_w`(바퀴 기어)가 있으면 속도 = 모터 회전수 × 잇수비 × 2π × 바퀴 반지름(24 → 24가 초당 3칸, 최대 7). 기어·구동 바퀴는 붙어 다니는 부품 엔티티이며 Luanti가 붙은 엔티티에도 `automatic_rotate`를 적용하므로 빠르기가 바뀔 때만 회전 속도를 보냅니다. 한 칸에 다른 값이 오면 걸림(그 기계 전체 0). 부품을 놓기·회수·돌리기·스위치할 때와 2초마다, 플레이어 80칸 안의 모터만 계산합니다(모터 위치는 mod storage `technic_motors`).
 - 도는 부품은 보이지 않는 짝 노드(`_spin`, 그룹 `technic_spin`)로 바꾸고 그 자리에 `brickcraft:spinner` 엔티티를 둡니다. 엔티티는 `vector.dir_to_rotation`으로 모델 y축을 회전축에 맞추고 `automatic_rotate`(초당 회전 × 2π)로 클라이언트에서 돌아 네트워크 부담이 없습니다. 저장하지 않으며, 블록을 다시 읽을 때 LBM이 짝 노드를 원래대로 돌려놓고 다음 계산이 다시 돌립니다.
 - Technic Lab 세계는 `brickcraft_technic`이 만들고(`brickcraft_trains`의 Train Yard와 같은 방식) `build_lab`이 기계를 놓습니다.
+- Mesecons(선택 의존성): 배터리 박스는 이펙터라 신호가 켜지면 앞으로, 꺼지면 끔(`battery_signal`). 테크닉 노드는 모두 `mesecon.register_mvps_stopper`로 피스톤이 밀지 못합니다. 롤러코스터 역(`build_station`, `LAB_VERSION` 5)은 부스터 선로 5칸(x −13…−17), LuaController(−18,0,−5, 프로그램 `STATION_CODE`), 남쪽 버튼(포트 D), 포트 C 전선(부스터 옆), 포트 A 전선(리프트 배터리 박스까지)입니다. `set_node`는 Mesecons의 놓기 처리를 건너뛰므로 놓은 뒤 `mesecon.on_placenode`를 부르고, 프로그램은 LuaController의 `on_receive_fields`로 넣습니다. Mesecons가 없으면 예전처럼 리프트가 늘 돌고 기차가 계속 돕니다. 예전 랩은 왼쪽 코스터까지 emerge한 뒤 한 번 다시 짓습니다.
 
 ## 4. 실행과 개발 반복
 

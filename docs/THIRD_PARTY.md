@@ -25,6 +25,13 @@ MTG sources: https://github.com/luanti-org/minetest_game and https://github.com/
 
 API references used: https://api.luanti.org/games/ and https://api.luanti.org/
 
+## Mesecons (bundled, unmodified)
+
+- Source: https://github.com/minetest-mods/mesecons at commit `aca87dbd448637d2dc80e59e909425932acd6c84` (2026-09-08).
+- Included submods, unmodified, in `game/mods/mesecons/`: `mesecons`, `mesecons_gamecompat`, `mesecons_wires`, `mesecons_button`, `mesecons_receiver`, `mesecons_luacontroller`, `mesecons_mvps`, `mesecons_pistons`. The upstream `COPYING.txt`, `LICENSE.txt` and `README.md` are kept beside them.
+- Licenses: code LGPL-3.0; textures, sounds and documentation CC BY-SA 3.0, © 2011-2016 Mesecons Mod Developer Team and contributors. BrickCraft's own MIT code only calls its public API (`mesecon.*`, node definitions' `mesecons` field) and stays a separate work.
+- To update, replace those folders with a newer upstream commit as a whole and record the commit here.
+
 ## Original assets
 
 `tools/generate_assets.py` generates all BrickCraft textures and the generic block-person OBJ from original geometric definitions using Python's standard library. No trademark logos, copied minifigure models, branded studs, Minecraft textures or Office Doom assets are included. The 2×2 brick label describes the visual stud layout, not a certified physical part or connection model.

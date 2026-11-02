@@ -160,13 +160,16 @@ C.register_on_joinplayer(function(player)
                     wait(15,function() return T.spin(at(16,2,3))~=0 and T.spin(at(19,4,4))~=0 and T.spin(at(15,3,-1))~=0 end,function()
                       assert(near(T.spin(at(13,2,3)),.2) and near(T.spin(at(16,2,3)),1),"lab gear train: the 40 a fifth, the last 8 as fast as the first")
                       assert(T.spin(at(19,1,-3))==0,"lab jam demo is jammed")
-                      -- The coaster: the chain lift (driven by the 8 and the 24) pulls the cars
-                      -- up at 2 cells a second; gravity takes them down the drop faster than
-                      -- that, over the small hill and round to the station again.
-                      local lead,top,fast,lift_v,laps,was_home
+                      -- The coaster waits at its Mesecons station (boosters braking, lift off)
+                      -- until the button. Then the LuaController starts the lift and the
+                      -- boosters push the train off; the lift (driven by the 8 and the 24)
+                      -- pulls the cars up at 2 cells a second, gravity takes them down the
+                      -- drop faster than that, and the boosters stop them back at the station.
+                      local lead,top,fast,lift_v,pressed
+                      local lift_gear,button=at(-22,1,-2),at(-18,0,-6)
                       wait(90,function()
                         if not lead then
-                          for _,o in ipairs(C.get_objects_inside_radius(at(-17,0,-4),3)) do
+                          for _,o in ipairs(C.get_objects_inside_radius(at(-12,0,-4),3)) do
                             local e=o:get_luaentity()
                             if e and e.name=="brickcraft:cart" and not e._leader and e._born>0 then lead=e end
                           end
@@ -174,22 +177,33 @@ C.register_on_joinplayer(function(player)
                         end
                         local c=lead._cell
                         local rel={x=c.x-lab.x,y=c.y,z=c.z-lab.z}
+                        if not pressed then
+                          if lead._v==0 and T.spin(lift_gear)==0 then
+                            local node=C.get_node(button)
+                            assert(node.name=="mesecons_button:button_off","the station has a button: "..node.name)
+                            assert(rel.z==-4 and rel.x<=-13 and rel.x>=-17,"the train waits on the boosters")
+                            C.registered_nodes[node.name].on_rightclick(button,node,player)
+                            pressed=true
+                          end
+                          return false
+                        end
                         if rel.x==-21 and rel.z>=-2 and rel.z<=1 then lift_v=lead._v end
                         if rel.y>=6 then top=true end
                         if top then fast=math.max(fast or 0,lead._v) end
-                        local home=rel.z==-4 and rel.x==-11
-                        if home and not was_home and top then laps=(laps or 0)+1 end
-                        was_home=home
-                        return laps and laps>=1
+                        return top and lead._v==0 and rel.z==-4 and rel.x<=-13 and rel.x>=-17
                       end,function()
                         assert(math.abs(lift_v-2)<.05,"the chain lift pulls at 2 cells a second (the 24 turns a third as fast as the motor): "..lift_v)
                         assert(fast>6,"gravity: faster than the lift down the drop: "..fast)
-                        log(("COASTER: chain lift %.1f cells a second, %.1f at the bottom of the drop, round to the station"):format(lift_v,fast))
+                      wait(40,function() return T.spin(lift_gear)==0 end,function()
+                        log(("COASTER: waits at the station; the button's LuaController runs the lift (%.1f cells a second) and boosters, %.1f at the bottom of the drop, stopped back at the station, lift off"):format(lift_v,fast))
                       log("LAB: Technic Lab gear train, windmill and bearing line turn; the jam demo is jammed")
                       player:set_pos({x=lab.x+13,y=0,z=lab.z-8}); player:set_look_horizontal(0); player:set_look_vertical(.2)
                       log("PASS: technic pieces placed like any piece; gears, switch, jam, collect and the Technic Lab all work")
                       C.after(4,function() C.request_shutdown("BrickCraft technic checked",false,1) end)
-                      end,function() return "coaster: "..(lead and ("at "..lead._cell.x-lab.x..","..lead._cell.y..","..lead._cell.z-lab.z.." v "..lead._v.." fastest "..tostring(fast).." lift "..tostring(lift_v)) or "no cars") end)
+                      end,function() return "the lift still runs after the ride" end)
+                      end,function() return "coaster: "..(lead and ("at "..lead._cell.x-lab.x..","..lead._cell.y..","..lead._cell.z-lab.z.." v "..lead._v.." fastest "..tostring(fast).." lift "..tostring(lift_v)) or "no cars")..
+                        " pressed "..tostring(pressed).." lift gear "..T.spin(lift_gear).." battery "..C.get_node(at(-23,1,0)).name..
+                        " booster "..C.get_node(at(-15,0,-4)).name.." controller "..C.get_node(at(-18,0,-5)).name end)
                     end,function() return "lab machines not turning" end)
                   end,function() return "geared loco v "..loco._v.." car v "..coach._v end)
                   end,function() return "Technic Lab not built" end)
