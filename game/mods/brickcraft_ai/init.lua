@@ -2015,19 +2015,6 @@ local function new_worker(owner)
       "It's a good day for building, isn't it, "..p.label.."?")) end
   end
 
-  local acc,wander,talk_t=0,0,0
-  function w.tick(dt)
-    if not bot_ok() then spawn(); if not bot_ok() then return end end
-    talk_t=talk_t+dt
-    if talk_t>=1 then talk_t=0; small_talk() end
-    acc=acc+dt
-    if acc<STEP then return end
-    local step=acc; acc=0
-    if mode or not grounded then return end -- walking, climbing or in the air
-    if job and not here(job) then
-      -- Its owner went to another world: come down, keep the job for later and go along.
-      if on_scaffold() then return descend(eye_of(bot:get_pos())) end
-      say("I'll finish the "..job.title.." when we're back in "..brickcraft.world_at(spot_of(job)).name..".")
   -- War: it fights beside its owner (brickcraft_war picks soldier or commander) and its
   -- builds wait. Returns true while it fights.
   local fighting
@@ -2043,6 +2030,20 @@ local function new_worker(owner)
     return true
   end
 
+  local acc,wander,talk_t=0,0,0
+  function w.tick(dt)
+    if not bot_ok() then spawn(); if not bot_ok() then return end end
+    talk_t=talk_t+dt
+    if talk_t>=1 then talk_t=0; small_talk() end
+    acc=acc+dt
+    if acc<STEP then return end
+    local step=acc; acc=0
+    if grounded and fight() then return end
+    if mode or not grounded then return end -- walking, climbing or in the air
+    if job and not here(job) then
+      -- Its owner went to another world: come down, keep the job for later and go along.
+      if on_scaffold() then return descend(eye_of(bot:get_pos())) end
+      say("I'll finish the "..job.title.." when we're back in "..brickcraft.world_at(spot_of(job)).name..".")
       job.paused=true
       table.insert(queue,1,job); job=nil; save_state()
     end
@@ -2051,7 +2052,6 @@ local function new_worker(owner)
       if job and job.paused then job.paused=nil; say("Back to the "..job.title.."!") end
       if job then save_state() end
     end
-    if grounded and fight() then return end
     if job then return work() end
     idle=idle+step
     if idle>=IDLE and thinking==0 and not next(queue) then

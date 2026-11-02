@@ -636,6 +636,7 @@ local help_rows={
   {"Knock out the Red Commander","The whole Red Army falls"},
   {"T, then: Dad bot, flank left","Your AI builder commands your knights in war mode, and fights by your side: with its sword when the Red Army comes close or you have no knights, else throwing cannonballs from behind them. An order when you have no knights brings 4"},
   {"Orders","charge, attack the commander, flank left/right, hold, guard me, follow, retreat, more knights, status"},
+  {"/team green","War mode: your knights and AI builder fight the blue team's players, knights and builders (and they fight yours); /team blue to go back. Nametags show each team's color; players can hit players on any team"},
   {"/orders <order>","The same, without an AI builder"},
   {"Out of hearts","Knocked out: back to your start spot, hearts refilled"},
   {"MENUS",""},
@@ -671,7 +672,6 @@ end
 local styles={
   {id="builder",label="Builder",mesh="brickcraft_person.obj",tex="brickcraft_person.png",
    tag="#8fd0ff",swatch={"#4aa1d9","#304c6e","#232630"}},
-  {"/team green","War mode: your knights and AI builder fight the blue team's players, knights and builders (and they fight yours); /team blue to go back. Nametags show each team's color; players can hit players on any team"},
   {id="dad",label="Dad",mesh="brickcraft_person_short.obj",tex="brickcraft_person_dad.png",
    tag="#a9c4e8",swatch={"#304c6e","#464a54","#3e2c20"}},
   {id="daughter",label="Leona",mesh="brickcraft_person_long.obj",tex="brickcraft_person_daughter.png",
