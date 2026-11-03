@@ -167,8 +167,9 @@ Finder에서 실행 스크립트를 더블클릭해도 됩니다. 앱만 직접 
 - 축척: 1칸 = 2돌기 = 16mm를 세 축 모두에 적용(실물 비율, 메시 단위 10/칸). x·z 가운데, 바닥 y=0. Luanti glTF 로더는 프리미티브마다 정점·인덱스가 65535를 넘으면 "too many vertices"로 거절하므로 그 안으로 나눕니다(분재 309k 삼각형 → 15개, 11.7MB; 엔진 한도 16MB, 접속 때 클라이언트로 전송).
 - 엔티티 `brickcraft:display_model`(staticdata: slug·scale·turn, 저장됨, 물리·충돌 없음, 선택 상자 = 모델 크기). 세퍼레이터 우클릭은 엔티티 `on_rightclick`으로 90° 돌리고, 좌클릭은 `brickcraft:separator`의 `on_use`가 `_brickcraft_collect`가 있는 객체에 넘겨 치웁니다.
 - 엄격한 세계에서는 가운데 아래 칸이 바닥이거나 위에 돌기가 있는 부품이어야 합니다(`strict.describe`의 `top`). 모델은 부품이 아니므로 지지·`/checkbuild`·Undo에 들어가지 않습니다.
+- Model Gallery: Kart Circuit처럼 첫 실행 때 `make_world("Model Gallery","BrickCraft",…,{strict=true})`로 한 번 만들고 `w.gallery`로 찾습니다. 더미(z 10..12)·아치(z -7)를 비우고 `GALLERY` 표의 자리(가운데 기준, 도착 자리 x -6..6·z 1..4를 피함)에 모델을 놓으며, 놓은 slug를 `w.gallery_models`에 남겨 새 샘플만 다음 실행 때 추가합니다. 엔티티는 주변에 아무도 없을 때 생겨 맵에 저장되고 도착하면 깨어납니다.
 - 모델 앞(LDraw -z)은 glb에서 +z, Luanti 로더가 z를 뒤집어 세계 -z가 되므로 turn 0이 -z에 선 사람을 봅니다.
-- 검사: `python3 tools/test_models.py`(엄격한 Model Gallery 세계, 포트 30019): 샘플 6개가 실물 크기로 서고, 플레이트 위 거절, 0.5배 고양이, 범위 밖 배율 거절, 돌리기·저장값·치우기. 화면은 F12를 System Events로 보내 남기며, 권한이 없으면 빈 파일입니다.
+- 검사: `python3 tools/test_models.py`(포트 30019): Model Gallery가 엄격한 세계로 목록에 생기고 샘플 6개가 제자리에 실물 크기로 서며, `/model`이 앞에 놓아 사람을 보게 하고, 플레이트 위 거절, 0.5배 고양이, 범위 밖 배율 거절, 돌리기·저장값·치우기. 화면은 F12를 System Events로 보내 남기며, 권한이 없으면 빈 파일입니다.
 
 ## 5. 검사 방법과 확인된 범위
 

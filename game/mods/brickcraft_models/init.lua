@@ -136,4 +136,57 @@ for _,row in ipairs({
   {"/model bonsai [scale]","Put one in front of you; separator right click turns, left click puts away"},
 }) do brickcraft.help[#brickcraft.help+1]=row end
 
-brickcraft.models={catalog=catalog,place=place}
+-- The Model Gallery: a shared strict LEGO world, made once like the Kart Circuit, with one
+-- of each model standing round the arrival spots (x -6..6, z 1..4, looking +z). Its
+-- brick stacks and arch go to make room; the floor mosaic stays. A model added to the
+-- catalog later gets its spot on the next start (w.gallery_models lists those placed).
+-- x, z: the model's middle from the world's center; all face the arrival spots (-z).
+local GALLERY={
+  bonsai={x=0,z=15}, house={x=-16,z=14}, mech={x=16,z=14},
+  cat={x=-14,z=4}, train={x=14,z=4}, car={x=-14,z=-8},
+}
+local R=24
+local function gallery_world() for _,w in ipairs(brickcraft.worlds()) do if w.gallery then return w end end end
+
+local function fill_gallery(w,fresh)
+  if fresh then
+    -- The stacks (z 10..12) and the arch (z -7): air above the baseplate.
+    for x=-R,R do for z=-R,R do for y=0,4 do
+      if (z>=10 and z<=12) or z==-7 then
+        local pos={x=w.x+x,y=y,z=w.z+z}
+        if C.get_node(pos).name~="air" then C.remove_node(pos) end
+      end
+    end end end
+  end
+  w.gallery_models=w.gallery_models or {}
+  local placed={}
+  for _,m in ipairs(catalog) do
+    local at=GALLERY[m.slug]
+    if at and not w.gallery_models[m.slug] then
+      C.add_entity({x=w.x+at.x,y=-.5,z=w.z+at.z},"brickcraft:display_model",
+        C.serialize({slug=m.slug,scale=1,turn=0}))
+      w.gallery_models[m.slug]=true; placed[#placed+1]=m.slug
+    end
+  end
+  brickcraft.save_worlds()
+  if #placed>0 then C.log("action","BrickCraft Model Gallery: placed "..table.concat(placed,", ")) end
+end
+
+C.after(0,function()
+  if brickcraft.testing and not C.settings:get_bool("brickcraft_models_test",false) then return end
+  local w=gallery_world()
+  local function load_and(fn)
+    C.emerge_area({x=w.x-R,y=-2,z=w.z-R},{x=w.x+R,y=31,z=w.z+R},function(_,_,r) if r==0 then fn() end end)
+  end
+  if w then
+    local missing=false
+    for slug in pairs(GALLERY) do if by_slug[slug] and not (w.gallery_models or {})[slug] then missing=true end end
+    if w.built and missing then load_and(function() fill_gallery(w,not w.gallery_models) end) end
+    return
+  end
+  w=brickcraft.make_world("Model Gallery","BrickCraft",function(w) fill_gallery(w,true) end,{strict=true})
+  C.log("action","BrickCraft Model Gallery "..(w and "being made at "..w.x..","..w.z or "has no room"))
+  if w then w.gallery=true; brickcraft.save_worlds() end
+end)
+
+brickcraft.models={catalog=catalog,place=place,gallery=gallery_world,GALLERY=GALLERY}
