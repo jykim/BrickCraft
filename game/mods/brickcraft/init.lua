@@ -367,7 +367,12 @@ C.register_tool("brickcraft:separator", {
   inventory_image="brickcraft_separator.png", wield_image="brickcraft_separator.png",
   range=7, tool_capabilities={full_punch_interval=.2,groupcaps={brick={times={[1]=.15},uses=0,maxlevel=1}}},
   on_use=function(stack,user,pointed)
-    if pointed.type=="node" then collect(pointed.under,C.get_node(pointed.under),user) end
+    if pointed.type=="node" then collect(pointed.under,C.get_node(pointed.under),user)
+    elseif pointed.type=="object" then
+      -- An object that can be put away with the separator (a display model) says how.
+      local ent=pointed.ref:get_luaentity()
+      if ent and ent._brickcraft_collect then ent:_brickcraft_collect(user) end
+    end
     return stack
   end,
   on_place=function(stack,user,pointed)

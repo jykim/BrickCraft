@@ -37,6 +37,7 @@
 | `game/mods/mesecons/` | 원본 그대로의 Mesecons 일부(모드팩). 고치지 않고, 바꿀 때는 원본 커밋을 통째로 교체 |
 | [game/mods/brickcraft_war/](../game/mods/brickcraft_war/init.lua) | 전쟁 모드, War Lab |
 | [game/mods/brickcraft_kart/](../game/mods/brickcraft_kart/init.lua) | 카트 레이싱, Kart Circuit |
+| [game/mods/brickcraft_models/](../game/mods/brickcraft_models/init.lua) | BrickWright 실물 모델 진열(`/model`). 메시·팔레트·`catalog.lua`는 [tools/import_brickwright.py](../tools/import_brickwright.py)가 생성 |
 | [game/mods/brickcraft_ai/](../game/mods/brickcraft_ai/init.lua) | AI 빌더(`brickcraft_ai_builder = true`일 때만 동작) |
 | [tests/mods/brickcraft_test/](../tests/mods/brickcraft_test/init.lua) | 엔진 검사 모드. 게임에 포함되지 않고 `tools/test_*.py`가 검사 세계의 `worldmods/`에 링크 |
 | [tools/generate_assets.py](../tools/generate_assets.py) | 원본 PNG 12개와 블록 사람 OBJ 생성 |
@@ -159,6 +160,15 @@ Finder에서 실행 스크립트를 더블클릭해도 됩니다. 앱만 직접 
 5. 변경한 동작을 직접 확인하고, 배치·회수·저장 경로를 변경했다면 아래 통합 검사도 실행합니다.
 
 키 바인딩은 [brickcraft.conf](../brickcraft.conf)의 `keymap_*`에 있습니다. 방향키는 WASD와 `|`로 함께 묶었고, 서버가 볼 수 있는 키 신호는 aux1·zoom·drop·sneak뿐이라 이렇게 나눴습니다: Tab(43)만 `keymap_aux1`(다음 부품, 카트 리셋), E(8)는 `keymap_zoom`(`zoom_fov = 0`이라 확대 없음)으로 오른쪽 45°, Q(20)는 `keymap_drop`이고 모든 아이템의 `on_drop`(`register_on_mods_loaded`)이 버리지 않고 왼쪽 45°로 돌립니다(빈손이면 Q가 신호를 보내지 않음). U(24)와 Shift(225, 229)는 sneak: 건축 중엔 되돌리기, 카트에서는 바나나 던지기(`brickcraft_kart`가 읽고 되돌리기는 건너뜀), 전쟁 모드에서는 `brickcraft.war.fire_from`. 돌기는 0.3초에 한 번까지입니다(누르고 있으면 Q가 초당 8번쯤 반복됨). 카트에서는 시점 대신 조향: E는 누르고 있는 zoom을 `controls`가 읽고, Q는 이벤트로만 오므로 `brickcraft.kart.steer_left`가 0.35초 동안 왼쪽 조향을 켭니다(반복으로 이어짐). `/clicks`는 Q와 E도 보여 주고, 카트 타기·내리기는 서버 로그에 `BrickCraft kart:`로 남습니다. 다음 브릭 돌리기는 인벤토리 *Turn next brick*(`fields.turn`)과 세퍼레이터 우클릭(놓은 브릭)입니다. 도움말 키는 없고 I > *Help: all keys*·`/keys`로 엽니다. 명령 채팅 키는 쓰지 않는 F13으로 옮겼습니다(빈 값은 쓰지 마세요). F 키도 배치(`keymap_place`)에 묶었습니다. 실행기가 시작 전 빠진 `keymap_*` 줄을 다시 추가하고, `SDL_MAC_CTRL_CLICK_EMULATE_RIGHT_CLICK=1`로 Control+클릭을 우클릭으로 바꿉니다(Luanti 5.17 내장 SDL 2.32). Cmd+클릭은 Luanti 키 설정이 수정키+마우스 조합을 지원하지 않아 넣지 않았습니다. **게임이 켜진 동안 이 파일을 고치지 마세요.** 클라이언트가 종료하며 시작 시점 설정으로 파일을 다시 써서 수정이 사라집니다. 조작 전체 목록은 게임 안 `?`·`/keys` 화면이며 `init.lua`의 `help_rows` 표 하나가 내용을 정합니다. 키를 바꾸면 이 표도 함께 고치세요. 조작: WASD 이동, 마우스 시점, Space 점프(`game/minetest.conf`의 `movement_speed_jump = 9.3`, 높이 = 점프²/(4×중력) ≈ 2.2칸이라 2칸 벽에 오름), 1 세퍼레이터/좌클릭 회수, 2–9 색 선택/우클릭 배치, U 되돌리기, I 인벤토리, C 카메라 전환. `/guide` 안내, `/home` 시작점 복귀. Esc만 눌러서는 세계가 닫히지 않으며, Exit to Menu 또는 Exit to OS로 저장 종료합니다.
+
+## 4g. 진열 모델(brickcraft_models)
+
+- [tools/import_brickwright.py](../tools/import_brickwright.py)가 BrickWright 갤러리(`brickwright/site/models/<id>.glb`, LDraw 실부품·미터 단위)의 노드 트리를 펼쳐 한 메시로 합칩니다. 색은 재질별 8×8 팔레트 칸(선형→sRGB, 알파 유지)이고 정점 UV가 그 칸 가운데를 가리킵니다. Luanti는 glTF 내장 이미지를 쓰지 않으므로 텍스처 칸만 두고 엔티티 `textures`로 팔레트 PNG를 줍니다.
+- 축척: 1칸 = 2돌기 = 16mm를 세 축 모두에 적용(실물 비율, 메시 단위 10/칸). x·z 가운데, 바닥 y=0. Luanti glTF 로더는 프리미티브마다 정점·인덱스가 65535를 넘으면 "too many vertices"로 거절하므로 그 안으로 나눕니다(분재 309k 삼각형 → 15개, 11.7MB; 엔진 한도 16MB, 접속 때 클라이언트로 전송).
+- 엔티티 `brickcraft:display_model`(staticdata: slug·scale·turn, 저장됨, 물리·충돌 없음, 선택 상자 = 모델 크기). 세퍼레이터 우클릭은 엔티티 `on_rightclick`으로 90° 돌리고, 좌클릭은 `brickcraft:separator`의 `on_use`가 `_brickcraft_collect`가 있는 객체에 넘겨 치웁니다.
+- 엄격한 세계에서는 가운데 아래 칸이 바닥이거나 위에 돌기가 있는 부품이어야 합니다(`strict.describe`의 `top`). 모델은 부품이 아니므로 지지·`/checkbuild`·Undo에 들어가지 않습니다.
+- 모델 앞(LDraw -z)은 glb에서 +z, Luanti 로더가 z를 뒤집어 세계 -z가 되므로 turn 0이 -z에 선 사람을 봅니다.
+- 검사: `python3 tools/test_models.py`(엄격한 Model Gallery 세계, 포트 30019): 샘플 6개가 실물 크기로 서고, 플레이트 위 거절, 0.5배 고양이, 범위 밖 배율 거절, 돌리기·저장값·치우기. 화면은 F12를 System Events로 보내 남기며, 권한이 없으면 빈 파일입니다.
 
 ## 5. 검사 방법과 확인된 범위
 
