@@ -22,22 +22,28 @@ fi
 LOG="$ROOT/logs/server.log"
 SERVER_PID=""
 POST_PID=""
+IMPROVE_PID=""
+TAIL_PID=""
+ADMIN_PID=$$
 if [[ $HEADLESS == 1 ]] && server_running; then
   print "A BrickCraft server is already running for this world. Stop it first (quit the host's game)."
   exit 1
 fi
-if ! server_running; then
+start_server() {
   touch "$LOG"; START=$(wc -l < "$LOG")
   "$LUANTI" --server --config "$ROOT/server.conf" --world "$WORLD" --gameid brickcraft \
     --port "$PORT" --logfile "$LOG" >/dev/null 2>&1 &
   SERVER_PID=$!
-  # Closing the host's game (or this window) saves the world and stops the server.
-  trap 'kill $POST_PID 2>/dev/null; print "Stopping the server (saving the world)..."; kill $SERVER_PID 2>/dev/null; wait $SERVER_PID 2>/dev/null || true' EXIT INT TERM
   for i in {1..60}; do
     tail -n +$((START + 1)) "$LOG" 2>/dev/null | grep -q "listening on" && break
     kill -0 $SERVER_PID 2>/dev/null || { print "Server failed to start; see $LOG"; exit 1; }
     sleep 0.5
   done
+}
+if ! server_running; then
+  start_server
+  # Closing the host's game (or this window) saves the world and stops all helpers.
+  trap 'kill $TAIL_PID $POST_PID $IMPROVE_PID 2>/dev/null; print "Stopping the server (saving the world)..."; kill $SERVER_PID 2>/dev/null; wait $SERVER_PID 2>/dev/null || true' EXIT INT TERM
 fi
 
 IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || print "?")
@@ -58,11 +64,28 @@ else
 fi
 # Bug reports players give their AI builders become GitHub issues while this server runs.
 if [[ -n "$SERVER_PID" && "${BRICKCRAFT_ISSUES:-1}" != 0 ]] && command -v gh >/dev/null && gh auth status -h github.com >/dev/null 2>&1; then
-  ( while kill -0 $SERVER_PID 2>/dev/null; do "$ROOT/tools/post_issues.zsh" "$WORLD" >> "$ROOT/logs/issues.log" 2>&1; sleep 15; done ) &
+  ( while kill -0 $ADMIN_PID 2>/dev/null; do "$ROOT/tools/post_issues.zsh" "$WORLD" >> "$ROOT/logs/issues.log" 2>&1; sleep 15; done ) &
   POST_PID=$!
-  print "Bug reports to AI builders (\"report ...\") go to GitHub issues; see logs/issues.log."
+  print "The /bug, /feature and /report commands go to GitHub issues; see logs/issues.log."
 elif [[ -n "$SERVER_PID" ]]; then
   print "Bug reports to AI builders stay in $WORLD/issues: sign in with \"gh auth login\" to post them to GitHub."
+fi
+# Work on one player report per interval. Every result is a PR; only a tightly bounded,
+# tested change is merged automatically. A merged change leaves restart-request for the
+# headless supervisor below. Set BRICKCRAFT_IMPROVE=0 to turn this off.
+if [[ -n "$SERVER_PID" && "${BRICKCRAFT_IMPROVE:-1}" != 0 ]] && \
+    command -v claude >/dev/null && command -v gh >/dev/null && gh auth status -h github.com >/dev/null 2>&1; then
+  (
+    sleep "${BRICKCRAFT_IMPROVE_FIRST:-60}"
+    while kill -0 $ADMIN_PID 2>/dev/null; do
+      "$ROOT/tools/improve_issues.zsh" "$WORLD" >> "$ROOT/logs/improvements.log" 2>&1 || true
+      sleep "${BRICKCRAFT_IMPROVE_INTERVAL:-1800}"
+    done
+  ) &
+  IMPROVE_PID=$!
+  print "Claude improvement loop is on; review work appears as GitHub PRs (logs/improvements.log)."
+elif [[ -n "$SERVER_PID" && "${BRICKCRAFT_IMPROVE:-1}" != 0 ]]; then
+  print "Claude improvement loop is off: Claude Code and an authenticated gh CLI are required."
 fi
 if [[ $HEADLESS == 1 ]]; then
   print "Headless: no game window here. Waiting for players; Ctrl-C saves the world and stops the server."
@@ -70,8 +93,32 @@ if [[ $HEADLESS == 1 ]]; then
   # Who comes and goes, from the server log.
   tail -n 0 -f "$LOG" | grep --line-buffered -E "joins game|leaves game|timed out" | sed -u 's/^.*ACTION\[Server\]: //' &
   TAIL_PID=$!
-  trap 'kill $TAIL_PID $POST_PID 2>/dev/null; print "Stopping the server (saving the world)..."; kill $SERVER_PID 2>/dev/null; wait $SERVER_PID 2>/dev/null || true' EXIT INT TERM
-  wait $SERVER_PID || true
+  # A fresh heartbeat is written by brickcraft_ai every two seconds. Check it twice so a
+  # player joining at the edge of an idle interval is not disconnected for a deployment.
+  RESTART_RETRY_AT=0
+  while kill -0 $SERVER_PID 2>/dev/null; do
+    REQUEST="$WORLD/issues/restart-request"
+    STATUS="$WORLD/server-status.json"
+    NOW=$(date +%s)
+    if [[ $NOW -ge $RESTART_RETRY_AT && -f "$REQUEST" && -f "$STATUS" ]] && \
+        jq -e '.running == true and .players == 0' "$STATUS" >/dev/null 2>&1; then
+      sleep 3
+      if jq -e '.running == true and .players == 0' "$STATUS" >/dev/null 2>&1; then
+        print "No players are connected. Installing the merged improvement and restarting..."
+        kill $SERVER_PID 2>/dev/null; wait $SERVER_PID 2>/dev/null || true
+        if git -C "$ROOT" pull --ff-only --quiet; then
+          rm -f "$REQUEST"
+          start_server
+          print "BrickCraft restarted on $(git -C "$ROOT" log -1 --format='%h %s')."
+        else
+          print "Could not install the merged improvement; restarting the current version."
+          start_server
+          RESTART_RETRY_AT=$(( $(date +%s) + 300 ))
+        fi
+      fi
+    fi
+    sleep 2
+  done
   exit
 fi
 print "Keep this window open. Quitting your game stops the server for everyone."

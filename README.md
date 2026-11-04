@@ -138,7 +138,7 @@ WASD 또는 **방향키** 이동, 마우스 시점, Space 점프(브릭 2칸 높
 
 ## AI 빌더에게 버그·아이디어 알리기
 
-`Lumi, report the cart stops on curves`처럼 자기 빌더에게 `report ...`(또는 `bug ...`, `idea ...`, `feature ...`, `버그`, `신고`, `이슈`, `아이디어`)라고 하면, 빌더가 Claude로 GitHub 이슈 제목·내용을 쓰고(버그는 `bug`, 아이디어는 `enhancement` 라벨) 그 사람의 말 그대로, 게임 안 이름, 세계·위치, 손에 든 것, 앞쪽 16×16칸 목록을 붙여 세계 폴더의 `issues/`에 적어 둡니다. Admin으로 연 서버가 15초마다 `tools/post_issues.zsh`로 `gh issue create`를 실행해 올리고(`logs/issues.log`), 올라가면 빌더가 이슈 링크를 말해 줍니다. 올리지 못한 것은 남아 있다가 다시 시도합니다. 설계 API가 켜져 있으면 `report`라고 하지 않아도 빌더가 알아서 적습니다: 게임이 이상하게 굴 때(`ugh the train keeps falling off at the corner`)는 버그로, 게임에 없는 것을 바랄 때(`it would be so cool if the knights could ride horses`)는 아이디어로 적고, 그 자리에서 도울 수 있으면(선로 고치기, 대신할 말 짓기) 그것도 합니다. 조작법을 몰라서 묻는 말, 자기 건물이 망가진 것, 방금 이미 적은 것은 적지 않습니다. 대화를 기억하므로 `report that`은 방금 이야기한 것을 적습니다(채팅 내용을 이슈에 옮기지는 않음).
+`/bug the cart stops on curves`, `/feature trains should whistle`, 또는 `/report bug ...`·`/report feature ...`로 바로 알릴 수 있습니다. `Lumi, report the cart stops on curves`처럼 자기 빌더에게 `report ...`(또는 `bug ...`, `idea ...`, `feature ...`, `버그`, `신고`, `이슈`, `아이디어`)라고 해도 같습니다. 빌더가 Claude로 GitHub 이슈 제목·내용을 쓰고(버그는 `bug`, 아이디어는 `enhancement` 라벨) 그 사람의 말 그대로, 게임 안 이름, 세계·위치, 손에 든 것, 앞쪽 16×16칸 목록을 붙여 세계 폴더의 `issues/`에 적어 둡니다. Admin으로 연 서버가 15초마다 `tools/post_issues.zsh`로 `gh issue create`를 실행해 올리고(`logs/issues.log`), 올라가면 빌더가 이슈 링크를 말해 줍니다. 올리지 못한 것은 남아 있다가 다시 시도합니다. 설계 API가 켜져 있으면 `report`라고 하지 않아도 빌더가 알아서 적습니다: 게임이 이상하게 굴 때(`ugh the train keeps falling off at the corner`)는 버그로, 게임에 없는 것을 바랄 때(`it would be so cool if the knights could ride horses`)는 아이디어로 적고, 그 자리에서 도울 수 있으면(선로 고치기, 대신할 말 짓기) 그것도 합니다. 조작법을 몰라서 묻는 말, 자기 건물이 망가진 것, 방금 이미 적은 것은 적지 않습니다. 대화를 기억하므로 `report that`은 방금 이야기한 것을 적습니다(채팅 내용을 이슈에 옮기지는 않음).
 
 - 호스트 Mac에서 `gh auth login`으로 GitHub에 로그인되어 있어야 합니다. 아니면 Admin이 알려 주고 보고는 `worlds/workshop/issues/`에 쌓입니다. 끄려면 `BRICKCRAFT_ISSUES=0`.
 - **저장소가 공개라 이슈도 공개입니다.** 컴퓨터 이름이나 채팅 기록은 넣지 않지만 게임 안 이름(예: Leona)과 한 말은 들어갑니다.
@@ -166,6 +166,8 @@ cd ~/dev/BrickCraft
 ```
 
 이 Mac에서 게임 창 없이 서버만 열어 두려면 `./"Admin BrickCraft.command" --headless`(또는 `BRICKCRAFT_HEADLESS=1`)로 실행합니다. 들어오고 나가는 사람만 보여 주며, Ctrl-C로 세계를 저장하고 서버를 끕니다.
+
+Admin은 `player-report` 이슈를 30분마다 하나씩 Claude Code에 맡깁니다. Claude가 코드를 고치고 관련 검사를 실행한 뒤 항상 GitHub PR을 만듭니다. 2파일·100줄 이하의 낮은 위험 수정으로 Claude의 검사가 통과하고 실행기·설정 파일을 건드리지 않은 것만 자동 병합됩니다. 나머지는 `needs-review` PR로 남아 사람이 확인합니다. 자동 병합 뒤에는 아무도 접속하지 않은 것을 두 번 확인하고 최신 코드를 받은 다음 headless 서버를 재시작합니다. 기록은 `logs/improvements.log`에 있습니다. `BRICKCRAFT_IMPROVE=0`으로 끄고, `BRICKCRAFT_IMPROVE_INTERVAL=초`로 주기를 바꿀 수 있습니다.
 
 이름은 묻지 않습니다. 누가 플레이할지는 게임 창의 **Who's playing?** 화면에서 고릅니다. 서버가 뜨면 접속 주소를 보여 주고 jms에서도 바로 게임에 들어갑니다.
 
