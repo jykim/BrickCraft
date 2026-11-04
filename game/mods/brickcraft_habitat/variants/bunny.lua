@@ -10,6 +10,14 @@ H.register_source("carrot_patch",{kind="food",label="Carrot patch",units=6,regro
   tiles={"brickcraft_habitat_patch_top.png","brickcraft_habitat_patch_empty.png","brickcraft_habitat_patch_side.png"},
   empty_tiles={"brickcraft_habitat_patch_empty.png","brickcraft_habitat_patch_empty.png","brickcraft_habitat_patch_empty.png"},
   inventory_image="brickcraft_habitat_carrot.png"})
+-- The meadow's own: clover tufts (wild food, grazed down, grows back) and ponds.
+H.register_source("clover",{kind="food",label="Clover patch",units=3,regrow=40,height=.12,alpha=true,
+  tiles={"brickcraft_habitat_clover.png","brickcraft_habitat_clover.png","brickcraft_habitat_clover.png"},
+  empty_tiles={"brickcraft_habitat_clover_eaten.png","brickcraft_habitat_clover_eaten.png","brickcraft_habitat_clover_eaten.png"},
+  inventory_image="brickcraft_habitat_clover.png"})
+H.register_source("pond",{kind="water",label="Pond",height=.8,
+  tiles={"brickcraft_habitat_water.png","brickcraft_dirt.png","brickcraft_dirt.png"},
+  inventory_image="brickcraft_habitat_trough.png"})
 H.register_source("water_trough",{kind="water",label="Water trough",height=.45,
   tiles={"brickcraft_habitat_water.png","brickcraft_habitat_trough_side.png","brickcraft_habitat_trough_side.png"},
   inventory_image="brickcraft_habitat_trough.png"})
@@ -72,6 +80,8 @@ H.register_variant("bunny",{label="Bunnyland",plural="bunnies",creature="bunny",
   predators={"wolf","lion","eagle"},
   skins={"snow","cocoa","gray","rose"},
   match_names={"bunnyland"},
+  -- The baseplate becomes a meadow with ponds and clover patches (meadow.lua).
+  meadow={ponds={{-12,-3,2},{14,6,2},{-9,15,1},{6,-14,1}},patches=16,patch="clover",pond="pond"},
   welcome="Bunnyland is the bunnies' home; the giant bunny statue on the north hill watches over them.",
   wave={110,205}, -- balance: tools/sim_habitat.py (README, Bunnyland)
   keep_in="Keep your colony in a closed ring of fence (you start with 32 pieces and a gate) with its hutches, carrots and water inside. "..

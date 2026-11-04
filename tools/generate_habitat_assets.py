@@ -190,3 +190,24 @@ def gate_icon(x,y):
     if 6<=x<=25 and (abs(y-10)<2 or abs(y-21)<2 or abs((x-6)-(y-8)*1.4)<1.6 and 8<=y<=23): return (176,128,84,255)
     return (0,0,0,0)
 png('brickcraft_habitat_gate.png',32,32,gate_icon)
+
+# --- Meadow floor, clover, eaten clover.
+def meadow(x,y,flowers=False):
+    n=noise(x//2,y//2,11)
+    c=(96,178,84) if n>.3 else (110,190,92) if n>.12 else (82,160,72)
+    if (x%8,y%8) in ((2,3),(6,6),(3,7)) : c=(70,146,62)          # tufts
+    if flowers:
+        k=noise(x//3,y//3,13)
+        if k>.86 and (x%3,y%3)==(1,1): c=(255,255,255)
+        elif k<.08 and (x%3,y%3)==(1,1): c=(249,193,65)
+        elif .5<k<.56 and (x%3,y%3)==(1,1): c=(246,170,190)
+    return c+(255,)
+png('brickcraft_habitat_meadow.png',32,32,lambda x,y:meadow(x,y))
+png('brickcraft_habitat_meadow_flowers.png',32,32,lambda x,y:meadow(x,y,True))
+def clover(x,y):
+    for cx,cy in ((8,8),(23,9),(14,20),(26,25),(5,26)):
+        d=(x-cx)**2+(y-cy)**2
+        if d<14: return (60,150,70,255) if d>5 else (90,184,90,255)
+    return (0,0,0,0)
+png('brickcraft_habitat_clover.png',32,32,clover)
+png('brickcraft_habitat_clover_eaten.png',32,32,lambda x,y:(120,150,80,255) if (x*7+y*3)%11==0 else (0,0,0,0))

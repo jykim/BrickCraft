@@ -152,6 +152,7 @@ function H.register_source(id,def)
   local base={description=def.label..(def.units and "\n"..def.units.." servings, regrows" or "\nNever runs out")..
       "\nRight click with the separator: pick up",
     drawtype="nodebox",node_box=box,selection_box=box,collision_box=box,paramtype="light",
+    use_texture_alpha=def.alpha and "clip" or nil,
     inventory_image=def.inventory_image,wield_image=def.inventory_image,range=7,stack_max=99,
     sunlight_propagates=true,drop=def.name,brickcraft_shape="habitat",
     after_place_node=function(pos,placer) if H.claim then H.claim(pos,placer) end end,
@@ -933,6 +934,9 @@ C.register_globalstep(function(dtime)
   for id,e in pairs(seen) do
     local w,v,st=e.w,e.v,H.state(e.w)
     if not st.built then H.setup(w)
+    elseif v.meadow and not st.meadow and not st.meadow_laying then
+      st.meadow_laying=true
+      H.lay_meadow(w,v,function() st.meadow=true; st.meadow_laying=nil; H.save(w) end)
     elseif not st.spawned then H.populate(w)
     else
       -- Well-fed creatures have babies, up to the variant's most.
@@ -1100,6 +1104,7 @@ dofile(MP.."/predators.lua")(H)
 dofile(MP.."/disasters.lua")(H)
 dofile(MP.."/colony.lua")(H)
 dofile(MP.."/welcome.lua")(H)
+dofile(MP.."/meadow.lua")(H)
 for _,f in ipairs({"bunny"}) do dofile(MP.."/variants/"..f..".lua")(H) end
 
 for _,row in ipairs({

@@ -69,11 +69,18 @@ local function run(dad)
   assert(C.get_node({x=w.x-2,y=26,z=w.z+36}).name:find("statue"),"an ear tip")
   assert(C.get_item_group(C.get_node({x=w.x,y=0,z=w.z+37}).name,"brick")==0,"statue bricks can't be collected")
   log("the giant bunny statue stands 27 bricks high")
+  -- The floor is a meadow with ponds and clover.
+  assert(H.state(w).meadow,"meadow laid")
+  assert(C.get_node({x=w.x+3,y=-1,z=w.z+3}).name:find("^brickcraft_habitat:meadow"),"meadow floor")
+  assert(C.get_node({x=w.x+14,y=-1,z=w.z+6}).name=="brickcraft_habitat:pond","a pond")
+  local clovers=#C.find_nodes_in_area({x=w.x-24,y=0,z=w.z-24},{x=w.x+24,y=0,z=w.z+24},{"brickcraft_habitat:clover"})
+  assert(clovers>=10,"clover patches: "..clovers)
+  log("the floor is a meadow with ponds and "..clovers.." clover patches")
   local patch={x=w.x-8,y=0,z=w.z+26}
   assert(C.get_node(patch).name=="brickcraft_habitat:carrot_patch","a carrot patch")
   assert(C.get_node({x=w.x,y=0,z=w.z+25}).name=="brickcraft_habitat:water_trough","a water trough")
   local food,water=H.supplies(w,true)
-  assert(food==3 and water==2,"supplies "..food.."/"..water)
+  assert(food==3+clovers and water>2,"supplies "..food.."/"..water) -- patches and troughs, clover and ponds
 
   -- A hungry bunny goes and eats.
   local list=bunnies(w)
@@ -215,6 +222,13 @@ local function run(dad)
   assert(mine()==5,"5 in the colony: "..mine())
   assert(not H.start_colony(dad),"only one colony at a time")
   assert(brickcraft.count_of(dad,"brickcraft_habitat:hutch")==2,"starter hutches")
+  assert(brickcraft.count_of(dad,"brickcraft_habitat:fence")==32 and brickcraft.count_of(dad,"brickcraft_habitat:fence_gate")==1,"starter fence and gate")
+  -- A colony from before the fence gets it the next time its owner is there.
+  local cc=H.colony(w,"dad")
+  cc.kit_given=nil
+  brickcraft.take(dad,"brickcraft_habitat:fence 32"); brickcraft.take(dad,"brickcraft_habitat:fence_gate 1")
+  wait(5,function() return brickcraft.count_of(dad,"brickcraft_habitat:fence")==32 end,function() return "no fence top-up" end)
+  assert(brickcraft.count_of(dad,"brickcraft_habitat:hutch")==2,"no second hutches")
   for i,id in ipairs({"hutch","hutch","carrot_patch","carrot_patch","water_trough"}) do
     local q={x=site.x-3+i,y=0,z=site.z+3}
     C.set_node(q,{name="brickcraft_habitat:"..id}); H.claim(q,dad)

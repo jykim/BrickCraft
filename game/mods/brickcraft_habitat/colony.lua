@@ -153,6 +153,15 @@ end
 function H.colony_status(w,v,owner)
   local c=H.colony(w,owner)
   local t=H.tally(w)[owner] or EMPTY
+  -- Wild food and water (clover, ponds) within 10 of where the colony started count too.
+  if c.start then
+    t=table.copy(t)
+    for _,q in ipairs(C.find_nodes_in_area(vector.offset(c.start,-10,-2,-10),vector.offset(c.start,10,3,10),{"group:habitat_food","group:habitat_water"})) do
+      if C.get_meta(q):get_string("owner")=="" then
+        if C.get_item_group(C.get_node(q).name,"habitat_food")>0 then t.food=t.food+1 else t.water=t.water+1 end
+      end
+    end
+  end
   local pop=H.creature_count(w,owner)
   local n=math.max(pop,1)
   local cfg=v.colony
@@ -297,8 +306,38 @@ function H.found_colony(w,v,owner,pos)
   c.born=(c.born or 0)+made
   c.best=math.max(c.best or 0,made)
   c.losses={}; c.gone=nil
+  c.kit_given={}
+  for id in pairs(v.colony.kit or {}) do c.kit_given[id]=true end
   H.save(w)
   return made
+end
+-- Kit items added to the game after a colony started (the fence) come to its owner the
+-- next time they're in the world. Colonies from before kit_given had the first kit.
+local FIRST_KIT={hutch=true,carrot_patch=true,water_trough=true}
+local function top_up(w,v,owner,c)
+  if not c.started then return end
+  c.kit_given=c.kit_given or table.copy(FIRST_KIT)
+  for _,p in ipairs(H.players_in(w)) do
+    if owner_of(p)==owner then
+      local got={}
+      for id,n in pairs(v.colony.kit or {}) do
+        if not c.kit_given[id] then
+          local left=brickcraft.give(p,"brickcraft_habitat:"..id.." "..n)
+          if left:get_count()<n then
+            c.kit_given[id]=true
+            local d=C.registered_nodes["brickcraft_habitat:"..id]
+            got[#got+1]=(n-left:get_count()).." "..((d and d.description or id):match("^[^\n]+"))
+          end
+          if not left:is_empty() then C.chat_send_player(p:get_player_name(),"Your bag is full: make room for the rest of your colony kit.") end
+        end
+      end
+      if #got>0 then
+        table.sort(got); H.save(w)
+        C.chat_send_player(p:get_player_name(),C.colorize("#ffd27a","New for your colony: "..table.concat(got,", ")..
+          ". It's in your bag (I). Ring your colony with fence, hutches, carrots and water inside."))
+      end
+    end
+  end
 end
 function H.start_colony(p)
   local w,v=H.world_at(p:get_pos())
@@ -345,6 +384,7 @@ function H.colony_tick(w,v)
   local st=H.state(w)
   local cfg=v.colony
   for owner,c in pairs(st.colonies or {}) do
+    top_up(w,v,owner,c)
     local s=H.colony_status(w,v,owner)
     if s.pop>0 then
       c.clovers=(c.clovers or 0)+s.pop*(cfg.income or .1)*(s.happy/100+.5)
