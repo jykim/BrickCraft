@@ -259,6 +259,13 @@ local function run(dad,kid)
   -- Left click with the Knight tool takes it back.
   kn_item:get_definition().on_use(kn_item,dad,{type="object",ref=blue.object})
   assert(not blue.object:get_pos(),"Dad took his knight back")
+  -- A blue knight knocked out is gone for good.
+  blue=W.spawn_knight({x=19,y=0,z=-20},"blue",{owner=DAD})
+  for _=1,4 do W.hit(blue.object,nil,"cannon",{x=1,y=0,z=0},"red") end
+  assert(blue._down,"the blue knight is down")
+  sleep(2.2)
+  assert(not blue.object:get_pos(),"a knocked-out blue knight stays gone")
+  log("FALLEN: a knocked-out blue knight is gone for good")
 
   -- A Red Knight goes for a player in war.
   kid:set_pos({x=8,y=0,z=-14}); sleep(3.3)
@@ -384,10 +391,15 @@ local function run(dad,kid)
   assert(f and f.role=="commander","with knights up Dad bot commands: "..(f and f.role or "no fight"))
   wait(8,function() return bot._lobbed end,function() return "Dad bot never threw a cannonball" end)
   for ent in pairs(brickcraft.war._things()) do if ent._team=="blue" and ent._owner==DAD then ent.object:remove() end end
+  -- (a Red Knight in reach: the army's may be down or thrown far off by now)
+  W.spawn_knight(vector.offset(vector.round(dad:get_pos()),12,.5,2),"red",{army=rid})
   sleep(.2)
   f=W.bot_fight(dad,bot.object)
   assert(f and f.role=="soldier" and f.to,"with no knights Dad bot goes in with its sword: "..(f and f.role or "no fight"))
   log("BOT FIGHTS: Dad bot lobbed cannonballs as commander, then went in as a soldier when his knights were gone")
+  -- (that army done with, so it doesn't come for Leona in the teams check)
+  if W.armies[rid] then local b2=W.armies[rid].boss.object; for _=1,20 do W.hit(b2,dad,"sword") end end
+  sleep(2)
   -- The sword Dad holds shows in his hand.
   wait(2,function() local d=W.on(dad); return d.held_item=="brickcraft:sword" and d.held:get_attach()==dad and
     vector.length(select(3,d.held:get_attach()))<1 and d.held:get_properties().visual_size.x<.1 end, -- hand-sized, at the hand

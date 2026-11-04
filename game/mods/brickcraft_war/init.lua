@@ -1143,8 +1143,10 @@ C.register_entity(":brickcraft:knight",{
     self._hp=self._hp-(armor and math.max(1,math.floor(m.dmg*armor+.5)) or m.dmg)
     if self._hp<=0 then
       -- Falls on its back, away from the hit.
-      self._down=now()+(self._archer and 8 or self._owner and 5 or self._team=="red" and 1.5 or 3)
-      self._gone=self._team=="red"
+      -- Red knights, players' knights and castle archers are gone for good (a castle gets
+      -- its archers again with the next Red Army); practice knights and footmen get up.
+      self._gone=self._team=="red" or self._owner~=nil or self._archer~=nil
+      self._down=now()+(self._gone and 1.5 or 3)
       self.object:set_rotation({x=-math.pi/2,y=self.object:get_yaw(),z=0})
       local by=attacker and attacker:is_player() and war[attacker:get_player_name()]
       if by then
@@ -1171,6 +1173,10 @@ C.register_entity(":brickcraft:knight",{
           poof(p)
           if self._team=="red" then drop_ammo(p) end
           if self._boss then for _=1,2 do drop_ammo(vector.offset(p,math.random(-2,2),0,math.random(-2,2))) end end
+          if self._owner and C.get_player_by_name(self._owner) then
+            local left=count_owned("brickcraft:knight",self._owner)-1
+            C.chat_send_player(self._owner,"Your "..self._name.." fell. "..left.." left; the Knight tool (4) puts up another.")
+          end
           self.object:remove(); return
         end
         self._down,self._hp=nil,self._max
