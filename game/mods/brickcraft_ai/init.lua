@@ -1127,6 +1127,37 @@ local lib={
   parse_request=parse_request,describe=describe,color_words=color_words,clear_work=clear_work}
 -- One builder per owner: jms (owner "jms", the host's, in the Workshop) or a player's.
 -- Each has its own body, bricks, jobs and saved state.
+-- Everything a builder can do beyond its own steps, read once the game is loaded: the
+-- helpers mods registered (brickcraft.assist) and every chat command, which it can run
+-- for whoever asks, with their own privileges.
+local full_chat
+local function chat_system()
+  if full_chat then return full_chat end
+  local extra={}
+  for _,h in ipairs(brickcraft.assist and brickcraft.assist.helpers or {}) do if h.prompt then extra[#extra+1]=h.prompt end end
+  local cmds={}
+  for name,def in pairs(C.registered_chatcommands) do
+    local privs=def.privs or {}
+    local plain=true
+    for priv in pairs(privs) do if priv~="interact" and priv~="shout" then plain=false end end
+    if plain then cmds[#cmds+1]="- /"..name..(def.params and def.params~="" and " "..def.params or "")..": "..(def.description or "") end
+  end
+  table.sort(cmds)
+  full_chat=SYSTEM_CHAT..table.concat(extra,"")..[[
+
+
+Game commands: you can also run any of these for whoever asks, as them (they could type it themselves): a step that is the command itself, "/<command> <params>". Use one whenever it does what they want and none of your own steps does. Commands:
+]]..table.concat(cmds,"\n")
+  return full_chat
+end
+local function assist_context(name)
+  local out={}
+  for _,h in ipairs(brickcraft.assist and brickcraft.assist.helpers or {}) do
+    if h.context then local ok,t=pcall(h.context,name); if ok and t and t~="" then out[#out+1]=t end end
+  end
+  return #out>0 and table.concat(out,"\n").."\n" or ""
+end
+
 local function new_worker(owner)
   local AUTO_MAX,C,EYE,GROUND,JUMP,NEARBY,PATCH_AFTER,QUIET,REACH,S,STEP,SYSTEM,SYSTEM_EDIT,WALK,
     about_holes,asks_for_work,is_hello,aim_collect,aim_place,area_box,area_of,ask_claude,beside,
@@ -1607,6 +1638,47 @@ local function new_worker(owner)
       end
     end
   end
+  -- Walks to stand next to pos (helpers' api.go).
+  local function go_near(pos)
+    if not bot_ok() then return false end
+    local f=feet_of(pos)
+    for _,d in ipairs({{0,0},{1,0},{-1,0},{0,1},{0,-1},{1,1},{-1,-1},{1,-1},{-1,1}}) do
+      local to={x=f.x+d[1],y=f.y,z=f.z+d[2]}
+      if standable(to) then
+        local p=find_path(to)
+        if p then set_path(p); return true end
+      end
+    end
+    return false
+  end
+  -- Beyond its own steps (from handle): a game command, run for the asker with their own
+  -- privileges, or a step a mod taught builders (brickcraft.assist). True when done.
+  local function extras(name,text,who)
+    -- A game command, run for the asker with their own privileges.
+    if text:sub(1,1)=="/" then
+      local cmd,param=text:match("^/(%S+)%s*(.-)%s*$")
+      local def=cmd and C.registered_chatcommands[cmd]
+      if not def then say("I don't know the command /"..tostring(cmd)..".") return true end
+      local ok_privs,missing=C.check_player_privs(name,def.privs or {})
+      if not ok_privs then say("You'd need the "..table.concat(missing,", ").." privilege for that, "..who..".") return true end
+      local ok,res,msg=pcall(def.func,name,param or "")
+      if not ok then say("That didn't work: "..tostring(res):sub(1,120)) return true end
+      if type(msg)=="string" and msg~="" then C.chat_send_player(name,msg) end
+      C.log("action","[ai] "..w.name.." ran /"..cmd.." "..(param or "").." for "..name)
+      return true
+    end
+    -- What mods taught builders to do (brickcraft.assist), e.g. herding bunnies.
+    for _,helper in ipairs(brickcraft.assist and brickcraft.assist.helpers or {}) do
+      if helper.step then
+        local ok,done=pcall(helper.step,name,text,say,{bot=bot_ok() and bot or nil,owner=owner,
+          is_owner=w.jms or is_owner(name),owner_label=w.jms and "everyone" or style.label,go=go_near})
+        if not ok then C.log("warning","[ai] helper "..tostring(helper.name).." failed: "..tostring(done))
+        elseif done then return true end
+      end
+    end
+    return false
+  end
+
   -- Claude's answer to a request about what's already there, at the area's corner `o`.
   local function apply_edit(reply,o,name)
     local who=display_name(name)
@@ -1665,7 +1737,8 @@ local function new_worker(owner)
       " ("..(job.i-1).." of "..#job.list.." pieces).\n" or "You aren't building anything right now.\n"
     local whose=w.jms and "You work for everyone in the workshop.\n" or is_owner(name) and who.." is your owner.\n" or
       style.label.." is your owner, not "..who..": only "..style.label.." can have you stop, undo, give bricks away, rename you or change your modes.\n"
-    think(SYSTEM_CHAT,seen..doing..whose..who.." says: "..text,function(reply)
+    seen=seen..assist_context(name)
+    think(chat_system(),seen..doing..whose..who.." says: "..text,function(reply)
       if not reply then say("Sorry "..who..", I didn't catch that. Ask me to build or fix something!") return end
       say(tostring(reply.say):sub(1,240))
       local steps=reply["do"]
@@ -1748,6 +1821,7 @@ local function new_worker(owner)
       report(name,text,how=="do")
       return
     end
+    if extras(name,text,who) then return end
     local new=text:match("^[Yy]our name is%s+(.+)$") or text:match("^[Cc]all yourself%s+(.+)$") or
       text:match("이름은%s*(.+)$")
     if new then
@@ -2370,7 +2444,7 @@ C.register_on_shutdown(function()
 end)
 
 brickcraft.ai={name=NAME,parse_request=parse_request,parse_plan=parse_plan,blueprint=blueprint,
-  describe=describe,chat_system=function() return SYSTEM_CHAT end,
+  describe=describe,chat_system=chat_system,
   blueprints=blueprints,order=blueprint_order,find_plot=find_plot,cells_of=cells_of,
   players=players,where=where,near_phrase=near_phrase,player_in=player_in,survey=survey,is_edit=is_edit,
   edit_jobs=edit_jobs,name_problem=name_problem,addressed=addressed,talking=talking,workers=workers,get=worker_of,

@@ -526,10 +526,11 @@ function H.creature_step(self,def,dtime,moveresult)
     return
   end
   -- Following its owner (herding: right click, /colony call).
-  if self._follow then
-    local pl=C.get_player_by_name(self._follow)
-    local pp=pl and pl:get_pos()
-    if not pp or now()>(self._follow_until or 0) or vector.distance(p,pp)>40 then self._follow=nil
+  if self._follow or self._follow_obj then
+    local pp
+    if self._follow_obj then pp=self._follow_obj:get_pos()
+    else local pl=C.get_player_by_name(self._follow); pp=pl and pl:get_pos() end
+    if not pp or now()>(self._follow_until or 0) or vector.distance(p,pp)>40 then self._follow,self._follow_obj=nil,nil
     else
       local d=flat(p,pp)
       self._target=d>1.8 and pp or nil
@@ -1187,6 +1188,7 @@ dofile(MP.."/disasters.lua")(H)
 dofile(MP.."/colony.lua")(H)
 dofile(MP.."/welcome.lua")(H)
 dofile(MP.."/meadow.lua")(H)
+dofile(MP.."/ai.lua")(H)
 for _,f in ipairs({"bunny"}) do dofile(MP.."/variants/"..f..".lua")(H) end
 
 for _,row in ipairs({

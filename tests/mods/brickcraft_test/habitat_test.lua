@@ -274,6 +274,36 @@ local function run(dad)
   H.colony_panel(dad)
   log("the colony shop sells hutches for clovers")
 
+  -- What builders can do for a colony (brickcraft.assist): read it, fence it, herd it.
+  local said={}
+  local function say(t) said[#said+1]=t end
+  local helper
+  for _,h in ipairs(brickcraft.assist.helpers) do if h.name=="habitat" then helper=h end end
+  assert(helper and helper.context(DAD):find("Their colony",1,true),"the builder sees the colony")
+  assert(helper.step(DAD,"colony status",say,{is_owner=true}) and said[#said]:find("happy"),"status")
+  local home=H.colony_home(w,"dad") -- its nearest hutch to where it was told to stay
+  dad:set_pos(vector.offset(home,0,.5,-6))
+  local fences=brickcraft.count_of(dad,"brickcraft_habitat:fence")
+  assert(helper.step(DAD,"fence the colony",say,{is_owner=true}),"fence step")
+  local used=fences-brickcraft.count_of(dad,"brickcraft_habitat:fence")
+  local ring=#C.find_nodes_in_area(vector.offset(home,-4,-1,-4),vector.offset(home,4,2,4),{"group:habitat_fence"})
+  assert(used>=20 and ring>=used,"fence ring: used "..used..", ring "..ring.." ("..said[#said]..")")
+  log("asked, a builder put "..ring.." fence pieces round Dad's colony: "..said[#said])
+  -- Herding: the bunnies follow the builder (here Dad stands in for it) home, through the gate.
+  local stray={}
+  for e in pairs(H.live) do if e._owner=="dad" and e.object:get_pos() then stray[#stray+1]=e end end
+  local out=vector.offset(home,0,.5,-8)
+  for i,e in ipairs(stray) do park(e,vector.offset(out,(i%3)-1,0,math.floor(i/3))) end
+  dad:set_pos(vector.offset(out,0,0,-2))
+  assert(helper.step(DAD,"herd the bunnies home",say,{is_owner=true,bot=dad,go=function() end}),"herd step")
+  sleep(3)
+  dad:set_pos(vector.offset(home,0,.5,0))
+  wait(40,function()
+    for _,e in ipairs(stray) do local q=e.object:get_pos(); if q and H.flat(q,home)>4 then return false end end
+    return true
+  end,function() local far=0; for _,e in ipairs(stray) do local q=e.object:get_pos(); if q and H.flat(q,home)>4 then far=far+1 end end; return far.." still outside" end)
+  log("herded: "..#stray.." bunnies followed through the gate into the fence; "..said[#said])
+
   -- A second variant from definitions only.
   local m
   brickcraft.make_world("Meadow test","dad",function(made) m=made end)

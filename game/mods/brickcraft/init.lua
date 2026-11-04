@@ -1497,3 +1497,11 @@ brickcraft={shapes=shape_by_id,shape_list=shapes,colors=colors,set_shape=set_sha
   -- worlds saved before the split keep their data.
   storage=storage,placers=placers,strict=strict,strict_ok=strict_ok}
 
+-- Help the AI builders can give (brickcraft_ai): any mod registers a helper with
+-- prompt (what it can do, for the builder's instructions), context(name) (what the
+-- builder should know about that player now; "" for nothing) and step(name,text,say,api)
+-- (do a step of the builder's plan; true when it was this helper's). api = {bot, owner,
+-- is_owner, owner_label, go(pos)}. Anything a chat command does needs no helper: builders
+-- can run any command for the player who asks.
+brickcraft.assist={helpers={}}
+function brickcraft.assist.register(def) brickcraft.assist.helpers[#brickcraft.assist.helpers+1]=def end

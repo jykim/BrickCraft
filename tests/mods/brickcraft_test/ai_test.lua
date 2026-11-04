@@ -30,6 +30,9 @@ C.register_on_joinplayer(function(player)
     assert(seen:find("cart 3 0 2 stopped"),"builders see the cart:\n"..seen)
     assert(ai.chat_system():find("Walk into a cart",1,true) and ai.chat_system():find("Battery Box",1,true),
       "builders know the train controls")
+    -- ...every chat command (run for whoever asks), and what mods taught them (habitats).
+    assert(ai.chat_system():find("/colony",1,true) and ai.chat_system():find("/disaster",1,true) and
+      ai.chat_system():find("herd the bunnies home",1,true),"builders know the commands and helpers")
     cart:remove()
     for _,c in ipairs(cells) do C.remove_node(c) end
     -- Every built-in blueprint makes a valid plan: known pieces, no overlaps, on the ground.

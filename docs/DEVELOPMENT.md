@@ -189,6 +189,11 @@ Finder에서 실행 스크립트를 더블클릭해도 됩니다. 앱만 직접 
 - **마을:** 놓은 구조물·먹이에 `owner` 메타(`claim`). `tally`가 세계의 소유자별 집 수용·보육원·망루·먹이·물을 2초마다 셉니다. 행복 = 0.3 집 + 0.2 물 + 0.3 먹이 + 0.2 안전. 매초 `colony_tick`이 클로버(마리당 `income`×(행복+0.5))를 더하고, 행복 ≥ `happy`이고 빈 집이 있으면 `birth`/(1+보육원) 초마다 새끼를 낳습니다. 마을 토끼는 가장 가까운 내 허치(없으면 시작 자리) 12칸 안에 머물고, 포식자·소행성 때는 빈 허치로 숨습니다(허치마다 `capacity`).
 - 검사: `python3 tools/test_habitat.py`(포트 30021). 균형: `python3 tools/sim_habitat.py [분] ["wolf.speed=3.5 colony.birth=40"] [seed] [runs]`(포트 30022, 클라이언트 없이 세계를 강제 로드): 가상 플레이어 넷(`none`, `chase`, `reasonable`, `strong`)이 각자 세계에서 같은 포식자·재해 일정을 겪고 생존율(끝에 산 수 / 마을이 가진 모든 토끼)을 냅니다.
 
+## 4i. AI 빌더 돕기 확장(brickcraft.assist)
+
+- 핵심 모드의 `brickcraft.assist.register{name, prompt, context(name), step(name,text,say,api)}`로 어느 모드든 빌더에게 할 일을 가르칩니다. 빌더(`brickcraft_ai`)는 처음 대화할 때 `chat_system()`으로 지시문에 모든 도우미의 `prompt`와 **모든 채팅 명령**(`interact`·`shout` 밖의 권한이 필요한 것 제외, 매개변수·설명)을 붙이고, 볼 것에 `context`를 더합니다. 계획의 각 단계는 `extras`가 먼저 받습니다: `/명령 …`이면 부탁한 사람의 이름·권한으로 그 명령의 `func`를 부르고, 아니면 도우미의 `step`을 차례로 묻습니다(`api`: `bot`, `owner`, `is_owner`(jms는 모두), `owner_label`, `go(pos)`: 빌더가 pos 옆으로 걸어감). `handle`이 Lua 업밸류 60개 한도에 닿아 이 부분은 따로 함수입니다.
+- 서식지 도우미([ai.lua](../game/mods/brickcraft_habitat/ai.lua)): 마을 상태·가방·포식자·재해를 알려 주고, 몰기(토끼가 빌더 객체를 `_follow_obj`로 따라감, 집 10칸 안의 문을 열고 도착 4초 뒤 닫음), 지키기(2분, 집이나 부탁한 사람 24칸 안의 포식자를 1.2초마다 `_hit`), 울타리 고리(집에서 4칸, 문은 부탁한 사람 쪽), 먹이 놓기, 시작·상태·사기·머물기를 합니다.
+
 ## 5. 검사 방법과 확인된 범위
 
 이번 문서 작성에서는 게임을 재실행하지 않고 기존 통과 로그와 현재 코드·설정을 대조했습니다. 원본 검사일은 2026-10-31입니다.
