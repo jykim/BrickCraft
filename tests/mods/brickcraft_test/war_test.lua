@@ -254,6 +254,21 @@ local function run(dad,kid)
   local dhp=s.hp
   wait(12,function() return s.hp<dhp end,function() return "the Commander never hit Dad" end)
   log(("ARMY: Red Commander and 8 knights; the Commander's cannonball hit Dad (%d/10)"):format(s.hp))
+  -- His 4 guards hold a shield canopy over him: cannonballs and arrows glance off it until
+  -- they're knocked out; then a cannonball lands.
+  local guards={}
+  for ent in pairs(brickcraft.war._things()) do if ent._army==id and ent._guard then guards[#guards+1]=ent end end
+  assert(#guards==4,"4 guards round the Commander, got "..#guards)
+  wait(6,function() return army.boss._canopy and army.boss._canopy:get_pos() end,function() return "no canopy over the Commander" end)
+  local bhp=army.boss._hp
+  assert(not W.hit(army.boss.object,dad,"cannon") and not W.hit(army.boss.object,dad,"arrow") and army.boss._hp==bhp,
+    "cannonball and arrow glance off the canopy")
+  for _,g in ipairs(guards) do for _=1,3 do W.hit(g.object,dad,"sword") end end
+  assert(not W.canopy_up(army.boss),"no canopy with the guards down")
+  assert(W.hit(army.boss.object,dad,"cannon") and army.boss._hp==bhp-3,"a cannonball lands with the guards down")
+  sleep(.5)
+  assert(not army.boss._canopy or not army.boss._canopy:get_pos(),"the canopy came down")
+  log("CANOPY: 4 guards held shields over the Commander; cannon and arrow glanced off until they were knocked out")
   for _=1,20 do W.hit(army.boss.object,dad,"sword") end
   assert(not W.armies[id] and W.on(dad).kos>=3,"beating the Commander beats the army")
   sleep(2.5)

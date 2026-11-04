@@ -29,6 +29,7 @@ local MOVES={
   arrow={dmg=2,push=3,up=1.5,cool=.45},
 }
 local CANNONS,KNIGHTS=3,4 -- each player's most at once
+local GUARDS=4 -- of a Red Army's knights, how many stay by the Commander as his guards
 local BALL_SPEED,BALL_GRAVITY,BLAST=18,9.81,1.6
 local AMMO_START,AMMO_MAX,AMMO_PILE=6,30,3
 -- The Siege Castle's balance (seconds between shots or steps; tools/sim_siege.py tries
@@ -613,6 +614,71 @@ local function poof(pos)
     minvel={x=-1.5,y=0,z=-1.5},maxvel={x=1.5,y=2,z=1.5},minexptime=.5,maxexptime=1,minsize=4,maxsize=8,
     texture="brickcraft_smoke.png"})
 end
+-- The Commander's canopy: while 2 or more of his guards stand up within CANOPY_REACH of
+-- him, they hold their shields over him as a roof, and cannonballs and arrows glance off
+-- it. Swords and kicks still land; knock out his guards, or draw them away, first.
+local CANOPY_REACH,CANOPY_HOLDERS=3,2
+local function canopy_holders(boss)
+  local bp,n=boss.object:get_pos(),0
+  if not bp then return 0 end
+  for ent in pairs(things) do
+    if ent._guard and ent._army==boss._army and alive(ent) then
+      local p=ent.object:get_pos()
+      if flat_dist(p,bp)<=CANOPY_REACH and math.abs(p.y-bp.y)<2 then n=n+1 end
+    end
+  end
+  return n
+end
+local function canopy_up(boss)
+  return boss._boss and armies[boss._army or 0] and alive(boss) and canopy_holders(boss)>=CANOPY_HOLDERS
+end
+-- Where n guards stand round their Commander: a ring under the edges of the canopy.
+local function guard_ring(n)
+  local out={}
+  for i=1,n do
+    local a=(i-.5)*2*math.pi/n
+    out[i]={x=math.cos(a)*1.5,y=0,z=math.sin(a)*1.5}
+  end
+  return out
+end
+C.register_entity(":brickcraft:canopy",{
+  initial_properties={visual="cube",visual_size={x=3.4,y=.14,z=3.4},physical=false,pointable=false,static_save=false,
+    textures={"brickcraft_canopy.png","brickcraft_canopy.png","brickcraft_gold.png","brickcraft_gold.png","brickcraft_gold.png","brickcraft_gold.png"}},
+  on_step=function(self)
+    local boss=self._boss
+    if not boss or boss._canopy~=self.object or not canopy_up(boss) then
+      if boss and boss._canopy==self.object then boss._canopy=nil end
+      self.object:remove(); return
+    end
+    local bp=boss.object:get_pos()
+    self.object:set_pos(vector.offset(bp,0,2.55,0))
+    self.object:set_velocity(boss.object:get_velocity())
+    self.object:set_yaw(boss.object:get_yaw())
+  end,
+})
+-- Puts the canopy up over the Commander when his guards can hold it.
+local function raise_canopy(boss)
+  if boss._canopy and boss._canopy:get_pos() then return end
+  boss._canopy=nil
+  if not canopy_up(boss) then return end
+  local obj=C.add_entity(vector.offset(boss.object:get_pos(),0,2.55,0),"brickcraft:canopy")
+  if obj then obj:get_luaentity()._boss=boss; boss._canopy=obj end
+end
+-- A cannonball or arrow glancing off the canopy: gold sparks, and a word to whoever shot.
+local function glance(boss,attacker)
+  local p=vector.offset(boss.object:get_pos(),0,2.6,0)
+  C.add_particlespawner({amount=14,time=.1,minpos=vector.offset(p,-.6,0,-.6),maxpos=vector.offset(p,.6,.1,.6),
+    minvel={x=-2.5,y=1,z=-2.5},maxvel={x=2.5,y=3,z=2.5},minacc={x=0,y=-9,z=0},maxacc={x=0,y=-9,z=0},
+    minexptime=.3,maxexptime=.6,minsize=1.5,maxsize=3,texture="brickcraft_gold.png",glow=10})
+  if attacker and attacker:is_player() then
+    local s=war[attacker:get_player_name()]
+    if s and (s.told_canopy or 0)+4<now() then
+      s.told_canopy=now()
+      C.chat_send_player(attacker:get_player_name(),C.colorize("#ffd27a","Clang! ")..
+        "The guards hold their shields over the Red Commander. Knock out his guards (or draw them away), or get close with your sword.")
+    end
+  end
+end
 local function defeat_army(id,by)
   local army=armies[id]
   if not army then return end
@@ -889,6 +955,7 @@ local function think(self)
     return
   end
   if self._boss then
+    raise_canopy(self)
     -- The Commander keeps 6 to 12 away and lobs a cannonball every 3 seconds; on retreat
     -- or guard it stays put behind its knights.
     local o=order_of(self) or {}
@@ -984,6 +1051,7 @@ C.register_entity(":brickcraft:knight",{
   end,
   _hit=function(self,attacker,m,v)
     if self._down then return false end
+    if self._boss and (m==MOVES.cannon or m==MOVES.arrow) and canopy_up(self) then glance(self,attacker); return false end
     self.object:add_velocity(self._boss and vector.multiply(v,.5) or v)
     self._stun=now()+.5
     if m.dmg==0 then return true end
@@ -1078,7 +1146,8 @@ local function escort_of(n)
   return out
 end
 -- The Red Army: a Commander and its world's army size of knights at center (escort: other
--- offsets, {} for none), facing toward; the first two are his guards. Returns its id.
+-- offsets, {} for none), facing toward; the first GUARDS of them are his guards, in a ring
+-- under his canopy. Returns its id.
 local army_seq=0
 local function spawn_army(center,toward,lab,escort)
   army_seq=army_seq+1
@@ -1088,10 +1157,13 @@ local function spawn_army(center,toward,lab,escort)
   local boss=spawn_knight(center,"red",{boss=true,army=id,yaw=yaw})
   if not boss then return end
   armies[id]={boss=boss,lab=lab,order={mode="charge",at=now()},next_plan=now()+5}
-  for i,o in ipairs(escort or escort_of(army_size(brickcraft.world_at(center)))) do
-    local g=ground_at(center.x+o.x,center.y,center.z+o.z) or vector.offset(center,o.x,0,o.z)
+  local list=escort or escort_of(army_size(brickcraft.world_at(center)))
+  local ring=guard_ring(math.min(GUARDS,#list))
+  for i,o in ipairs(list) do
+    if ring[i] then o=ring[i] end
+    local g=ground_at(math.floor(center.x+o.x+.5),center.y,math.floor(center.z+o.z+.5)) or vector.offset(center,o.x,0,o.z)
     local k=spawn_knight(g,"red",{army=id,yaw=yaw})
-    if k then k._offset={x=o.x,y=0,z=o.z}; k._guard=i<=2 or nil end
+    if k then k._offset={x=o.x,y=0,z=o.z}; k._guard=ring[i] and true or nil end
   end
   -- Red smoke marks where it turned up.
   C.add_particlespawner({amount=60,time=1.5,minpos=vector.offset(center,-3,0,-3),maxpos=vector.offset(center,3,1,3),
@@ -1867,9 +1939,7 @@ local function siege_army(w)
   armies[id].flag={x=w.x+FLAG.x,y=FLAG.y-.5,z=w.z+FLAG.z}
   -- Six guards round the Commander.
   local bp=armies[id].boss.object:get_pos()
-  for i=0,5 do
-    local a=i*math.pi/3
-    local o={x=math.floor(math.cos(a)*2.5+.5),y=0,z=math.floor(math.sin(a)*2.5+.5)}
+  for _,o in ipairs(guard_ring(6)) do
     local g=ground_at(math.floor(bp.x+o.x+.5),0,math.floor(bp.z+o.z+.5))
     local k=g and spawn_knight(g,"red",{army=id,yaw=0})
     if k then k._guard,k._offset=true,o end
@@ -2073,6 +2143,6 @@ local td=dofile(C.get_modpath("brickcraft_war").."/td.lua")({things=things,LOOKS
 lane_step=td.lane_step
 
 brickcraft.war={td=td,flag_watch=flag_watch,FLAG=FLAG,unstick=unstick,tune=TUNE,reset_castle=reset_castle,siege_army=siege_army,garrison=garrison,castle_damage=castle_damage,army_size=army_size,lab=lab,castle=castle,castle_cell=castle_cell,shoot_arrow=shoot_arrow,start=start,stop=stop,hit=hit,fire=fire,fire_from=fire_from,max_hp=MAX_HP,
-  spawn_knight=spawn_knight,_things=function() return things end,command=command,
+  spawn_knight=spawn_knight,canopy_up=canopy_up,_things=function() return things end,command=command,
   orders=function(name) return blue_orders[name] end,bot_fight=bot_fight,plan_red=plan_red,spawn_army=spawn_army,battle=battle,armies=armies,drop_ammo=drop_ammo,
   on=function(player) return war[player:get_player_name()] end}

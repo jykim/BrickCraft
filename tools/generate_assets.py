@@ -331,6 +331,13 @@ def knight_icon(x,y):  # a shield with a coral cross
     if 13<=x<=18 or 11<=y<=15: return (235,93,72,255)
     return (170,176,188,255)
 png('brickcraft_knight.png',32,32,knight_icon)
+def canopy(x,y):  # the Red Commander's shield roof seen from above: 2x2 red shields, gold rims and bosses
+    u,v=x%16,y%16
+    if u in (0,15) or v in (0,15): return (120,30,26,255)  # the gap between shields
+    if u in (1,14) or v in (1,14): return (222,176,64,255)  # gold rim
+    if (u-7.5)**2+(v-7.5)**2<=5: return (246,214,120,255) if (u-7)**2+(v-7)**2<=1 else (206,160,52,255)  # boss
+    return (196,44,36,255) if (u+v)%7 else (176,38,32,255)
+png('brickcraft_canopy.png',32,32,canopy)
 def bow_icon(x,y):  # a wooden bow drawn corner to corner, its string and an arrow across
     t,d=(x-y+31)/2,(x+y-31)/2  # along the bow's line, and off it toward the bottom right
     bend=6.5-((t-15.5)**2)/37
