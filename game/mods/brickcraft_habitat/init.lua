@@ -1218,6 +1218,16 @@ C.register_chatcommand("habitat",{params="[set <"..table.concat(H.variant_list,"
     end
     return true,act(p,cmd) or ""
   end})
+C.register_chatcommand("clearbricks",{description="Habitat: take away every brick in this habitat world (its owner only; not given back)",
+  func=function(name)
+    local p,w=need_habitat(name); if not w then return true end
+    local who=brickcraft.playing_as(p) or name
+    if w.owner~=who and not C.check_player_privs(name,{server=true}) then
+      return true,"Only "..((brickcraft.styles[w.owner] or {}).label or w.owner).." can clear the bricks of "..w.name.."."
+    end
+    H.clear_bricks(w,function(n) C.chat_send_player(name,"Took away "..n.." bricks from "..w.name..".") end)
+    return true,"Clearing every brick in "..w.name.."..."
+  end})
 C.register_chatcommand("disaster",{params="<flood|earthquake|asteroids|...|stop>",
   description="Habitat: start a disaster in this world (or stop it)",
   func=function(name,param)

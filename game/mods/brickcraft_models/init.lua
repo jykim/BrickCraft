@@ -500,6 +500,7 @@ local function files_of(def)
   return list
 end
 -- Whether the player has every file in list; asks for the missing ones.
+local send_part_pictures
 local function has_media(name,list)
   local have=sent[name]
   if not have then have={}; sent[name]=have end
@@ -1044,19 +1045,37 @@ C.register_entity(":brickcraft:display_model",{
   end,
 })
 
+-- Every LEGO part picture a player's inventory needs (any list: a player picked in "Who's
+-- playing?" after joining brings their own bag), sent to them if they don't have it.
+send_part_pictures=function(player)
+  local inv,pics=player:get_inventory(),{}
+  for _,list in ipairs({"main","pieces","war_stash"}) do
+    for _,st in ipairs(inv:get_list(list) or {}) do
+      if st:get_name()=="brickcraft:real_part" then
+        local mesh=st:get_meta():get_string("mesh")
+        if mesh~="" then pics[#pics+1]=mesh:gsub("%.glb$",".png") end
+      end
+    end
+  end
+  if #pics>0 then has_media(player:get_player_name(),pics) end
+end
+local picture_wait=0
+C.register_globalstep(function(dtime)
+  picture_wait=picture_wait-dtime
+  if picture_wait>0 then return end
+  picture_wait=2
+  for _,p in ipairs(C.get_connected_players()) do send_part_pictures(p) end
+end)
 C.register_on_joinplayer(function(player)
   local name=player:get_player_name()
   local inv=player:get_inventory()
-  -- The pictures of LEGO parts in the inventory (media on demand), once the player is in.
-  local pics={}
-  for i=1,inv:get_size("main") do
-    local st=inv:get_stack("main",i)
-    if st:get_name()=="brickcraft:real_part" then
-      local mesh=st:get_meta():get_string("mesh")
-      if mesh~="" then pics[#pics+1]=mesh:gsub("%.glb$",".png") end
-    end
-  end
-  if #pics>0 then C.after(1,function() if C.get_player_by_name(name) then has_media(name,pics) end end) end
+  -- The pictures of LEGO parts in the inventory (media on demand) go once the player is
+  -- in, and again whenever new ones turn up (below).
+  -- All of them at once, before "Who's playing?" brings a bag: an icon drawn before its
+  -- picture arrives stays a dummy (generateImagePart: Could not load image). They're small.
+  local all={}
+  for f in pairs(files) do if f:find("%.png$") then all[#all+1]=f end end
+  has_media(name,all)
   for i=1,inv:get_size("main") do
     local stack=inv:get_stack("main",i)
     local meta=stack:get_meta()

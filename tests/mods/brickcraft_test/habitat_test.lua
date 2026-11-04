@@ -165,9 +165,18 @@ local function run(dad)
   eagle_ent:_hit(dad,{dmg=1})
   assert(not fenced._carried and not fenced._dead,"dropped")
   sleep(2)
-  -- Caught again, it's carried away for good.
-  wait(40,function() return fenced._dead end,function() return "the eagle never carried it off" end)
-  log("an eagle carried a bunny off (a hit made it drop it once)")
+  assert(not fenced._dead and fenced.object:get_pos(),"the dropped bunny lives")
+  log("an eagle carried a bunny off and dropped it when hit")
+  -- Not hit, it carries one away for good.
+  kill_hunters()
+  local prey2=list[5]
+  park(prey2,{x=yard.x,y=.5,z=yard.z})
+  eagle_ent=H.spawn_predator(w,"eagle",{n=1})
+  eagle_ent.object:set_pos({x=yard.x,y=16,z=yard.z+6})
+  wait(40,function() return prey2._dead end,function() return "the eagle never carried it off" end)
+  log("an eagle carried a bunny away")
+  fenced=prey2 -- the next checks use a live bunny from here
+  fenced=list[2]
   kill_hunters()
   -- ...but one under a roof isn't.
   local roofed=list[3]
@@ -311,6 +320,20 @@ local function run(dad)
     return true
   end,function() local far=0; for _,e in ipairs(stray) do local q=e.object:get_pos(); if q and H.flat(q,home)>4 then far=far+1 end end; return far.." still outside" end)
   log("herded: "..#stray.." bunnies followed through the gate into the fence; "..said[#said])
+
+  -- Clearing every brick: the workshop's arch and floor mosaic go (the floor turns to
+  -- meadow); the statue and fences stay.
+  assert(C.get_item_group(C.get_node({x=w.x+4,y=0,z=w.z-7}).name,"brick")>0,"the arch is there")
+  local cleared
+  H.clear_bricks(w,function(n) cleared=n end)
+  wait(30,function() return cleared end,function() return "not cleared" end)
+  assert(C.get_node({x=w.x+4,y=0,z=w.z-7}).name=="air","the arch went")
+  assert(C.get_node({x=w.x,y=-1,z=w.z-6}).name=="brickcraft_habitat:meadow","the mosaic became meadow")
+  assert(C.get_node({x=w.x,y=0,z=w.z+37}).name=="brickcraft_habitat:statue_gold","the statue stays")
+  assert(cleared<2000,"only bricks, not the hills: "..cleared)
+  assert(#C.find_nodes_in_area({x=w.x-46,y=-1,z=w.z-46},{x=w.x+46,y=10,z=w.z+46},{"brickcraft:grass"})>1000,"the hills stay")
+  assert(#C.find_nodes_in_area(vector.offset(home,-4,-1,-4),vector.offset(home,4,2,4),{"group:habitat_fence"})>=20,"fences stay")
+  log("cleared "..cleared.." bricks; statue and fences stay")
 
   -- A second variant from definitions only.
   local m

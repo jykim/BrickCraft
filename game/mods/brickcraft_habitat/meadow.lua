@@ -62,4 +62,53 @@ function H.lay_meadow(w,v,done)
     if done then done() end
   end)
 end
+
+-- Every brick piece in a habitat world goes (players' builds and the workshop's stacks,
+-- arch and floor mosaic), not given back; the floor under them becomes meadow. Statues,
+-- fences, hutches, food, water and animals stay. done(count).
+function H.clear_bricks(w,done)
+  local E=H.EDGE
+  local minp,maxp={x=w.x-E,y=-1,z=w.z-E},{x=w.x+E,y=40,z=w.z+E}
+  C.emerge_area(minp,maxp,function(_,_,remaining)
+    if remaining>0 then return end
+    local vm=C.get_voxel_manip()
+    local emin,emax=vm:read_from_map(minp,maxp)
+    local area=VoxelArea:new({MinEdge=emin,MaxEdge=emax})
+    local data=vm:get_data()
+    local air=C.get_content_id("air")
+    local plain=C.get_content_id("brickcraft_habitat:meadow")
+    local base=C.get_content_id("brickcraft:baseplate")
+    local brick={}
+    for name,def in pairs(C.registered_nodes) do
+      -- (grass, dirt and trees are in the brick group too, for the separator: they stay)
+      if (C.get_item_group(name,"brick")>0 or C.get_item_group(name,"brick_tail")>0) and not def.brickcraft_scenery then
+        brick[C.get_content_id(name)]=true
+      end
+    end
+    local n=0
+    for i in area:iterp(minp,maxp) do
+      if brick[data[i]] then
+        local q=area:position(i)
+        local floor=q.y==-1 and math.abs(q.x-w.x)<=24 and math.abs(q.z-w.z)<=24
+        data[i]=floor and (H.variant_of(w) and H.variant_of(w).meadow and plain or base) or air
+        n=n+1
+      end
+    end
+    vm:set_data(data); vm:write_to_map(true)
+    C.log("action","BrickCraft habitat: cleared "..n.." brick cells from "..w.name)
+    if done then done(n) end
+  end)
+end
+-- A one-shot request from the host: a file "habitat_clear_bricks" in the world folder,
+-- holding a world's name, clears that world's bricks at start (then it's renamed .done).
+C.after(2,function()
+  local path=C.get_worldpath().."/habitat_clear_bricks"
+  local f=io.open(path,"r")
+  if not f then return end
+  local name=f:read("*l"); f:close()
+  os.rename(path,path..".done")
+  for _,w in ipairs(brickcraft.worlds()) do
+    if w.name==name and H.variant_of(w) then H.clear_bricks(w) end
+  end
+end)
 end
