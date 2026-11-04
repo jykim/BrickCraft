@@ -15,6 +15,8 @@ local checks={
   brickcraft_td_test="td_test.lua",
   brickcraft_kart_test="kart_test.lua",
   brickcraft_models_test="models_test.lua",
+  brickcraft_habitat_test="habitat_test.lua",
+  brickcraft_habitat_sim="habitat_sim.lua",
   brickcraft_ai_test="ai_test.lua", -- with brickcraft_ai_builder, which loads the builders
 }
 for setting,file in pairs(checks) do

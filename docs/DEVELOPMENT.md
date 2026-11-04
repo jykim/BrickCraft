@@ -38,6 +38,7 @@
 | [game/mods/brickcraft_war/](../game/mods/brickcraft_war/init.lua) | 전쟁 모드, War Lab |
 | [game/mods/brickcraft_kart/](../game/mods/brickcraft_kart/init.lua) | 카트 레이싱, Kart Circuit |
 | [game/mods/brickcraft_models/](../game/mods/brickcraft_models/init.lua) | BrickWright 실제 레고 모델(부품 단위, `/model`, Model Gallery, 보내기 받기). 메시·`data/*.json`은 [tools/import_brickwright.py](../tools/import_brickwright.py)가 생성 |
+| [game/mods/brickcraft_habitat/](../game/mods/brickcraft_habitat/init.lua) | 서식지(Bunnyland): 동물·포식자·재해·먹이·스킨·동상, 플레이어 토끼 마을(`colony.lua`), 변형은 `variants/`. 그림·메시는 [tools/generate_habitat_assets.py](../tools/generate_habitat_assets.py) |
 | [game/mods/brickcraft_ai/](../game/mods/brickcraft_ai/init.lua) | AI 빌더(`brickcraft_ai_builder = true`일 때만 동작) |
 | [tests/mods/brickcraft_test/](../tests/mods/brickcraft_test/init.lua) | 엔진 검사 모드. 게임에 포함되지 않고 `tools/test_*.py`가 검사 세계의 `worldmods/`에 링크 |
 | [tools/generate_assets.py](../tools/generate_assets.py) | 원본 PNG 12개와 블록 사람 OBJ 생성 |
@@ -178,6 +179,15 @@ Finder에서 실행 스크립트를 더블클릭해도 됩니다. 앱만 직접 
 - **보내기:** `import_brickwright.py --send <id> [--title] [--world] [--gallery]`가 `<world>/brickwright_models/<slug>/`에 메시와 `model.json`(마지막, 임시 이름에서 바꿈)을 씁니다. 메시 이름에 매번 새 표시(`mesh_prefix`)를 붙여 이미 보낸 미디어와 겹치지 않게 합니다. 게임은 3초마다 받은 편지함을 보고 `core.dynamic_add_media`로 메시를 보낸 뒤(2초 뒤부터 부품을 만듦) 카탈로그에 넣고, 알리고, Model Gallery 앞줄(`EXTRA`)의 빈 자리에 놓습니다. BrickWright 갤러리 서버의 `POST /api/brickcraft`가 이 명령을 부릅니다(`$BRICKCRAFT_DIR`, 기본 `~/dev/BrickCraft`).
 - **Model Gallery:** Kart Circuit처럼 첫 실행 때 `make_world(...,{strict=true})`로 한 번 만들고(`w.gallery`), 더미·아치를 비운 뒤 `GALLERY`의 자리에 인스턴스를 놓습니다(`w.gallery_models`).
 - 검사: `python3 tools/test_models.py`(포트 30019): 갤러리·부품 수·27칸 분재·3003 크기·받침, `/model` 크기와 돌아보기, 첫 변경 확인과 크기 고정, 부품 → 인벤토리(3003 → 2×2 브릭, 그 밖은 LEGO part), 위에 브릭이 있는 부품 거절, 중력(분재 바닥판을 떼면 454부품이 0.33칸 떨어져 세계 바닥판 위로), LEGO part 그림, 부품 정리(메카 65부품, 25종 쌓기), 분해, 게임 브릭판, LEGO part 놓기·떼기, 실행 중 `--send`로 들어온 병아리(198부품)가 갤러리에 서기.
+
+## 4h. 서식지와 토끼 마을(brickcraft_habitat)
+
+- **일반 틀, 변형은 정의만:** `init.lua`가 등록부 여섯 개를 둡니다: `register_creature`(지킬 동물, 엔티티), `register_predator`(걷거나 `flies`), `register_source`(먹이·물 노드, `units`·`regrow`), `register_skin`, `register_disaster`(`start/step/stop`, `creatures_seek="high"|"shelter"`, `panic`), `register_variant`(동물·동상·처음 놓을 먹이·키트·포식자·재해·스킨·`match_names`·`wave`·`colony`). `colony.lua`는 `register_structure`(`effect="home"|"nursery"|"lookout"`, `hideout`)와 마을을 더합니다. Bunnyland는 [variants/bunny.lua](../game/mods/brickcraft_habitat/variants/bunny.lua) 하나이고, 새 서식지(펭귄·사슴…)는 이 파일을 본떠 `init.lua` 끝의 목록에 이름을 더하면 됩니다. 테스트는 정의만으로 두 번째 변형(`meadow`)을 만들어 확인합니다.
+- **세계:** 세계 기록의 `habitat=<변형 id>`가 서식지 표시입니다. `bind_names`가 시작할 때와 5초마다 이름이 `match_names`와 같은 세계(공백·대소문자 무시)를 바꿉니다. 상태는 모드 저장소 `habitat_<세계 id>`(`built`, `spawned`, `born`, `lost`, `wild`, `colonies`)입니다. 동상은 `emerge_area` 뒤 VoxelManip으로 풍경 노드(잔디·흙·나무)만 지우고 `statue_<색>` 노드(브릭 그룹 아님 → 세퍼레이터로 못 뗌)를 씁니다. 동물은 그 세계에 사람이 처음 있을 때 나옵니다.
+- **움직임:** 동물·걷는 포식자는 `physical`, 중력 2g, `stepheight` 0.3, 점프 6.6(1.1칸). 발밑이 단단하고, 부딪힌 기둥의 발 높이 칸만 단단하고 그 위 칸은 비었을 때만 뜁니다(벽에 붙은 채 엔진이 공중에서도 `touching_ground`를 주는 일이 있어 연속 점프로 두 칸 벽을 넘었음). 그래서 두 칸 벽은 못 넘지만 언덕을 따라 올라가 벽 위로 걸어갈 수는 있습니다. 포식자는 막히면 2.5초 뒤 옆으로 돌아갑니다. 15초 동안 먹이에 더 가까워지지 못하면 포기하고 떠나며, 떠나는 중 20초가 지나면 사라집니다. 걷는 포식자는 평평한 잔디 고리(중심에서 26.5칸, 풀·흙·바닥판 위)에서 나옵니다(언덕·나무 위에서 나오면 사자가 갇혔음). 울타리 조각(`register_fence`, connected nodebox, 충돌 1.5칸)은 `leaps`(사자, 점프 8)만 뛰어넘으려 합니다: 다른 동물은 물통 위에서도 울타리 앞에서는 뛰지 않습니다(물통에서 뛰어 울타리를 넘어 목말라 죽던 문제). 독수리는 `physical=false`, 지붕 아래(`sheltered`: 위 8칸 안에 단단한 것, 또는 허치 칸 `hidden`)가 아닌 토끼만 노립니다.
+- **재해:** 홍수는 층마다 BFS: 하늘이 트인 공기 칸(또는 아래가 물인 칸)에서 옆으로 공기를 따라 퍼지므로 닫힌 벙커는 마릅니다. 끝나거나 서버가 중간에 꺼지면 LBM이 물을 지웁니다. 소행성은 `raycast`로 첫 단단한 노드에서 멈추고 풍경만 파며, 먹이 노드는 지웁니다. 피해는 `line_of_sight`가 트인 토끼만.
+- **마을:** 놓은 구조물·먹이에 `owner` 메타(`claim`). `tally`가 세계의 소유자별 집 수용·보육원·망루·먹이·물을 2초마다 셉니다. 행복 = 0.3 집 + 0.2 물 + 0.3 먹이 + 0.2 안전. 매초 `colony_tick`이 클로버(마리당 `income`×(행복+0.5))를 더하고, 행복 ≥ `happy`이고 빈 집이 있으면 `birth`/(1+보육원) 초마다 새끼를 낳습니다. 마을 토끼는 가장 가까운 내 허치(없으면 시작 자리) 12칸 안에 머물고, 포식자·소행성 때는 빈 허치로 숨습니다(허치마다 `capacity`).
+- 검사: `python3 tools/test_habitat.py`(포트 30021). 균형: `python3 tools/sim_habitat.py [분] ["wolf.speed=3.5 colony.birth=40"] [seed] [runs]`(포트 30022, 클라이언트 없이 세계를 강제 로드): 가상 플레이어 넷(`none`, `chase`, `reasonable`, `strong`)이 각자 세계에서 같은 포식자·재해 일정을 겪고 생존율(끝에 산 수 / 마을이 가진 모든 토끼)을 냅니다.
 
 ## 5. 검사 방법과 확인된 범위
 
