@@ -38,7 +38,7 @@ local function run(dad,kid)
 
   -- Dad goes to war: the kit in his hotbar, his bricks put away.
   war(DAD,"")
-  assert(dinv:get_stack("main",1):get_name()=="brickcraft:sword" and dinv:get_stack("main",4):get_name()=="brickcraft:knight","war kit in the hotbar")
+  assert(dinv:get_stack("main",1):get_name()=="brickcraft:sword" and dinv:get_stack("main",4):get_name()=="brickcraft:knight" and dinv:get_stack("main",6):get_name()=="brickcraft:gun","war kit in the hotbar")
   assert(items(dinv,"war_stash")==dad_bricks,"bricks wait in the stash")
   local sword=dinv:get_stack("main",1)
   local function strike(target) return sword:get_definition().on_use(sword,dad,{type="object",ref=target}) end
@@ -98,7 +98,7 @@ local function run(dad,kid)
   end
   assert(cannon and cannon._owner==DAD,"cannon set up")
   sleep(1)
-  dad:set_pos({x=-5.5,y=0,z=-2.6}); kid:set_pos({x=0,y=0,z=-2}); face(kid,WEST); sleep(.6)
+  dad:set_pos({x=-5.5,y=0,z=-2.6}); kid:set_pos({x=0,y=0,z=-2.6}); face(kid,WEST); sleep(.6) -- on Dad's crosshair
   face(dad,EAST)
   local dad_hp=hp(dad)
   cannon:on_rightclick(dad)
@@ -175,17 +175,27 @@ local function run(dad,kid)
   hand_fire()
   assert(s.ammo==ammo-1,"a shot from the hands uses a cannonball")
   sleep(.9)
-  -- Looking at the ground a few blocks ahead, the shot still flies off in an arc.
-  dad:set_look_vertical(.5); sleep(.3)
-  local ball=W.fire_from(dad)
-  assert(ball,"fired looking down")
-  local start,far=dad:get_pos(),0
-  wait(4,function()
-    local q=ball:get_pos()
-    if q then far=math.max(far,flat(q,start)) end
-    return not q
-  end,function() return "ball still flying" end)
-  assert(far>6,("looking down, the ball still flies (%.1f blocks)"):format(far))
+  -- It lands on the crosshair: on the ground a few blocks ahead, and farther off.
+  local far=0
+  for _,pitch in ipairs({.3,.12}) do
+    dad:set_look_vertical(pitch); sleep(.9)
+    local q=W.crosshair(dad,60)
+    assert(q,"the crosshair is on the ground")
+    local ball=W.fire_from(dad)
+    assert(ball,"fired looking down")
+    -- Where it burst: its last step and its speed then (it moves ~1.6 blocks a step).
+    local last,vel
+    wait(4,function()
+      local b=ball:get_pos()
+      if b then last,vel=b,ball:get_velocity() end
+      return not b
+    end,function() return "ball still flying" end)
+    far=flat(q,dad:get_pos())
+    local off=math.huge
+    for k=0,10 do off=math.min(off,vector.distance(vector.add(last,vector.multiply(vel,k*.025)),q)) end
+    assert(off<.8,("the ball landed on the crosshair, %.1f blocks off (%.1f away)"):format(off,far))
+    s.ammo=s.ammo+1
+  end
   face(dad,EAST)
   ammo=s.ammo+1
   sleep(.9)
@@ -195,7 +205,43 @@ local function run(dad,kid)
   wait(3,function() return s.ammo>=3 end,function() return "pile not picked up: "..s.ammo end)
   local ds=W.on(dad)
   assert(dad:hud_get(ds.hud.ammo).number==ds.ammo*2,"the HUD shows "..ds.ammo.." cannonballs")
-  log(("AMMO: hand cannon fired, even looking down (flew %.0f blocks), empty refuses, a pile picked up gives %d"):format(far,s.ammo))
+  log(("AMMO: hand cannon fired onto the crosshair (%.0f blocks), empty refuses, a pile picked up gives %d"):format(far,s.ammo))
+
+  -- Splash: a cannonball bursting by three practice knights. The one it hits takes 1½
+  -- hearts, one 2.5 away half a heart, one 5 away nothing.
+  local near=W.spawn_knight({x=6,y=0,z=-14},nil)
+  local mid=W.spawn_knight({x=6,y=0,z=-11.5},nil)
+  local away=W.spawn_knight({x=6,y=0,z=-9},nil)
+  sleep(.5)
+  W.burst(vector.offset(near.object:get_pos(),0,.8,0),DAD,{x=1,y=0,z=0},near.object,"blue")
+  assert(near._hp==7 and mid._hp==9 and away._hp==10,("splash: %d %d %d"):format(near._hp,mid._hp,away._hp))
+  -- and throws the one 2.5 away a few blocks off (into water, off a wall).
+  local mz=mid.object:get_pos().z
+  sleep(1)
+  assert(mid.object:get_pos().z-mz>2,("the splash threw it %.1f blocks"):format(mid.object:get_pos().z-mz))
+  -- A Red Knight is thrown too, not walking straight back.
+  local rk=W.spawn_knight({x=6,y=0,z=-18},"red")
+  sleep(.4)
+  local rz=rk.object:get_pos().z
+  W.burst(vector.offset(rk.object:get_pos(),0,.5,2.5),DAD,nil,nil,"blue")
+  sleep(1)
+  assert(rz-rk.object:get_pos().z>2,("the splash threw the Red Knight %.1f blocks"):format(rz-rk.object:get_pos().z))
+  local thrown=mid.object:get_pos().z-mz
+  rk.object:remove()
+  log(("SPLASH: a cannonball took 1½ hearts off the knight it hit, ½ off one 2.5 away (thrown %.1f blocks), none 5 away"):format(thrown))
+  -- The Brick Blaster: one shot hits the knight on the crosshair, not the one beside it.
+  near.object:remove(); away.object:remove(); mid.object:set_pos({x=6,y=-.5,z=-14}); mid._home=mid.object:get_pos()
+  near=W.spawn_knight({x=6,y=0,z=-15},nil)
+  dad:set_pos({x=-2,y=0,z=-14}); face(dad,EAST); sleep(.9)
+  local hp1,hp2=mid._hp,near._hp
+  local shot=W.shoot_gun(dad)
+  assert(shot==mid.object and mid._hp==hp1-2 and near._hp==hp2,("gun: hit %s, %d->%d, beside %d->%d"):format(tostring(shot),hp1,mid._hp,hp2,near._hp))
+  assert(not W.shoot_gun(dad),"the gun waits between shots")
+  sleep(.6)
+  dad:set_look_horizontal(EAST+.6)
+  assert(not W.shoot_gun(dad),"a shot at nothing hits nothing")
+  near.object:remove(); mid.object:remove()
+  log("GUN: the blaster hit the knight on the crosshair for a heart, not the one beside it")
 
   -- Dad's blue knight fights a Red Knight (away from the players).
   local kn_item=dinv:get_stack("main",4)

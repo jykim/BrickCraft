@@ -16,7 +16,7 @@ local SHIELD=3 -- seconds nobody can hit you after a knockout or joining
 local LIVES=3 -- knockouts a player can take; the last one ends their war
 local LOW=3 -- half hearts at or under which a player is hurt: slow and pale
 local HEAL_AFTER=10 -- unhit this long, a half heart back every 3 seconds
-local KIT={"brickcraft:sword","brickcraft:cannon","brickcraft:boot","brickcraft:knight","brickcraft:bow"}
+local KIT={"brickcraft:sword","brickcraft:cannon","brickcraft:boot","brickcraft:knight","brickcraft:bow","brickcraft:gun"}
 local KIT_ITEM={}
 for _,item in ipairs(KIT) do KIT_ITEM[item]=true end
 -- Damage in half hearts; how hard it throws you (along the hit, and up), in nodes/s.
@@ -27,10 +27,13 @@ local MOVES={
   cannon={dmg=3,push=12,up=7},
   knight={dmg=1,push=6,up=3,cool=1.1}, -- a knight's sword, red or blue
   arrow={dmg=2,push=3,up=1.5,cool=.45},
+  splash={dmg=1,push=9,up=4.5}, -- a cannonball bursting near (BLAST to SPLASH away): thrown a few blocks
+  gun={dmg=2,push=2,up=.5,cool=.5}, -- one shot, one target: no splash, no broken bricks
 }
 local CANNONS,KNIGHTS=3,4 -- each player's most at once
 local GUARDS=4 -- of a Red Army's knights, how many stay by the Commander as his guards
-local BALL_SPEED,BALL_GRAVITY,BLAST=18,9.81,1.6
+local BALL_SPEED,BALL_GRAVITY,BLAST,SPLASH=18,9.81,1.6,3.5
+local GUN_RANGE=40
 local AMMO_START,AMMO_MAX,AMMO_PILE=6,30,3
 -- The Siege Castle's balance (seconds between shots or steps; tools/sim_siege.py tries
 -- others): red cannons, siege tower builders, castle archers, knights a side.
@@ -306,11 +309,17 @@ local function burst(pos,shooter,ball_dir,direct,side,from)
     minvel={x=-2,y=0,z=-2},maxvel={x=2,y=2.5,z=2},minexptime=.4,maxexptime=.9,minsize=3,maxsize=6,
     texture="brickcraft_smoke.png"})
   local shooter_obj=shooter and C.get_player_by_name(shooter) or from
+  -- A ring of dust out to SPLASH: everything within BLAST takes the full hit, the rest of
+  -- the ring a splash (half a heart, a shove away from the burst).
+  C.add_particlespawner({amount=28,time=.1,minpos=vector.offset(pos,-.3,0,-.3),maxpos=vector.offset(pos,.3,.2,.3),
+    minvel={x=-SPLASH*2,y=.2,z=-SPLASH*2},maxvel={x=SPLASH*2,y=1,z=SPLASH*2},minexptime=.35,maxexptime=.5,
+    minsize=2,maxsize=4,texture="brickcraft_smoke.png^[colorize:#e0a050:90"})
   local landed=false
-  for _,obj in ipairs(C.get_objects_inside_radius(pos,BLAST)) do
+  for _,obj in ipairs(C.get_objects_inside_radius(pos,SPLASH)) do
     if obj~=shooter_obj and is_target(obj) then
       local dir=obj==direct and ball_dir or vector.subtract(obj:get_pos(),pos)
-      if hit(obj,shooter_obj,"cannon",dir,side) then landed=true end
+      local core=obj==direct or vector.distance(obj:get_pos(),pos)<=BLAST
+      if hit(obj,shooter_obj,core and "cannon" or "splash",dir,side) then landed=true end
     end
   end
   return landed
@@ -403,8 +412,47 @@ end
 local function drop_ammo(pos)
   return C.add_entity({x=pos.x,y=math.floor(pos.y+.5)-.15,z=pos.z},"brickcraft:ammo")
 end
--- Fires from the player's hands the way they look, in an arc a little above where they
--- look (never down: looking at the ground ahead would burst it at their feet).
+-- What the player's crosshair is on: the first solid block or target along their look,
+-- out to `range` (nil for open sky).
+local function crosshair(player,range)
+  local eye=vector.offset(player:get_pos(),0,player:get_properties().eye_height or 1.47,0)
+  local dir=player:get_look_dir()
+  for pt in C.raycast(eye,vector.add(eye,vector.multiply(dir,range)),true,false) do
+    if pt.type=="object" then
+      if pt.ref~=player and is_target(pt.ref) then return pt.intersection_point or pt.ref:get_pos(),pt.ref end
+    elseif pt.type=="node" then
+      local def=C.registered_nodes[C.get_node(pt.under).name]
+      if not def or def.walkable~=false then return pt.intersection_point end
+    end
+  end
+end
+-- The velocity that sends a cannonball from `from` to land on q (the low arc), or nil when
+-- q is out of a cannonball's reach.
+local function arc_to(from,q,v)
+  local dx,dz,h=q.x-from.x,q.z-from.z,q.y-from.y
+  local d=math.sqrt(dx*dx+dz*dz)
+  if d<.05 then return {x=0,y=h>0 and v or -v,z=0} end
+  local g=BALL_GRAVITY
+  local disc=v^4-g*(g*d*d+2*h*v*v)
+  if disc<0 then return end
+  local e=math.atan((v*v-math.sqrt(disc))/(g*d))
+  return {x=dx/d*math.cos(e)*v,y=math.sin(e)*v,z=dz/d*math.cos(e)*v}
+end
+-- Aims a cannonball from `from` at the player's crosshair: onto the spot they look at when
+-- it's in reach; else (sky, or too far) along their look, lifted to the farthest arc
+-- (45 degrees) at most.
+local function aim_vel(player,from,low)
+  local q=crosshair(player,60)
+  local vel=q and arc_to(from,q,BALL_SPEED)
+  if vel then return vel end
+  local yaw=player:get_look_horizontal()
+  local h={x=-math.sin(yaw),y=0,z=math.cos(yaw)}
+  local e=math.asin(player:get_look_dir().y)
+  if q then e=math.max(e,math.pi/4) end -- out of reach: as far as it goes
+  e=math.max(low or -.05,math.min(1.1,e))
+  return {x=h.x*math.cos(e)*BALL_SPEED,y=math.sin(e)*BALL_SPEED,z=h.z*math.cos(e)*BALL_SPEED}
+end
+-- Fires from the player's hands at their crosshair (aim_vel).
 local function fire_from(player)
   local name=player:get_player_name()
   local s=war[name]
@@ -415,10 +463,8 @@ local function fire_from(player)
   s.last.cannon=t
   local yaw=player:get_look_horizontal()
   local h={x=-math.sin(yaw),y=0,z=math.cos(yaw)}
-  local e=math.max(.12,math.min(1.1,math.asin(player:get_look_dir().y)+.12))
-  local eye=vector.offset(player:get_pos(),0,1.4,0)
-  return fire(vector.add(eye,vector.multiply(h,.8)),
-    {x=h.x*math.cos(e)*BALL_SPEED,y=math.sin(e)*BALL_SPEED,z=h.z*math.cos(e)*BALL_SPEED},name)
+  local from=vector.add(vector.offset(player:get_pos(),0,1.4,0),vector.multiply(h,.8))
+  return fire(from,aim_vel(player,from),name)
 end
 
 -- A cannon on wheels. Right click it in war: it turns the way you look and fires where you
@@ -452,9 +498,8 @@ C.register_entity(":brickcraft:cannon",{
     local yaw=clicker:get_look_horizontal()
     self.object:set_yaw(yaw)
     local h={x=-math.sin(yaw),y=0,z=math.cos(yaw)}
-    local e=math.max(self._castle and -.8 or -.05,math.min(1.1,math.asin(clicker:get_look_dir().y)))
     local muzzle=vector.add(self.object:get_pos(),{x=h.x*.6,y=.38,z=h.z*.6})
-    fire(muzzle,{x=h.x*math.cos(e)*BALL_SPEED,y=math.sin(e)*BALL_SPEED,z=h.z*math.cos(e)*BALL_SPEED},name)
+    fire(muzzle,aim_vel(clicker,muzzle,self._castle and -.8 or -.05),name)
   end,
 })
 C.register_tool(":brickcraft:cannon",{
@@ -525,6 +570,41 @@ local function shoot_arrow(player)
   local dir=player:get_look_dir()
   return loose(vector.add(vector.offset(player:get_pos(),0,1.45,0),vector.multiply(dir,.6)),dir,name,nil,team_of(name))
 end
+-- The Brick Blaster: a shot straight along the crosshair, hitting the first target in
+-- GUN_RANGE and nothing else (no splash, no broken bricks; a block stops it). No ammo.
+local function shoot_gun(player)
+  local name=player:get_player_name()
+  local s=war[name]
+  if not s then return end
+  local t=now()
+  if (s.last.gun or 0)+MOVES.gun.cool>t then return end
+  s.last.gun=t
+  local eye=vector.offset(player:get_pos(),0,player:get_properties().eye_height or 1.47,0)
+  local dir=player:get_look_dir()
+  local q,target=crosshair(player,GUN_RANGE)
+  q=q or vector.add(eye,vector.multiply(dir,GUN_RANGE))
+  -- A tracer from the muzzle to where it stopped, and a puff at each end.
+  local from=vector.add(vector.offset(eye,0,-.2,0),vector.multiply(dir,.7))
+  local len=vector.distance(from,q)
+  for i=0,math.floor(len/.8) do
+    C.add_particle({pos=vector.add(from,vector.multiply(vector.direction(from,q),i*.8)),expirationtime=.12,
+      size=1.2,texture="brickcraft_gold.png",glow=12})
+  end
+  for _,at in ipairs({from,q}) do
+    C.add_particlespawner({amount=5,time=.05,minpos=at,maxpos=at,minvel={x=-.6,y=.2,z=-.6},maxvel={x=.6,y=.8,z=.6},
+      minexptime=.2,maxexptime=.4,minsize=1.5,maxsize=3,texture="brickcraft_smoke.png"})
+  end
+  if target then hit(target,player,"gun",dir,team_of(name)) end
+  return target
+end
+C.register_tool(":brickcraft:gun",{
+  description="Brick Blaster (war)\nLeft click: a shot straight at your crosshair (1 heart)\nHits one target only: no splash, no broken bricks. No ammo needed",
+  inventory_image="brickcraft_gun.png",wield_image="brickcraft_gun.png",range=4,
+  groups={not_in_creative_inventory=1},
+  on_use=function(stack,user) shoot_gun(user); return stack end,
+  on_secondary_use=function(stack,user) shoot_gun(user); return stack end,
+  on_drop=keep,
+})
 C.register_tool(":brickcraft:bow",{
   description="Bow (war)\nLeft click: shoot an arrow where you look (1 heart)\nAs many arrows as you like",
   inventory_image="brickcraft_bow.png",wield_image="brickcraft_bow.png",range=4,
@@ -1051,9 +1131,12 @@ C.register_entity(":brickcraft:knight",{
   end,
   _hit=function(self,attacker,m,v)
     if self._down then return false end
-    if self._boss and (m==MOVES.cannon or m==MOVES.arrow) and canopy_up(self) then glance(self,attacker); return false end
+    if self._boss and (m==MOVES.cannon or m==MOVES.splash or m==MOVES.arrow or m==MOVES.gun) and canopy_up(self) then glance(self,attacker); return false end
     self.object:add_velocity(self._boss and vector.multiply(v,.5) or v)
     self._stun=now()+.5
+    -- Thrown (a cannonball's blast): it flies till it lands, off a wall or into the water,
+    -- before it walks again.
+    if m.up>=4 then self._thrown=now()+2 end
     if m.dmg==0 then return true end
     flash(self.object,self._tex)
     local armor=m==MOVES.arrow and look_of(self).armor
@@ -1096,11 +1179,14 @@ C.register_entity(":brickcraft:knight",{
         if (not self._team or self._archer) and self._home then self.object:set_pos(self._home) end -- back at their post
         knight_tag(self)
       end
+    elseif self._team and self._thrown and now()<self._thrown and not (self._grounded and (self._stun or 0)<now()) then
+      -- in the air from a blast: let it fly
     elseif self._team and (self._stun or 0)<now() then
+      self._thrown=nil
       self._t=(self._t or 0)+dtime
       if self._t>=.3 then self._t=0; self._still=false; think(self) end
       if self._still then self.object:set_velocity({x=0,y=v.y,z=0}) end
-    elseif self._grounded then
+    elseif self._grounded and not (self._thrown and (self._stun or 0)>now()) then -- (a blast: let it lift off)
       local f=math.max(0,1-dtime*6)
       self.object:set_velocity({x=v.x*f,y=v.y,z=v.z*f})
     end
@@ -1492,7 +1578,7 @@ C.register_chatcommand("orders",{params="<order>",description="War mode: order y
 -- An attached object is drawn in its parent's scale, and players are drawn 10 times their
 -- mesh (visual_size 10): its size and place are a tenth of what they look like (else it
 -- floats, giant, over their head).
-local SHOWN={["brickcraft:sword"]=true,["brickcraft:cannon"]=true,["brickcraft:boot"]=true,["brickcraft:bow"]=true}
+local SHOWN={["brickcraft:sword"]=true,["brickcraft:cannon"]=true,["brickcraft:boot"]=true,["brickcraft:bow"]=true,["brickcraft:gun"]=true}
 C.register_entity(":brickcraft:held",{
   initial_properties={visual="wielditem",visual_size={x=.03,y=.03},physical=false,pointable=false,static_save=false},
   on_step=function(self) if not self.object:get_attach() then self.object:remove() end end,
@@ -2142,7 +2228,7 @@ local td=dofile(C.get_modpath("brickcraft_war").."/td.lua")({things=things,LOOKS
   war=war,set_team=set_team})
 lane_step=td.lane_step
 
-brickcraft.war={td=td,flag_watch=flag_watch,FLAG=FLAG,unstick=unstick,tune=TUNE,reset_castle=reset_castle,siege_army=siege_army,garrison=garrison,castle_damage=castle_damage,army_size=army_size,lab=lab,castle=castle,castle_cell=castle_cell,shoot_arrow=shoot_arrow,start=start,stop=stop,hit=hit,fire=fire,fire_from=fire_from,max_hp=MAX_HP,
+brickcraft.war={td=td,flag_watch=flag_watch,FLAG=FLAG,unstick=unstick,tune=TUNE,reset_castle=reset_castle,siege_army=siege_army,garrison=garrison,castle_damage=castle_damage,army_size=army_size,lab=lab,castle=castle,castle_cell=castle_cell,shoot_arrow=shoot_arrow,shoot_gun=shoot_gun,burst=burst,crosshair=crosshair,start=start,stop=stop,hit=hit,fire=fire,fire_from=fire_from,max_hp=MAX_HP,
   spawn_knight=spawn_knight,canopy_up=canopy_up,_things=function() return things end,command=command,
   orders=function(name) return blue_orders[name] end,bot_fight=bot_fight,plan_red=plan_red,spawn_army=spawn_army,battle=battle,armies=armies,drop_ammo=drop_ammo,
   on=function(player) return war[player:get_player_name()] end}

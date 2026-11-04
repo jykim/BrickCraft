@@ -234,7 +234,7 @@ local function run(dad)
   end
   local n=0
   for ent in pairs(W._things()) do
-    if ent._army==id2 and ent.name=="brickcraft:knight" and not ent._boss and not ent._crew and not ent._build and n<3 then
+    if ent._army==id2 and ent.name=="brickcraft:knight" and not ent._boss and not ent._guard and not ent._crew and not ent._build and n<3 then
       n=n+1; ent.object:set_pos({x=w.x+n-2,y=6.5,z=w.z+6})
     end
   end

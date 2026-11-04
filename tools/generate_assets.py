@@ -338,6 +338,15 @@ def canopy(x,y):  # the Red Commander's shield roof seen from above: 2x2 red shi
     if (u-7.5)**2+(v-7.5)**2<=5: return (246,214,120,255) if (u-7)**2+(v-7)**2<=1 else (206,160,52,255)  # boss
     return (196,44,36,255) if (u+v)%7 else (176,38,32,255)
 png('brickcraft_canopy.png',32,32,canopy)
+def gun_icon(x,y):  # a brick blaster pointing right: gray barrel, coral stripe, brown grip
+    if 5<=x<=27 and 9<=y<=15:
+        if x>=26: return (52,56,64,255)  # muzzle
+        if y==12 and 8<=x<=22: return (235,93,72,255)
+        return (110,116,128,255) if y<=10 else (70,74,84,255)
+    if 7<=x<=12 and 16<=y<=26 and x-7>=(y-16)*.25: return (118,80,52,255)
+    if 14<=x<=17 and 16<=y<=19 and not (x in (15,16) and y<=18): return (52,56,64,255)  # trigger guard
+    return (0,0,0,0)
+png('brickcraft_gun.png',32,32,gun_icon)
 def bow_icon(x,y):  # a wooden bow drawn corner to corner, its string and an arrow across
     t,d=(x-y+31)/2,(x+y-31)/2  # along the bow's line, and off it toward the bottom right
     bend=6.5-((t-15.5)**2)/37
