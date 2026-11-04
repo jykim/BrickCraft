@@ -7,7 +7,8 @@
 -- minifig scale (DEFAULT_SCALE: a minifig as tall as a player) unless a size is given
 -- (/model bonsai 0.3), and its size can change from its menu, until it's first changed
 -- itself: before a part comes off, it's broken, rebuilt or built on, the player is warned
--- and the model goes to size 1 for good, so its parts are the game's pieces. With the separator:
+-- and the model goes to minifig scale for good, the size every changed model and loose
+-- part has, so parts taken off one go on another the same size. With the separator:
 --   * left click takes one part off into the inventory: a part the game has (bricks,
 --     plates, tiles, round bricks, slopes) becomes game bricks of the nearest colour, any
 --     other a "LEGO part" item that can be put down again;
@@ -688,11 +689,22 @@ local function convert(player,inst)
   if not def or not def.bricks then return say(player,"This one has no game-brick version.") end
   local base={x=inst.x,y=math.floor(inst.y+.5),z=inst.z}
   despawn(inst); apply_support(inst,{})
-  local items={}
+  -- The bricks are cells at size 1: at another size each goes to the cell its middle lands
+  -- in, and a cell takes the colour most bricks bring it.
+  local s=inst.scale or 1
+  local votes,cells={},{}
   for _,b in ipairs(def.bricks) do
-    local x,z=rot(b[1],b[3],inst.turn)
-    local pos={x=math.floor(base.x+x+.5),y=base.y+b[2],z=math.floor(base.z+z+.5)}
-    if C.get_node(pos).name=="air" then items[#items+1]={pos=pos,node={name="brickcraft:"..b[4],param2=0}} end
+    local x,z=rot(b[1]*s,b[3]*s,inst.turn)
+    local pos={x=math.floor(base.x+x+.5),y=base.y+math.floor((b[2]+.5)*s),z=math.floor(base.z+z+.5)}
+    local k=key(pos.x,pos.y,pos.z)
+    if not votes[k] then votes[k]={}; cells[#cells+1]={k=k,pos=pos} end
+    votes[k][b[4]]=(votes[k][b[4]] or 0)+1
+  end
+  local items={}
+  for _,c in ipairs(cells) do
+    local best,bn
+    for color,n in pairs(votes[c.k]) do if not bn or n>bn or (n==bn and color<best) then best,bn=color,n end end
+    if C.get_node(c.pos).name=="air" then items[#items+1]={pos=c.pos,node={name="brickcraft:"..best,param2=0}} end
   end
   table.sort(items,function(a,b) return a.pos.y<b.pos.y end)
   local order,stuck=items,{}
@@ -764,7 +776,7 @@ function organize(player,inst,quiet)
   local title=(def.custom and def.title or def.title or "a model")
   drop_instance(inst)
   local stacks=new_instance({custom={title="Parts of "..title:gsub("^Parts of ",""),parts=parts,links=links,ground=ground},
-    x=foot.x,y=foot.y,z=foot.z,turn=0,scale=1,modified=true})
+    x=foot.x,y=foot.y,z=foot.z,turn=0,scale=DEFAULT_SCALE,modified=true})
   spawn(stacks)
   if not quiet then say(player,"Sorted "..#parts.." parts into "..#placed.." stacks.") end
   return stacks
@@ -805,19 +817,19 @@ local function put_part(player,stack,foot)
   if p.mesh=="" then return stack end
   -- Taken before real proportions (a cell a brick tall), its mesh real now: its real height.
   if meta:get_int("real")==0 and real_prefix[prefix_of(p.mesh)] then p.hy=p.hy*9.6/16 end
-  new_instance({part=p,x=foot.x,y=foot.y,z=foot.z,turn=yaw_turn(player),modified=true})
+  new_instance({part=p,x=foot.x,y=foot.y,z=foot.z,turn=yaw_turn(player),scale=DEFAULT_SCALE,modified=true})
   stack:take_item(1)
   return stack
 end
 
 -- One scale before a model changes ------------------------------------------------------
 -- The first change to a model (a part off, broken, rebuilt, built on) asks first: it goes
--- to size 1, the game's scale, and keeps it, so its parts are the game's pieces.
+-- to minifig scale and keeps it, the size of every changed model and loose part.
 local pending={} -- player name -> {id, action}
 local function unify(player,inst)
-  if (inst.scale or 1)~=1 then
+  if (inst.scale or 1)~=DEFAULT_SCALE then
     local old=inst.scale
-    inst.scale=1
+    inst.scale=DEFAULT_SCALE
     local cells=support_cells(inst,inst.gone)
     if S.on(inst) and bricks_on(inst,cells) then
       inst.scale=old
@@ -835,12 +847,13 @@ local function before_change(player,inst,action)
   local name=player:get_player_name()
   pending[name]={id=inst.id,action=action}
   local s=inst.scale or 1
-  local text=s==1 and ("Changing "..def.title.." keeps it at the game's scale (size 1), where its real parts are the game's pieces. After this its size can't change.")
-    or (def.title.." is at size "..s..". Changing it first resizes it to the game's scale (size 1, "..
-      string.format("%.0f",def.h).." cells tall), so its real parts match the game's bricks. After this its size can't change.")
+  local same=s==DEFAULT_SCALE
+  local text=same and ("Changing "..def.title.." keeps it at minifig scale (size "..DEFAULT_SCALE.."), the size of every changed model and loose part. After this its size can't change.")
+    or (def.title.." is at size "..s..". Changing it first resizes it to minifig scale (size "..DEFAULT_SCALE..", "..
+      string.format("%.0f",def.h*DEFAULT_SCALE).." cells tall), the size of every changed model and loose part. After this its size can't change.")
   C.show_formspec(name,"brickcraft_models:unify","formspec_version[4]size[8,4.4]"..
     "textarea[.4,.4;7.2,2.4;;;"..C.formspec_escape(text).."]"..
-    "button_exit[.4,3.2;3.4,.8;yes;"..(s==1 and "Go on" or "Resize and go on").."]"..
+    "button_exit[.4,3.2;3.4,.8;yes;"..(same and "Go on" or "Resize and go on").."]"..
     "button_exit[4.2,3.2;3.4,.8;no;Cancel]")
 end
 C.register_on_player_receive_fields(function(player,formname,fields)
@@ -853,7 +866,7 @@ C.register_on_player_receive_fields(function(player,formname,fields)
 end)
 
 local function resize(player,inst,scale)
-  if inst.modified then return say(player,"This model has been changed, so it stays at the game's scale.") end
+  if inst.modified then return say(player,"This model has been changed, so it stays at its size.") end
   local old=inst.scale or 1
   inst.scale=scale
   local cells=support_cells(inst,inst.gone)
@@ -874,8 +887,8 @@ local function show_menu(player,inst,i)
   local p=def.parts[i]
   local left=0
   for j=1,#def.parts do if not inst.gone[j] then left=left+1 end end
-  local size=inst.modified and "label[.4,6.0;Size 1, the game's scale (fixed: it has been changed)]"
-    or ("field[.4,5.7;2,.7;size;Size;"..(inst.scale or 1).."]button[2.6,5.7;4.4,.7;resize;Change size (1 = game bricks)]")
+  local size=inst.modified and "label[.4,6.0;Size "..(inst.scale or 1).." (fixed: it has been changed)]"
+    or ("field[.4,5.7;2,.7;size;Size;"..(inst.scale or 1).."]button[2.6,5.7;4.4,.7;resize;Change size ("..DEFAULT_SCALE.." = minifig)]")
   local fs="formspec_version[4]size[7.4,8.4]"..size..
     "label[.4,.6;"..C.formspec_escape(def.title).."]"..
     "label[.4,1.1;"..C.formspec_escape(left.." of "..#def.parts.." real parts on it. This one: "..p.part..
@@ -932,7 +945,12 @@ end
 local function part_on_part(player,obj,stack)
   local at,normal=hit_on(player,obj)
   if not at or normal.y<.5 then return say(player,"Put a part on top of another part.") end
-  local foot={x=math.floor(at.x*2+.5)/2,y=at.y,z=math.floor(at.z*2+.5)/2}
+  -- Studs every half cell at size 1, from the model's foot (parts go down at minifig scale).
+  local e=obj:get_luaentity()
+  local inst=e and by_id[e._inst]
+  local o=inst or {x=0,z=0}
+  local pitch=.5*DEFAULT_SCALE
+  local foot={x=o.x+math.floor((at.x-o.x)/pitch+.5)*pitch,y=at.y,z=o.z+math.floor((at.z-o.z)/pitch+.5)*pitch}
   player:set_wielded_item(put_part(player,stack,foot))
 end
 

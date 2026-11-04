@@ -3,7 +3,7 @@
 --     at minifig scale on its spot, each made of its parts while someone is near, with
 --     support nodes to stand on.
 --   * /model puts one down facing the player, at any size; the menu's size changes it.
---   * The first change asks, then resizes to the game's scale for good.
+--   * The first change asks, then resizes to minifig scale for good.
 --   * Parts come off into the inventory: the game's pieces as game bricks, others as LEGO
 --     part items with their own picture, standing upright; strict refuses a part that
 --     carries a game brick, and what a part held up falls when it comes off (gravity).
@@ -103,12 +103,12 @@ C.register_on_joinplayer(function(player)
       local done=false
       M.before_change(player,tr,function() done=true end)
       assert(not done and not tr.modified,"the first change waits for the warning")
-      assert(M.unify(player,tr) and tr.scale==1 and tr.modified,"yes: size 1 for good")
+      assert(M.unify(player,tr) and tr.scale==M.DEFAULT_SCALE and tr.modified,"yes: minifig scale for good")
       M.resize(player,tr,2)
-      assert(tr.scale==1,"a changed model keeps the game's scale")
+      assert(tr.scale==M.DEFAULT_SCALE,"a changed model keeps minifig scale")
       M.before_change(player,tr,function() done=true end)
       assert(done,"later changes don't ask again")
-      log("/model at size 0.5, resized, then size 1 for good after the warning")
+      log("/model at size 0.5, resized, then minifig scale for good after the warning")
 
       -- Parts into the inventory: the game's pieces as game bricks, others as LEGO parts.
       local bricks_part,other_part
@@ -214,7 +214,7 @@ C.register_on_joinplayer(function(player)
       local car=insts.car
       assert(M.unify(player,car))
       local placed,left=M.convert(player,car)
-      assert(placed and placed>20 and not M.instance(car.id),"the car is rebuilt in "..tostring(placed).." game bricks ("..tostring(left).." left out)")
+      assert(placed and placed>10 and not M.instance(car.id),"the car is rebuilt in "..tostring(placed).." game bricks ("..tostring(left).." left out)")
       log("break apart: "..items.." pieces into the inventory; the car rebuilt in "..placed.." game bricks")
 
       -- A LEGO part goes down again as its own one-part model.
