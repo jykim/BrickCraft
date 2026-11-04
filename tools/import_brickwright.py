@@ -9,7 +9,8 @@ gallery and writes, per model:
                                    touch, which stand on the ground, and the same build in
                                    game bricks (for "Convert to game bricks")
 
-Samples go into the game (game/mods/brickcraft_models/models and data/). `--send` puts one
+Samples go into the game (game/mods/brickcraft_models/parts and data/; `parts` isn't a
+media folder, so players get a model's files only when they come near it). `--send` puts one
 into a world's inbox (<world>/brickwright_models/<slug>/) instead, where the running game
 picks it up without a restart; the same version (the same mesh) isn't sent twice. `--status`
 says whether a build is there and whether it's the gallery's current version.
@@ -475,13 +476,12 @@ def import_samples(picks):
         model['title'] = TITLES.get(slug, slug.replace('_', ' ').title())
         model['pieces'] = m.get('brick_count') or len(model['parts'])
         model['prompt'] = (m.get('prompt') or '')[:160]
-        write_model(model, meshes, MOD / 'models', MOD / 'data' / f'{slug}.json', icons=icons, icon_dir=MOD / 'textures')
+        write_model(model, meshes, MOD / 'parts', MOD / 'data' / f'{slug}.json', icons=icons)
         print(describe(model, meshes), flush=True)
-    # The merged meshes, palettes and catalog of the first version are gone.
-    for old in list((MOD / 'models').glob('brickcraft_model_*.glb')):
-        if not re.search(r'_\d+\.glb$', old.name): old.unlink()
-    for old in (MOD / 'textures').glob('brickcraft_model_*.png'):
-        if not re.search(r'_\d+\.png$', old.name): old.unlink()
+    # Earlier versions kept model files in the media every player gets on joining.
+    for old in list((MOD / 'models').glob('brickcraft_model_*')) + list((MOD / 'textures').glob('brickcraft_model_*')):
+        old.unlink()
+    if (MOD / 'models').exists() and not any((MOD / 'models').iterdir()): (MOD / 'models').rmdir()
     if (MOD / 'catalog.lua').exists(): (MOD / 'catalog.lua').unlink()
 
 

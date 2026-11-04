@@ -243,7 +243,7 @@ end
 local hold={} -- instance id -> until when its parts wait (they're still falling)
 local function spawn(inst)
   local def=def_of(inst)
-  if not def or spawned[inst.id] or (def.ready_at and C.get_us_time()<def.ready_at) then return end
+  if not def or spawned[inst.id] then return end
   if hold[inst.id] and C.get_us_time()<hold[inst.id] then return end
   spawned[inst.id]={}
   for i,p in ipairs(def.parts) do
@@ -429,6 +429,50 @@ local function settle(x,z)
   end
 end
 
+-- Media on demand ---------------------------------------------------------------------------
+-- A model's meshes and part pictures aren't in the media every player gets on joining (they
+-- would make joining slow). Each player gets a model's files when they first come near it,
+-- one dynamic media file at a time, kept in their client's cache for next time.
+local files={} -- file name -> path, for every model file the game has
+for _,f in ipairs(C.get_dir_list(MP.."/parts",false) or {}) do files[f]=MP.."/parts/"..f end
+local sent={} -- player name -> {file name -> true (there) | false (on its way)}
+local function files_of(def)
+  if def._files then return def._files end
+  local list,seen={},{}
+  for _,p in ipairs(def.parts) do
+    for _,m in ipairs({p.mesh,p.umesh}) do
+      if m and not seen[m] then
+        seen[m]=true; list[#list+1]=m
+        local png=m:gsub("%.glb$",".png")
+        if files[png] then list[#list+1]=png end
+      end
+    end
+  end
+  def._files=list
+  return list
+end
+-- Whether the player has every file in list; asks for the missing ones.
+local function has_media(name,list)
+  local have=sent[name]
+  if not have then have={}; sent[name]=have end
+  local all=true
+  for _,f in ipairs(list) do
+    if have[f]~=true then
+      all=false
+      if have[f]==nil and files[f] then
+        have[f]=false
+        local ok=C.dynamic_add_media({filename=f,filepath=files[f],to_player=name,ephemeral=false},function(who)
+          if sent[who] then sent[who][f]=true end
+        end)
+        if not ok then have[f]=nil end
+      end
+    end
+  end
+  return all
+end
+C.register_on_leaveplayer(function(player) sent[player:get_player_name()]=nil end)
+
+local shown={} -- instance id -> players who had its files when its parts were made
 local timer=0
 C.register_globalstep(function(dtime)
   timer=timer+dtime
@@ -436,17 +480,25 @@ C.register_globalstep(function(dtime)
   timer=0
   local players=C.get_connected_players()
   for _,inst in ipairs(state.list) do
-    local near=false
+    local def=def_of(inst)
+    local near,ready={},{}
     for _,pl in ipairs(players) do
       local p=pl:get_pos()
-      if math.abs(p.x-inst.x)<NEAR and math.abs(p.z-inst.z)<NEAR then near=true; break end
+      if math.abs(p.x-inst.x)<NEAR and math.abs(p.z-inst.z)<NEAR then
+        local name=pl:get_player_name()
+        near[#near+1]=name
+        if def and has_media(name,files_of(def)) then ready[name]=true end
+      end
     end
-    if near then
+    if #near>0 and next(ready) then
       local parts=spawned[inst.id]
-      if parts then -- an entity can go with its mapblock; put it back
-        for i,obj in pairs(parts) do if not obj:get_pos() then spawn_part(inst,i,def_of(inst).parts[i]) end end
-      else spawn(inst) end
-    elseif spawned[inst.id] then despawn(inst) end
+      local late=false -- someone got the files after the parts were made: make them again
+      for name in pairs(ready) do if parts and not (shown[inst.id] or {})[name] then late=true end end
+      if late then respawn(inst); parts=spawned[inst.id]; shown[inst.id]=ready
+      elseif parts then -- an entity can go with its mapblock; put it back
+        for i,obj in pairs(parts) do if not obj:get_pos() then spawn_part(inst,i,def.parts[i]) end end
+      else spawn(inst); if spawned[inst.id] then shown[inst.id]=ready end end
+    elseif #near==0 and spawned[inst.id] then despawn(inst); shown[inst.id]=nil end
   end
 end)
 
@@ -792,8 +844,8 @@ C.register_on_player_receive_fields(function(player,formname,fields)
   elseif fields.stack then before_change(player,inst,function() organize(player,inst) end)
   elseif fields.turn then turn_model(player,inst); close=false
   elseif fields.away then put_away(player,inst)
-  elseif fields.resize then
-    local s=tonumber(fields.size)
+  elseif fields.resize or fields.key_enter_field=="size" then
+    local s=tonumber(((fields.size or ""):gsub(",",".")))
     if not s or s<MIN_SCALE or s>MAX_SCALE then say(player,"Size is a number from "..MIN_SCALE.." to "..MAX_SCALE.." (1 = game bricks).")
     else resize(player,inst,s) end
   else close=false end
@@ -915,7 +967,18 @@ C.register_entity(":brickcraft:display_model",{
 })
 
 C.register_on_joinplayer(function(player)
+  local name=player:get_player_name()
   local inv=player:get_inventory()
+  -- The pictures of LEGO parts in the inventory (media on demand), once the player is in.
+  local pics={}
+  for i=1,inv:get_size("main") do
+    local st=inv:get_stack("main",i)
+    if st:get_name()=="brickcraft:real_part" then
+      local mesh=st:get_meta():get_string("mesh")
+      if mesh~="" then pics[#pics+1]=mesh:gsub("%.glb$",".png") end
+    end
+  end
+  if #pics>0 then C.after(1,function() if C.get_player_by_name(name) then has_media(name,pics) end end) end
   for i=1,inv:get_size("main") do
     local stack=inv:get_stack("main",i)
     local meta=stack:get_meta()
@@ -1088,15 +1151,13 @@ local function check_inbox(announce)
     if data and text~=seen[slug] and data.slug==slug then
       seen[slug]=text
       local d=def_from(data)
-      d.ready_at=C.get_us_time()+2e6 -- clients get the meshes first
       local prefix=data.mesh_prefix or ("brickcraft_model_"..slug)
       local ok=true
-      for k=1,data.meshes or 0 do
+      for k=1,data.meshes or 0 do -- sent to each player when they come near (media on demand)
         for _,ext in ipairs({".glb",".png"}) do
           local file=prefix.."_"..k..ext
-          if ext==".glb" or io.open(dir.."/"..file) then
-            if not C.dynamic_add_media({filename=file,filepath=dir.."/"..file,ephemeral=false},function() end) then ok=false end
-          end
+          local f=io.open(dir.."/"..file,"rb")
+          if f then f:close(); files[file]=dir.."/"..file elseif ext==".glb" then ok=false end
         end
       end
       if ok then
@@ -1128,4 +1189,4 @@ brickcraft.models={catalog=catalog,models=models,place=place,gallery=gallery_wor
   instances=function() return state.list end,instance=function(id) return by_id[id] end,
   spawned=function(id) return spawned[id] end,take_part=take_part,break_all=break_all,convert=convert,
   turn=turn_model,put_away=put_away,organize=organize,resize=resize,unify=unify,before_change=before_change,hanging=hanging,support_cells=support_cells,def_of=def_of,
-  item_for=item_for,put_part=put_part,settle=settle,box_of=box_of,floor_under=floor_under,check_inbox=check_inbox,SUPPORT=SUPPORT}
+  item_for=item_for,put_part=put_part,has_media=has_media,files_of=files_of,media=files,settle=settle,box_of=box_of,floor_under=floor_under,check_inbox=check_inbox,SUPPORT=SUPPORT}

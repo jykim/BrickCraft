@@ -43,14 +43,24 @@ C.register_on_joinplayer(function(player)
         assert(inst.x==w.x+spot.x and inst.z==w.z+spot.z and inst.y==-.5 and inst.turn==0,m.slug.." on its spot")
         assert((inst.scale or 1)==1 and not inst.modified,m.slug.." at the game's scale, not changed")
       end
-      sleep(2.5)
-      local total=0
-      for _,m in ipairs(M.catalog) do
-        local parts=M.spawned(insts[m.slug].id)
-        local n=0; for _ in pairs(parts or {}) do n=n+1 end
-        assert(n==#m.parts,m.slug..": "..n.." of "..#m.parts.." parts are there")
-        total=total+n
+      -- Media on demand: the files come once the player is near, then the parts appear.
+      assert(not C.get_dir_list(C.get_modpath("brickcraft_models").."/models",false) or
+        #C.get_dir_list(C.get_modpath("brickcraft_models").."/models",false)==0,"no model files in the join-time media")
+      local t0=C.get_us_time()
+      local total,complete=0,false
+      for _=1,300 do
+        total,complete=0,true
+        for _,m in ipairs(M.catalog) do
+          local n=0; for _ in pairs(M.spawned(insts[m.slug].id) or {}) do n=n+1 end
+          if n~=#m.parts then complete=false end
+          total=total+n
+        end
+        if complete then break end
+        sleep(.1)
       end
+      assert(complete,"every part is there once the files came: "..total)
+      assert(M.has_media(name,M.files_of(M.models.bonsai)),"the player has the bonsai's files")
+      log(string.format("media on demand: the gallery's files came in %.1f s",(C.get_us_time()-t0)/1e6))
       -- One scale: the bonsai is 27 brick rows tall; a real 2 x 2 brick is one cell.
       local bonsai=M.models.bonsai
       assert(math.abs(bonsai.h-27.17)<.1,"the bonsai is 27 cells tall: "..bonsai.h)
@@ -77,6 +87,16 @@ C.register_on_joinplayer(function(player)
       assert(first:get_properties().visual_size.x==.5,"its parts are drawn at half size")
       M.resize(player,tr,2)
       assert(tr.scale==2,"resized to 2")
+      -- The menu's size box: Enter (no button) and a decimal comma both work.
+      local menu_fields=C.registered_on_player_receive_fields
+      local function menu_send(fields)
+        for _,f in ipairs(menu_fields) do if f(player,"brickcraft_models:menu",fields) then return end end
+      end
+      local _,one=next(M.spawned(tr.id))
+      one:get_luaentity().on_rightclick(one:get_luaentity(),player) -- opens the menu (separator in hand)
+      menu_send({size="0,5",key_enter_field="size",key_enter="true"})
+      assert(tr.scale==.5,"Enter in the size box resizes: "..tostring(tr.scale))
+      M.resize(player,tr,2)
       assert(not M.place(name,"train 9"),"a size out of range is refused")
       -- The first change asks first, then resizes to 1 and keeps it there.
       local done=false
@@ -217,13 +237,17 @@ C.register_on_joinplayer(function(player)
         sleep(.1)
       end
       assert(sent,"the sent model was picked up from the inbox")
-      sleep(3)
+      sleep(1)
       local in_gallery
       for _,inst in ipairs(M.instances()) do if inst.slug==sent.slug then in_gallery=inst end end
       assert(in_gallery,"the sent model stands in the gallery")
       player:set_pos(at(in_gallery.x-w.x,1.5,in_gallery.z-w.z-6))
-      sleep(2)
-      local n=0; for _ in pairs(M.spawned(in_gallery.id) or {}) do n=n+1 end
+      local n=0
+      for _=1,150 do
+        n=0; for _ in pairs(M.spawned(in_gallery.id) or {}) do n=n+1 end
+        if n==#sent.parts then break end
+        sleep(.1)
+      end
       assert(n==#sent.parts,"its "..#sent.parts.." parts are there: "..n)
       log("sent from BrickWright: "..sent.title.." ("..sent.slug..", "..n.." parts) without a restart")
 
