@@ -136,6 +136,23 @@ local function run(dad)
   for _=1,6 do if not wolf._gone then wolf:_hit(dad,{dmg=1}) end end
   assert(wolf._gone and hunters()==0,"the wolf ran off")
   log("punches chased the wolf away")
+  -- One that keeps pressing against the wall gives up and goes.
+  local presser=C.add_entity({x=yard.x+4,y=.5,z=yard.z},"brickcraft_habitat:wolf"):get_luaentity()
+  wait(40,function() return presser._gone or presser._caught>=2 end,function() return "it never gave up (pressed "..math.floor(presser._pressed or 0).." s)" end)
+  log("a wolf pressing against the fence gave up")
+  kill_hunters()
+  -- A fence piece put down right on a wolf: it hops out, to the side away from the bunny.
+  local wedged=C.add_entity({x=yard.x+3,y=-.45,z=yard.z},"brickcraft_habitat:wolf"):get_luaentity()
+  sleep(.3)
+  wedged.object:set_pos({x=yard.x+3,y=-.45,z=yard.z})
+  C.set_node({x=yard.x+3,y=0,z=yard.z},{name="brickcraft_habitat:fence"})
+  park(fenced,{x=yard.x,y=.5,z=yard.z})
+  local function in_fence() local q=wedged.object:get_pos(); return C.get_item_group(C.get_node(vector.round(q)).name,"habitat_fence")>0 end
+  wait(8,function() return not in_fence() end,function() return "the wolf stayed in the fence: "..C.pos_to_string(vector.subtract(wedged.object:get_pos(),yard),1) end)
+  assert(wedged.object:get_pos().x>yard.x+2.4,"still outside the wall")
+  log("a wolf with a fence put down on it got out of it, still outside")
+  C.remove_node({x=yard.x+3,y=0,z=yard.z})
+  kill_hunters()
 
   -- An eagle: the fenced bunny is in the open sky, so it's snatched...
   local eagle_ent=H.spawn_predator(w,"eagle")
@@ -239,6 +256,18 @@ local function run(dad)
   local c=H.colony(w,"dad"); c.next_birth=0
   wait(10,function() return mine()==6 end,function() return "no baby: "..H.colony_status(w,H.variants.bunny,"dad").advice end)
   log("Dad's colony of 5 had a baby ("..s.happy.."% happy)")
+  -- Herding: called, they follow Dad 8 blocks; told to stay, that's their home.
+  assert(H.call(dad),"call")
+  dad:set_pos(vector.offset(site,-8,.5,0))
+  local near=function()
+    local n=0
+    for e in pairs(H.live) do local q=e.object:get_pos(); if e._owner=="dad" and q and H.flat(q,dad:get_pos())<3.5 then n=n+1 end end
+    return n
+  end
+  wait(20,function() return near()>=5 end,function() return "only "..near().." followed" end)
+  assert(H.stay(dad) and H.colony(w,"dad").home,"stay")
+  for e in pairs(H.live) do assert(e._follow==nil,"still following") end
+  log("called, "..near().." bunnies followed Dad; told to stay, that's their home")
   c.clovers=30
   assert(H.buy(dad,"hutch") and math.floor(c.clovers)<=5,"bought a hutch")
   assert(not H.buy(dad,"nursery"),"can't afford a nursery")

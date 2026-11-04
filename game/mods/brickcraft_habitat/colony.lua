@@ -244,7 +244,9 @@ function H.home_of(self)
   local w=brickcraft.world_at(p)
   local o=H.tally(w)[self._owner]
   local c=H.variant_of(w) and H.colony(w,self._owner)
-  self._home=(o and nearest(o.homes,p,60)) or (c and c.start)
+  -- Told where home is (/colony stay): the nearest hutch there, or that spot.
+  if c and c.home then self._home=(o and nearest(o.homes,c.home,14)) or c.home
+  else self._home=(o and nearest(o.homes,p,60)) or (c and c.start) end
   self._home_until=now()+5
   return self._home
 end
@@ -359,6 +361,37 @@ function H.start_colony(p)
   return true,"Your colony of "..made.." is here. You got "..table.concat(got,", ")..
     ". Place hutches (homes), food and water near them; /colony shows how it's doing."
 end
+-- Herding: your colony's creatures within 30 follow you (2 minutes), or stop and make
+-- where you stand their home.
+local function mine_near(p,r)
+  local owner,pp,out=owner_of(p),p:get_pos(),{}
+  for ent in pairs(H.live) do
+    local q=ent.object:get_pos()
+    if q and ent._owner==owner and vector.distance(q,pp)<r then out[#out+1]=ent end
+  end
+  return out
+end
+function H.call(p)
+  local w,v=H.world_at(p:get_pos())
+  if not (w and v.colony) then return false,"Call your colony in a habitat world." end
+  local list=mine_near(p,30)
+  for _,ent in ipairs(list) do ent._follow,ent._follow_until=p:get_player_name(),now()+120 end
+  if #list==0 then return false,"None of your "..v.plural.." are within 30 blocks." end
+  return true,#list.." "..v.plural.." follow you (2 minutes). Lead them through the gate, then /colony stay."
+end
+function H.stay(p)
+  local w,v=H.world_at(p:get_pos())
+  if not (w and v.colony) then return false,"Not in a habitat world." end
+  local name=p:get_player_name()
+  local n=0
+  for _,ent in ipairs(mine_near(p,60)) do
+    if ent._follow==name then ent._follow=nil; n=n+1 end
+    ent._home_until=nil
+  end
+  local c=H.colony(w,owner_of(p))
+  c.home=vector.round(p:get_pos()); H.save(w)
+  return true,(n>0 and n.." stopped. " or "").."Your colony's home is here now: they stay near it (or your nearest hutch here)."
+end
 function H.buy(p,id)
   local w,v=H.world_at(p:get_pos())
   if not (w and v.colony) then return false,"Buy things in a habitat with colonies." end
@@ -465,7 +498,8 @@ function H.colony_panel(p)
   local lv,i=level_of(v,s.best)
   local nxt=v.colony.levels[i+1]
   fs=fs.."label[.6,8.3;"..C.formspec_escape(nxt and ("Next: "..nxt[2].." at "..nxt[1].." "..P.." (+"..(nxt[3] or 0).." clovers)") or "Top level reached!").."]"
-  if s.pop==0 then fs=fs.."style[start;bgcolor=#f5872c]button[.6,8.9;3.6,.8;start;Start a colony of "..v.colony.start.."]" end
+  if s.pop==0 then fs=fs.."style[start;bgcolor=#f5872c]button[.6,8.9;3.6,.8;start;Start a colony of "..v.colony.start.."]"
+  else fs=fs.."button[.6,8.9;1.75,.8;call;Call them]button[2.45,8.9;1.75,.8;stay;Stay here]" end
   fs=fs.."button[4.4,8.9;3,.8;habitat;Habitat panel]button_exit[7.6,8.9;2.8,.8;close;Back to building]"
   C.show_formspec(name,"brickcraft_habitat:colony",fs)
 end
@@ -474,19 +508,23 @@ C.register_on_player_receive_fields(function(p,formname,fields)
   local name=p:get_player_name()
   if fields.habitat then H.panel(p); return true end
   if fields.start then local _,msg=H.start_colony(p); C.chat_send_player(name,msg); H.colony_panel(p); return true end
+  if fields.call then local _,msg=H.call(p); C.chat_send_player(name,msg); C.close_formspec(name,"brickcraft_habitat:colony"); return true end
+  if fields.stay then local _,msg=H.stay(p); C.chat_send_player(name,msg); H.colony_panel(p); return true end
   for f in pairs(fields) do
     local id=f:match("^buy_(.+)$")
     if id then local _,msg=H.buy(p,id); C.chat_send_player(name,msg); H.colony_panel(p); return true end
   end
   return true
 end)
-C.register_chatcommand("colony",{params="[start | buy <item> | top]",
+C.register_chatcommand("colony",{params="[start | call | stay | buy <item> | top]",
   description="Your own colony in a habitat: start one with 5 bunnies, see how it's doing, buy hutches and food",
   func=function(name,param)
     local p=C.get_player_by_name(name); if not p then return end
     local cmd,arg=param:match("^(%S*)%s*(.-)%s*$")
     if cmd=="start" then local _,msg=H.start_colony(p); return true,msg end
     if cmd=="buy" then local _,msg=H.buy(p,arg); return true,msg end
+    if cmd=="call" then local _,msg=H.call(p); return true,msg end
+    if cmd=="stay" then local _,msg=H.stay(p); return true,msg end
     if cmd=="top" then
       local w,v=H.world_at(p:get_pos())
       if not (w and v.colony) then return true,"Not a habitat with colonies." end

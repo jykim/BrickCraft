@@ -4,11 +4,11 @@
 return function(H)
 H.register_predator("wolf",{label="Wolf",mesh="brickcraft_habitat_wolf.obj",texture="brickcraft_habitat_wolf.png",
   hp=6,speed=3.9,damage=4,bite=1.2,jump=6.6,appetite=2,stay=150,sight=40,
-  box={-.3,0,-.3,.3,1,.3},
+  box={-.48,0,-.48,.48,1,.48}, -- wide enough that the long body doesn't poke through a fence
   tip="Fences two bricks high keep wolves out (but not where a hill reaches the fence)."})
 H.register_predator("lion",{label="Lion",mesh="brickcraft_habitat_lion.obj",texture="brickcraft_habitat_lion.png",
   hp=12,speed=3.5,damage=10,bite=1.5,jump=8,leaps=true,appetite=2,stay=120,sight=40,reach=1.4,
-  box={-.4,0,-.4,.4,1.3,.4},
+  box={-.6,0,-.6,.6,1.3,.6},
   tip="Lions leap fences! Chase it off together, or keep the bunnies behind a brick wall two high."})
 H.register_predator("eagle",{label="Eagle",mesh="brickcraft_habitat_eagle.obj",texture="brickcraft_habitat_eagle.png",
   flies=true,hp=4,speed=8,dive=11,damage=10,bite=1,appetite=2,stay=100,sight=45,altitude=14,

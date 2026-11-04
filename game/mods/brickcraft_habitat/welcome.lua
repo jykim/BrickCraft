@@ -47,6 +47,8 @@ local function text(p,w,v)
   end
   t=t.."\n<b>Tips</b>\n"..(v.tip or "").."\n"..
     (v.keep_in or "").."\n"..
+    "Herding: right click one of your "..P.." and it follows you; /colony call brings all of them, /colony stay makes "..
+    "where you stand their home. Walk up to one to shoo it along.\n"..
     "/habitat: predators, disasters, skins, food and water    /colony: your colony and shop    /skin: bunny looks"
   return t
 end

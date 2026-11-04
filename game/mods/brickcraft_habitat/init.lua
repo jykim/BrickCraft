@@ -253,6 +253,48 @@ local function stuck_jump(self,moveresult,v,leaps)
   if step then self.object:set_velocity({x=vel.x,y=v,z=vel.z}); return true end
 end
 H.stuck_jump=stuck_jump
+-- Wedged: something solid (a fence piece put down on top of it, a brick) where it stands,
+-- and it hasn't moved for 2 s though it's trying to. It hops to the nearest free spot,
+-- the one scoring best by score(spot) (a predator: away from its prey).
+local function blocked_at(p)
+  for _,dy in ipairs({0,1}) do
+    local n=C.get_node({x=math.floor(p.x+.5),y=math.floor(p.y+.5)+dy,z=math.floor(p.z+.5)}).name
+    if solid(n) then return true end
+  end
+  -- Or a fence piece's collision reaching into the cell beside it.
+  for _,o in ipairs({{1,0},{-1,0},{0,1},{0,-1}}) do
+    local q={x=math.floor(p.x+.5+o[1]*.35),y=math.floor(p.y+.5),z=math.floor(p.z+.5+o[2]*.35)}
+    if C.get_item_group(C.get_node(q).name,"habitat_fence")>0 and (q.x~=math.floor(p.x+.5) or q.z~=math.floor(p.z+.5)) then
+      local nd=C.get_node(q)
+      if math.abs(p.x-q.x)<.45 or math.abs(p.z-q.z)<.45 then return true end
+    end
+  end
+  return false
+end
+function H.unstick(self,score)
+  local p=self.object:get_pos()
+  local moved=self._was and vector.distance(p,self._was) or 1
+  if moved>.2 or not self._target then self._was,self._still_since=p,now(); return false end
+  if now()-(self._still_since or now())<2 or not blocked_at(p) then return false end
+  local c={x=math.floor(p.x+.5),y=math.floor(p.y+.5),z=math.floor(p.z+.5)}
+  local best,bs
+  for r=1,2 do for dx=-r,r do for dz=-r,r do
+    if math.max(math.abs(dx),math.abs(dz))==r then
+      for _,dy in ipairs({0,1,-1}) do
+        local q={x=c.x+dx,y=c.y+dy,z=c.z+dz}
+        local function free(y) local n=C.get_node({x=q.x,y=y,z=q.z}).name; return not solid(n) and C.get_item_group(n,"habitat_fence")==0 end
+        if free(q.y) and free(q.y+1) and solid(C.get_node({x=q.x,y=q.y-1,z=q.z}).name) then
+          local s=(score and score(q) or 0)-r*.1
+          if not bs or s>bs then best,bs=q,s end
+        end
+      end
+    end
+  end end if best then break end end
+  self._was,self._still_since=nil,now()
+  if not best then return false end
+  self.object:set_pos({x=best.x,y=best.y-.45,z=best.z}); self.object:set_velocity({x=0,y=0,z=0})
+  return true
+end
 -- Ran into something sideways this step.
 function H.blocked(moveresult)
   for _,c in ipairs(moveresult and moveresult.collisions or {}) do
@@ -375,6 +417,15 @@ function H.register_creature(id,def)
     -- Patting one shows how it's doing.
     on_punch=function() return true end,
     on_rightclick=function(self,clicker)
+      -- Your own: it follows you (again: it stays). Anyone's: how it's doing.
+      if self._owner and H.owner_of and H.owner_of(clicker)==self._owner then
+        local name=clicker:get_player_name()
+        if self._follow==name then self._follow=nil
+          C.chat_send_player(name,C.colorize("#ffd27a","It stays here. (/colony stay: all of them, and this becomes their home)"))
+        else self._follow,self._follow_until=name,now()+120
+          C.chat_send_player(name,C.colorize("#ffd27a","It follows you for 2 minutes. Right click it again to let it stay."))
+        end
+      end
       local need=self._food<40 and "hungry" or self._water<40 and "thirsty" or "happy"
       local whose=self._owner and ((brickcraft.styles[self._owner] or {}).label or self._owner).."'s " or ""
       C.chat_send_player(clicker:get_player_name(),C.colorize("#ffd27a",whose..def.label..": "..need..
@@ -429,6 +480,8 @@ function H.creature_step(self,def,dtime,moveresult)
   self._think=self._think-dtime
   if self._think>0 then return end
   self._think=.3
+  local home=H.home_of and H.home_of(self)
+  if H.unstick(self,function(s) return home and -H.flat(s,home) or 0 end) then return end
   local w,v=H.world_at(p)
   local danger=w and H.active[w.id]
   -- Drowning in a flood.
@@ -447,6 +500,16 @@ function H.creature_step(self,def,dtime,moveresult)
     self._heal=(self._heal or 0)+.3
     if self._heal>=(def.heal or 15) then self._heal=0; self._hp=self._hp+1 end
   end
+  -- A player walking right up to it shoos it out of the way.
+  for _,pl in ipairs(C.get_connected_players()) do
+    local pp=pl:get_pos()
+    if flat(p,pp)<.9 and math.abs(pp.y-p.y)<1.5 and self._follow~=pl:get_player_name() then
+      local away={x=p.x-pp.x,y=0,z=p.z-pp.z}
+      if vector.length(away)<.05 then away={x=rnd(-1,1),y=0,z=rnd(-1,1)} end
+      self._target=vector.add(p,vector.normalize(away)); steer(self,self._target,3)
+      return
+    end
+  end
   -- 1. Run from a predator close by, toward shelter if there's some near.
   local hunter,hd=nearest_hunter(p,H.alert_of and H.alert_of(self,p) or def.alert or 9)
   if hunter then
@@ -461,6 +524,18 @@ function H.creature_step(self,def,dtime,moveresult)
     self._target=target; self._mood="flee"
     steer(self,target,def.run or speed*2)
     return
+  end
+  -- Following its owner (herding: right click, /colony call).
+  if self._follow then
+    local pl=C.get_player_by_name(self._follow)
+    local pp=pl and pl:get_pos()
+    if not pp or now()>(self._follow_until or 0) or vector.distance(p,pp)>40 then self._follow=nil
+    else
+      local d=flat(p,pp)
+      self._target=d>1.8 and pp or nil
+      steer(self,self._target,d>5 and (def.run or speed*2) or speed*1.4)
+      return
+    end
   end
   -- 2. A disaster: high ground from a flood, cover from the sky.
   if danger and danger.started then
@@ -596,7 +671,10 @@ function H.walker_step(self,def,dtime,moveresult)
   if self._gone then return end
   if self._target then
     stuck_jump(self,moveresult,def.jump or 6.6,def.leaps)
-    if H.blocked(moveresult) then self._blocked=(self._blocked or 0)+dtime end
+    if H.blocked(moveresult) then
+      self._blocked=(self._blocked or 0)+dtime
+      self._pressed=(self._pressed or 0)+dtime -- all the time spent against something
+    end
   end
   self._think=self._think-dtime
   if self._think>0 then return end
@@ -604,6 +682,9 @@ function H.walker_step(self,def,dtime,moveresult)
   local p=self.object:get_pos()
   local w=brickcraft.world_at(p)
   if (self._scared or 0)>now() then return end
+  -- Wedged in something: out, on the side away from the prey it was after.
+  local pa=self._prey_at
+  if H.unstick(self,function(s) return pa and H.flat(s,pa) or 0 end) then self._detour,self._blocked=nil,0; return end
   local speed=def.speed or 3
   if leaving(self,def) then
     self._target=leave(self,p,w,speed)
@@ -624,9 +705,10 @@ function H.walker_step(self,def,dtime,moveresult)
   end
   local q=prey.object:get_pos()
   self._target=q
+  self._prey_at=q
   -- Stuck (a fence, a cliff) with no way closer for 15 s: it gives up and goes.
   if not self._best or d<self._best-1 then self._best,self._best_at=d,now() end
-  if now()-self._best_at>15 then
+  if now()-self._best_at>15 or (self._pressed or 0)>10 then
     self._caught=def.appetite or 2
     H.tell(w,"The "..def.label:lower().." couldn't get to the "..(H.variant_of(w) and H.variant_of(w).plural or "animals").." and gave up.","#9be59b")
     return
@@ -1111,6 +1193,7 @@ for _,row in ipairs({
   {"/habitat","Habitat panel (in Bunnyland): predators, disasters, skins, food and water"},
   {"/habitat help","Bunnyland's rules and settings (predators on/off, Calm / Normal / Wild)"},
   {"/colony, /colony start","Your own bunny colony: start with 5, grow it with hutches, food, water; buy with clovers"},
+  {"Right click your bunny, /colony call","It (or all of yours near) follows you; /colony stay: they stop, and that's their home"},
   {"/disaster flood|earthquake|asteroids","Start a disaster in this habitat (/disaster stop ends it)"},
   {"/predator wolf|lion|eagle","Call a predator; punch it (or use war weapons) to chase it away"},
   {"/skin snow|cocoa|gray|rose|off","Wear a bunny look"},
