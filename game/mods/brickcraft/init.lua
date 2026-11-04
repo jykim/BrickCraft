@@ -724,6 +724,78 @@ local function load_bricks(player,id)
   for i=1,inv:get_size("main") do inv:set_stack("main",i,saved[i] or "") end
   return true
 end
+-- Sorting: the separator in slot 1 and each game color in the slot its key picks (2-9 0 - =).
+-- Below, every kind starts its own row while that fits: extra color stacks, then LEGO parts
+-- by part (name, number) and color, then anything else. Stacks of the same thing merge.
+local function hue(hex)
+  local r,g,b=tonumber(hex:sub(2,3),16),tonumber(hex:sub(4,5),16),tonumber(hex:sub(6,7),16)
+  if not (r and g and b) then return 99 end
+  local mx,mn=math.max(r,g,b),math.min(r,g,b)
+  local d=mx-mn
+  if d<20 then return 10-mx/255 end -- greys after the colors, light to dark
+  local h
+  if mx==r then h=((g-b)/d)%6 elseif mx==g then h=(b-r)/d+2 else h=(r-g)/d+4 end
+  return h
+end
+local color_slot={["brickcraft:separator"]=1}
+for i,c in ipairs(colors) do color_slot["brickcraft:"..c]=i+1 end
+local function sort_key(st)
+  local name=st:get_name()
+  if color_slot[name] then return {1,"",color_slot[name],0} end
+  local meta=st:get_meta()
+  if meta:get_string("part")~="" then
+    return {2,meta:get_string("cname").." "..meta:get_string("part"),hue(meta:get_string("bc_color")),0}
+  end
+  return {3,name,0,0}
+end
+local function sort_bricks(player)
+  local inv=player:get_inventory()
+  local list=inv:get_size("war_stash")>0 and "war_stash" or "main" -- in war mode the bricks wait there
+  local size=inv:get_size(list)
+  local top=#colors+1
+  local fixed,rest={},{}
+  local function merge(st)
+    for _,r in ipairs(rest) do
+      st=r:add_item(st)
+      if st:is_empty() then return end
+    end
+    rest[#rest+1]=st
+  end
+  for _,st in ipairs(inv:get_list(list)) do
+    if not st:is_empty() then
+      local s=color_slot[st:get_name()]
+      if s then
+        if not fixed[s] then fixed[s]=st
+        else st=fixed[s]:add_item(st); if not st:is_empty() then merge(st) end end
+      else merge(st) end
+    end
+  end
+  table.sort(rest,function(a,b)
+    local ka,kb=sort_key(a),sort_key(b)
+    for i=1,3 do if ka[i]~=kb[i] then return ka[i]<kb[i] end end
+    return a:get_count()>b:get_count()
+  end)
+  -- Each kind starts a new row of the 8-wide grid when that still fits, else they pack.
+  local function kind(st) local k=sort_key(st); return k[1]..k[2] end
+  local function lay(spaced)
+    local out,pos,last={},top,nil
+    for s,st in pairs(fixed) do out[s]=st end
+    for _,st in ipairs(rest) do
+      if spaced and last and kind(st)~=last and pos%8~=0 then pos=pos+8-pos%8 end
+      last=kind(st); pos=pos+1
+      if pos>size then
+        if spaced then return nil end
+        -- Fuller than the rows below: the empty color slots take what's left.
+        local s=top; while s>1 and out[s] do s=s-1 end
+        if s==1 then break end -- (can't happen: no more stacks than slots)
+        out[s]=st
+      else out[pos]=st end
+    end
+    return out
+  end
+  local out=lay(true) or lay(false)
+  for i=1,size do inv:set_stack(list,i,out[i] or "") end
+end
 local function give_starter(inv)
   inv:set_list("main",{})
   inv:set_stack("main",1,"brickcraft:separator")
@@ -891,7 +963,9 @@ end
 
 function inventory_formspec(player)
   local current=get_shape(player)
-  local fs="formspec_version[6]size[10.8,12.8]label[.4,.4;BRICKCRAFT / YOUR BRICKS   (Tab: next piece)]"
+  local fs="formspec_version[6]size[10.8,13.2]label[.4,.4;BRICKCRAFT / YOUR BRICKS   (Tab: next piece)]"..
+    "button[7.65,.12;2.8,.52;sort;Sort by type & color]"..
+    "tooltip[sort;Each color goes to its key (2-9 0 - =), LEGO parts line up by part and color]"
   -- One row per piece family; the tooltip names the real catalog part.
   local rows,order={}, {}
   local strict_here=strict.on(player:get_pos())
@@ -922,7 +996,7 @@ function inventory_formspec(player)
     "button[8.05,11.8;2.4,.6;turn;Turn next brick]"..
     (brickcraft.war and "style[war;bgcolor=#b8402c]button[.4,11.8;2.4,.6;war;"..
       (brickcraft.war.on(player) and "Stop war" or "War mode").."]"..
-    "label[3,12.1;Cannons, swords, kicks: only players in war mode can be hit]" or "")
+    "label[.4,12.75;Cannons, swords, kicks: only players in war mode can be hit]" or "")
 end
 C.register_on_player_receive_fields(function(player,formname,fields)
   if formname=="brickcraft:welcome" and fields.help then show_help(player); return true end
@@ -962,6 +1036,7 @@ C.register_on_player_receive_fields(function(player,formname,fields)
   if formname~="" then return end
   if fields.undo then undo_last(player); return true end
   if fields.turn then turn_next(player); return true end
+  if fields.sort then sort_bricks(player); return true end
   if fields.help then show_help(player); return true end
   if fields.look then show_style_picker(player); return true end
   if fields.world then picked[player:get_player_name()]=nil; show_world_picker(player); return true end
@@ -1182,7 +1257,7 @@ brickcraft={shapes=shape_by_id,shape_list=shapes,colors=colors,set_shape=set_sha
   remember=remember,forget=function(name) history[name]=nil end,
   refresh_inventory=function(p) p:set_inventory_formspec(inventory_formspec(p)) end,help=help_rows,get_shape=get_shape,
   get_style=get_style,home_pos=home_pos,playing_as=playing_as,world_at=world_at,worlds=function() return worlds end,
-  make_world=make_world,save_worlds=save_worlds,testing=testing,
+  make_world=make_world,save_worlds=save_worlds,testing=testing,sort_bricks=sort_bricks,
   -- Mod storage belongs to the mod that asks for it; the BrickCraft mods share this one so
   -- worlds saved before the split keep their data.
   storage=storage,placers=placers,strict=strict,strict_ok=strict_ok}

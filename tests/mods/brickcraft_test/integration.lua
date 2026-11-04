@@ -65,6 +65,33 @@ C.register_on_joinplayer(function(player)
       assert(C.get_node(undo_pos).name=="brickcraft:coral" and inv:get_stack("main",2):get_count()==22,
         "undo collection restores node and removes refund")
       C.remove_node(undo_pos); inv:add_item("main","brickcraft:coral")
+      -- Sort: each color to its key slot (merged), LEGO parts by part then color, a row per part.
+      do
+        local keep=inv:get_list("main")
+        local function part(id,name,color)
+          local st=ItemStack("brickcraft:real_part"); local m=st:get_meta()
+          m:set_string("part",id); m:set_string("cname",name); m:set_string("bc_color",color); return st
+        end
+        inv:set_list("main",{})
+        inv:set_stack("main",5,"brickcraft:separator")
+        inv:set_stack("main",1,"brickcraft:navy 27"); inv:set_stack("main",20,"brickcraft:navy 48")
+        inv:set_stack("main",9,"brickcraft:coral 3"); inv:set_stack("main",30,"brickcraft:tan 2")
+        inv:set_stack("main",14,part("3062","Round 1 x 1","#0055BF"))
+        inv:set_stack("main",2,part("3062","Round 1 x 1","#C91A09"))
+        inv:set_stack("main",3,part("3062","Round 1 x 1","#0055BF"))
+        inv:set_stack("main",4,part("3040","Slope 45 2 x 1","#FFFFFF"))
+        for _,f in ipairs(C.registered_on_player_receive_fields) do if f(player,"",{sort="x"}) then break end end
+        local function at(i) return inv:get_stack("main",i) end
+        assert(at(1):get_name()=="brickcraft:separator","sort: separator in slot 1")
+        assert(at(2):get_name()=="brickcraft:coral" and at(2):get_count()==3,"sort: coral on key 2")
+        assert(at(8):get_name()=="brickcraft:navy" and at(8):get_count()==75,"sort: navy stacks merged on key 8")
+        assert(at(12):get_name()=="brickcraft:tan","sort: tan on key =")
+        assert(at(3):is_empty() and at(9):is_empty(),"sort: missing colors leave their key slot empty")
+        assert(at(13):get_meta():get_string("part")=="3062" and at(13):get_meta():get_string("bc_color")=="#C91A09" and
+          at(14):get_count()==2 and at(15):is_empty(),"sort: round 1 x 1 red then two blue merged")
+        assert(at(17):get_meta():get_string("part")=="3040","sort: the slope starts the next row")
+        inv:set_list("main",keep)
+      end
       assert(C.registered_chatcommands.keys.func(name),"/keys opens the help screen")
       assert(C.registered_items["brickcraft:gold"].range==7,"bricks reach as far as the separator")
       C.close_formspec(name,"brickcraft:help")
