@@ -214,3 +214,18 @@ png('brickcraft_habitat_clover_eaten.png',32,32,lambda x,y:(120,150,80,255) if (
 
 # --- A tuft of fur (bite effect).
 png('brickcraft_habitat_fur.png',6,6,lambda x,y:(246,240,232,max(0,int(255-((x-2.5)**2+(y-2.5)**2)*40))))
+
+# Guardian cat: short muzzle, pointed ears, white paws and an upright tail.
+m=Boxes()
+m.box(-.18,.2,-.3,.18,.5,.3,0)
+m.box(-.2,.4,-.48,.2,.7,-.16,0)
+m.pair(.1,.7,-.4,.19,.87,-.24,0)
+m.pair(.12,.72,-.405,.17,.81,-.39,3)
+m.pair(.08,.56,-.49,.14,.62,-.48,2)
+m.box(-.04,.49,-.51,.04,.53,-.48,3)
+for z in (-.22,.22): m.pair(.09,0,z-.06,.18,.23,z+.06,1)
+m.box(-.05,.3,.3,.05,.8,.4,0)
+m.save('brickcraft_habitat_cat.obj','guardian cat')
+rows_png('brickcraft_habitat_cat.png',[(218,147,70),(255,239,216),(58,107,63),(244,158,166)])
+png('brickcraft_habitat_feeder.png',16,16,lambda x,y:(79,166,176,255) if x<3 or x>12 or y<3 or y>12 else (242,162,175,255))
+png('brickcraft_habitat_churu.png',16,16,lambda x,y:(243,144,165,255) if 5<=x<=10 and 1<=y<=14 else (0,0,0,0))

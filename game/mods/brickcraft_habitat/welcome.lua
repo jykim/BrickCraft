@@ -32,9 +32,27 @@ local function text(p,w,v)
     "\n<b>Disasters</b> start when someone calls one (/disaster or the panel), after a 10 second warning.\n"..
     list(v.disasters or H.disaster_list,function(id) local d=H.disasters[id]; return "  - "..d.label..": "..(d.warning or "") end).."\n"..
     "Disasters never break your bricks.\n"
+  if v.defense then
+    t=t.."\n<b>Build and defend together</b>\nSword and Bow arrive in your bag (I); drag them to the hotbar. "..
+      "Use them against predators while keeping all your building supplies. No /war needed.\n"..
+      "<b>Guardian cats</b>\nPlace a Cat feeder and right click it holding Churu. Each tube feeds a cat for 2 minutes. "..
+      "The cat patrols nearby and chases predators away. Buy feeders and churu in /colony; your starter kit includes both.\n"
+  end
+  if v.cycle then
+    local cc=H.cycle_config(w)
+    t=t.."\n<b>Day and night</b>\n"..
+      (cc.enabled and ("Day: "..cc.day.." seconds. Night: "..cc.night.." seconds. ") or "The cycle is disabled: always daytime. ")..
+      (cc.lock_players and "Players rest at night; control returns at dawn. " or "Players can move and act at night. ")..
+      "Night predator multiplier: "..cc.predator_multiplier..". Night disaster: "..cc.disaster..". "..
+      "Change durations and night rules in /habitat > Day / night settings (or /habitat cycle).\n"
+  end
   if cfg then
     t=t.."\n<b>Your colony</b>\n"..
-      "Start one with "..cfg.start.." "..P.." (/colony start). It grows only by babies, and babies come only when the colony "..
+      "Start one with "..cfg.start.." "..P.." (/colony start), or right click a wild animal and choose Domesticate & follow. "..
+      "Domesticated animals get your name label and follow you home; /colony stay settles them there. "..
+      (cfg.win_count and ("Your HUD shows each player's count. Reach "..cfg.win_count.." owned "..P..", including babies, to win! ") or "")..
+      (cfg.hutch_bricks and ("Get more hutches in /colony: buy one for 25 clovers or build one from "..cfg.hutch_bricks.." basic bricks of any colors (/colony craft hutch). Place each hutch for four more bunny spaces. ") or "")..
+      "Babies come only when the colony "..
       "is happy ("..(cfg.happy or 60).."%+) and has room. Happiness comes from homes, food (one patch feeds "..(cfg.feeds or 4)..
       "), water (one trough serves "..(cfg.waters or 6)..") and safety. Your "..P.." gather clovers; spend them in the shop:\n"..
       list(cfg.shop,function(e)

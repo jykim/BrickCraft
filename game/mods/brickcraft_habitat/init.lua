@@ -70,11 +70,12 @@ function H.ground(x,z,top)
     if solid(n) then return y+1 end
   end
 end
--- Under a roof: something solid (a brick, a leaf) within 8 cells above.
+-- Check from the creature's feet up, including low ceilings in its rounded cell.
+-- Tall player-built roofs count too, well above the eagle's flight altitude.
 function H.sheltered(pos)
-  local x,y,z=math.floor(pos.x+.5),math.floor(pos.y+.5),math.floor(pos.z+.5)
+  local x,y,z=math.floor(pos.x+.5),math.floor(pos.y),math.floor(pos.z+.5)
   if H.hidden(pos) then return true end
-  for dy=1,8 do if solid(C.get_node({x=x,y=y+dy,z=z}).name) then return true end end
+  for dy=1,128 do if solid(C.get_node({x=x,y=y+dy,z=z}).name) then return true end end
   return false
 end
 -- Inside a hideout (a hutch): no predator reaches it, nothing from the sky hits it.
@@ -406,7 +407,8 @@ function H.register_creature(id,def)
     on_deactivate=function(self) H.live[self]=nil end,
     _dress=function(self)
       local s=self._baby and .6 or 1
-      self.object:set_properties({textures={self._tex},visual_size={x=10*k*s,y=10*k*s},
+      local parent=self._carry_scale or {x=1,y=1,z=1}
+      self.object:set_properties({textures={self._tex},visual_size={x=10*k*s/parent.x,y=10*k*s/parent.y,z=10*k*s/(parent.z or parent.x)},
         collisionbox={cb[1]*s,0,cb[3]*s,cb[4]*s,cb[5]*s,cb[6]*s},selectionbox={cb[1]*s,0,cb[3]*s,cb[4]*s,cb[5]*s,cb[6]*s}})
       -- A colony's creatures carry their owner's name, in the owner's color.
       local st=self._owner and brickcraft.styles[self._owner]
@@ -417,6 +419,10 @@ function H.register_creature(id,def)
     -- Patting one shows how it's doing.
     on_punch=function() return true end,
     on_rightclick=function(self,clicker)
+      if not self._owner and H.domestication_panel then
+        H.domestication_panel(self,clicker)
+        return
+      end
       -- Your own: it follows you (again: it stays). Anyone's: how it's doing.
       if self._owner and H.owner_of and H.owner_of(clicker)==self._owner then
         local name=clicker:get_player_name()
@@ -624,7 +630,8 @@ function H.register_predator(id,def)
         local c=self._carrying
         self._carrying=nil
         if c.object:get_pos() and not c._dead then
-          c.object:set_detach(); c._carried=nil
+          c.object:set_detach(); c._carried=nil; c._carry_scale=nil
+          c:_dress()
           c.object:set_velocity({x=0,y=0,z=0})
           local w=brickcraft.world_at(c.object:get_pos())
           H.tell(w,"The "..def.label:lower().." dropped the "..((H.creatures[c._kind] or {}).label or "animal"):lower().."!","#9be59b")
@@ -803,8 +810,9 @@ function H.flyer_step(self,def,dtime)
     return
   end
   -- Prey must be in the open: a roof (or a tree) hides it from the sky.
-  local open=function(ent,q) return not H.sheltered(q) end
-  if self._prey and (self._prey._dead or not self._prey.object:get_pos() or H.sheltered(self._prey.object:get_pos())) then
+  local open=function(ent,q) return not ent._carried and not H.sheltered(q)
+    and C.line_of_sight(p,vector.offset(q,0,.2,0)) end
+  if self._prey and (self._prey._dead or not self._prey.object:get_pos() or not open(self._prey,self._prey.object:get_pos())) then
     self._prey=nil
   end
   if not self._prey then self._prey=nearest_prey(p,def.sight or 45,open) end
@@ -825,7 +833,12 @@ function H.flyer_step(self,def,dtime)
     if not self._carrying then
       self._carrying=prey; prey._carried=true; self._prey=nil
       prey.object:set_velocity({x=0,y=0,z=0})
-      prey.object:set_attach(self.object,"",{x=0,y=-3.5,z=-1},{x=0,y=0,z=0})
+      -- Attachments inherit the parent's mesh scale (10 for these models).
+      -- Compensate both the creature's size and its offset beneath the talons.
+      local scale=self.object:get_properties().visual_size
+      prey._carry_scale=scale
+      prey:_dress()
+      prey.object:set_attach(self.object,"",{x=0,y=-3.5/scale.y,z=-1/(scale.z or scale.x)},{x=0,y=0,z=0})
       H.bite_fx(prey,{x=0,y=1,z=0})
       self._carry_until=now()+(def.carry or 4)
     end
@@ -847,7 +860,8 @@ function H.spawn_predator(w,id,opts)
   if not def then return end
   opts=opts or {}
   local a=opts.angle or rnd(0,2*math.pi)
-  local n=opts.n or H.pack_size(w)
+  local n=opts.n or H.pack_size(w)*(H.night_multiplier and H.night_multiplier(w) or 1)
+  if n<=0 then return nil end
   local first
   -- Walkers come in on the flat grass ring around the baseplate (up in the hills, trees
   -- and steep steps can strand them); fliers from further out. Always on real ground:
@@ -970,11 +984,14 @@ function H.setup(w,done)
   local v=H.variant_of(w)
   if not v then return end
   local st=H.state(w)
+  if st.kingdom_preparing then return end
   if st.built then if done then done() end return end
   build_statue(w,v,function()
-    C.emerge_area({x=w.x-30,y=-2,z=w.z-30},{x=w.x+30,y=20,z=w.z+30},function(_,_,r)
+    local radius=v.kingdom and 46 or 30
+    C.emerge_area({x=w.x-radius,y=-2,z=w.z-radius},{x=w.x+radius,y=40,z=w.z+radius},function(_,_,r)
       if r>0 then return end
       place_sources(w,v)
+      if v.setup then v.setup(w) end
       st.built=true; H.save(w)
       if done then done() end
     end)
@@ -1029,12 +1046,15 @@ function H.supplies(w,fresh)
   return food,water
 end
 local function hud_text(w,v,p)
+  if v.kingdom and H.kingdom then return H.kingdom.line(w).."\n"..H.cycle_line(w) end
   local st=H.state(w)
   local n=H.creature_count(w)
   local food,water=H.supplies(w)
   local line=v.label..":  "..n.." "..v.plural.."  (lost "..(st.lost or 0)..")   food "..food.."   water "..water
   local cl=p and H.colony_line and H.colony_line(p,w,v)
   if cl then line=line.."\n"..cl end
+  if H.score_line and v.colony then line=line.."\n"..H.score_line(w,v) end
+  if H.cycle_line and v.cycle then line=line.."\n"..H.cycle_line(w) end
   local ctx=H.active[w.id]
   if ctx then
     line=line.."\n"..(ctx.started and "!! "..ctx.def.label.."! "..math.max(0,math.ceil((ctx.def.duration or 20)-ctx.t)).." s" or
@@ -1058,6 +1078,7 @@ end
 C.register_on_leaveplayer(function(p) hud[p:get_player_name()]=nil end)
 local tick,bind_wait=0,5
 C.register_globalstep(function(dtime)
+  if H.cycle_step then H.cycle_step(dtime) end
   disaster_step(dtime)
   tick=tick+dtime
   if tick<1 then return end
@@ -1070,7 +1091,10 @@ C.register_globalstep(function(dtime)
     local w,v=H.world_at(p:get_pos())
     update_hud(p,w and hud_text(w,v,p))
     if not testing and not habitat_test and H.welcome_check then H.welcome_check(p,w) end
-    if w then seen[w.id]={w=w,v=v} end
+    if w then
+      if v.defense and H.defense_kit then H.defense_kit(p) end
+      seen[w.id]={w=w,v=v}
+    end
   end
   for id,e in pairs(seen) do
     local w,v,st=e.w,e.v,H.state(e.w)
@@ -1124,7 +1148,7 @@ local function panel(p)
     return
   end
   local st=H.state(w)
-  local fs="formspec_version[6]size[11,9.6]bgcolor[#142936;true]"..
+  local fs="formspec_version[6]size[11,10.5]bgcolor[#142936;true]"..
     "label[.6,.6;"..C.formspec_escape(v.label:upper().." / KEEP THE "..v.plural:upper().." SAFE").."]"..
     "textarea[.6,1;9.8,1.5;;;"..C.formspec_escape(hud_text(w,v,p).."\n"..(v.tip or "")).."]"..
     "label[.6,2.9;Predators]"
@@ -1145,6 +1169,7 @@ local function panel(p)
     "button[.6,8.3;3.2,.7;reset;New "..C.formspec_escape(v.plural).."]"..
     "style[colony;bgcolor=#f5872c]button[3.9,8.3;3.2,.7;colony;My colony]"..
     "button_exit[7.2,8.3;3.2,.7;close;Back to building]"
+  if v.cycle then fs=fs.."button[.6,9.3;6.5,.7;cycle_settings;Day / night settings]" end
   C.show_formspec(name,"brickcraft_habitat:panel",fs)
 end
 H.panel=panel
@@ -1169,6 +1194,7 @@ local function act(p,field)
   if id and H.skins[id] then H.set_skin(p,id); return "You're "..H.skins[id].label.."!" end
   if field=="kit" then return "You got "..H.give_kit(p,v).."." end
   if field=="colony" then H.colony_panel(p); return nil,true end
+  if field=="cycle_settings" and v.cycle then H.cycle_panel(p); return nil,true end
   if field=="rules" or field=="help" then H.welcome(p); return nil,true end
   if field=="wild" then
     local st=H.state(w); st.wild=st.wild==false; H.save(w)
@@ -1203,13 +1229,19 @@ local function need_habitat(name)
   if not w then C.chat_send_player(name,"This world isn't a habitat. /habitat makes it one."); return end
   return p,w,v
 end
-C.register_chatcommand("habitat",{params="[set <"..table.concat(H.variant_list,"|").."> | kit | wild on|off | reset]",
+C.register_chatcommand("habitat",{params="[set <"..table.concat(H.variant_list,"|").."> | kit | wild on|off | cycle | reset]",
   description="Habitat panel: predators, disasters, skins, food and water (Bunnyland)",
   func=function(name,param)
     local p=C.get_player_by_name(name)
     if not p then return end
     local cmd,arg=param:match("^(%S*)%s*(.-)%s*$")
     if cmd=="" then panel(p); return true end
+    if cmd=="cycle" then
+      local _,w,v=need_habitat(name)
+      if not w then return true end
+      if not v.cycle then return false,"This habitat has no day/night cycle." end
+      H.cycle_panel(p); return true
+    end
     if cmd=="set" then return true,act(p,"make_"..arg) or "No such habitat: "..arg end
     if cmd=="wild" then
       local _,w=need_habitat(name); if not w then return true end
@@ -1254,10 +1286,13 @@ C.register_chatcommand("skin",{params="[<skin>|off]",description="Wear a skin (b
 dofile(MP.."/predators.lua")(H)
 dofile(MP.."/disasters.lua")(H)
 dofile(MP.."/colony.lua")(H)
+dofile(MP.."/daynight.lua")(H)
+dofile(MP.."/cats.lua")(H)
 dofile(MP.."/welcome.lua")(H)
 dofile(MP.."/meadow.lua")(H)
 dofile(MP.."/ai.lua")(H)
 for _,f in ipairs({"bunny"}) do dofile(MP.."/variants/"..f..".lua")(H) end
+dofile(MP.."/kingdom.lua")(H)
 
 for _,row in ipairs({
   {"/habitat","Habitat panel (in Bunnyland): predators, disasters, skins, food and water"},
@@ -1293,7 +1328,8 @@ C.after(0,H.bind_names)
 C.register_lbm({name="brickcraft_habitat:drain",label="Drain flood water left over",nodenames={"brickcraft_habitat:flood"},
   run_at_every_load=true,action=function(pos)
     local w=brickcraft.world_at(pos)
-    if not (H.active[w.id] and H.active[w.id].def.id=="flood") then C.remove_node(pos) end
+    local ctx=w and H.active[w.id]
+    if not (ctx and (ctx.def.id=="flood" or ctx.def.id=="tsunami")) then C.remove_node(pos) end
   end})
 
 brickcraft.habitat=H

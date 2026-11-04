@@ -278,3 +278,46 @@ python3 tools/test_integration.py
 사용자가 Codex 데스크톱 앱에서 `~/dev/BrickCraft`를 프로젝트로 추가하고 해당 프로젝트의 **Local** 작업을 열어야 합니다. 이어서 “README, docs/DEVELOPMENT.md, TODO.md를 읽고 현재 저장 세계를 보존하며 다음 작업을 정하자”라고 시작할 수 있습니다.
 
 `bind_address = 127.0.0.1` 변경은 자동 승인 검토에서 기존 “보안 변경 금지” 지침을 이유로 거절됐고 **미적용·사용자 명시적 승인 대기**입니다. 현재 설정에는 `server_announce = false`가 있으나 로그상 기본 내장 서버는 `[::]:30000`에서 수신했습니다. 이 문서 작성은 설정 변경 권한을 부여하지 않으며, 승인 전 재시도하거나 다른 경로로 적용하지 않습니다. 방화벽·보안 설정 변경이나 공개 배포도 수행하지 않았습니다.
+
+
+### Compact report screenshots
+
+`/bug`, `/feature`, `/report`, and reports through AI builders capture the reporting
+save name, logical world ID/name, position, viewing direction (radians), and UTC time
+before the asynchronous write-up. The GitHub issue contains this small JSON pointer
+instead of the previous long area dump.
+
+`brickcraft_ai/report_view.lua` saves a temporary 33-node cube and limited visual entity
+properties at submission. `tools/render_report_view.py` renders it in a disposable
+Luanti client; `tools/prepare_report_screenshot.py` uploads one JPEG to the GitHub
+`report-screenshots` release. Each image is at most 960 pixels wide and 200 KiB.
+It is labelled as a reconstructed view, since UI, animations, imported assets and distant
+terrain can differ from the reporting device. Rendering requires a macOS GUI session
+and the existing System Events input permission; do not run this part in launchd.
+
+`post_issues.zsh` keeps the report queued if screenshot preparation fails, reuses images
+on retries, and deletes temporary scene files after a successful post. It archives the
+small JPEG locally. Older reports without scene data can still post without an image.
+No whole-world database, chat history, authentication data, inventories, imported models
+or backups are uploaded. The location points to the live world and does not freeze it.
+
+Checks: `python3 tools/test_report_context.py`, `python3 tools/test_report_screenshots.py`,
+and `python3 tools/test_ai_builder.py`. To inspect a disposable captured scene, run
+`python3 tools/render_report_view.py <world>/issues <report-id>`.
+
+Report acknowledgments are private to the reporting player identity. `report_notifications.lua`
+persists received/posted/working/review/merged acknowledgments in mod storage and delivers
+unread updates after reconnecting, even from a different Mac. `tools/sync_report_status.py`
+checks GitHub labels, worker comments and linked PR state, writing atomic local status files.
+The Codex forwarding heartbeat runs it every five minutes. No lifecycle update is sent twice.
+
+## World API and authorization
+
+See [WORLD_API.md](WORLD_API.md) for the API capability matrix, protocol and setup.
+`brickcraft/permissions.lua` owns account-based world ACLs and the common input guards.
+`brickcraft/world_api.lua` executes bounded reads and ordinary-piece preview/apply/undo
+on the game thread. `tools/world_api.py` is the opt-in authenticated local HTTP transport.
+New player worlds set `write_owner` to the connection account; legacy `owner` remains the
+family profile/display field. `writers` and `public_write` are stored with the worlds;
+Workshop uses `workshop_access`. Do not authorize from selectable profiles.
+Run `python3 tools/test_world_api.py` for isolated engine/HTTP coverage.

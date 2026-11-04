@@ -4,6 +4,8 @@ Jin과 Leona가 색 브릭을 모아 작은 건축물을 만드는 Luanti 기반
 
 ## 개발 문서
 
+- [World API and write permissions](docs/WORLD_API.md): supported operations, limits, setup, authentication, ownership, and examples.
+
 - [개발자 가이드](docs/DEVELOPMENT.md): 환경·구조·개발 반복·테스트·확장 지점.
 - [TODO](TODO.md): 완료된 MVP와 다음 우선순위, 승인 대기 사항.
 
@@ -22,11 +24,11 @@ cd ~/dev/BrickCraft
 
 공식 Luanti 5.17.0 앱이 `runtime/luanti.app`에 준비되어 있어 추가 설치가 필요 없습니다. 앱 자체를 직접 열기보다 위 스크립트로 실행해야 이 게임과 저장 세계가 선택됩니다. 한 세계는 한 인스턴스로만 여세요.
 
-WASD 또는 **방향키** 이동, 마우스 시점, Space 점프(브릭 2칸 높이까지). **Q**/**E**는 왼쪽/오른쪽으로 45°씩 돌기입니다(마우스 없이도 방향 전환, 누르고 있으면 0.3초마다; 카트에서는 조향). macOS 입력 소스가 한글이면 WASD가 먹지 않을 수 있으니 ABC로 바꾸거나 방향키를 쓰세요. **1**은 세퍼레이터이며 좌클릭으로 부품을 회수합니다. **부품은 하나하나가 따로입니다:** 남색 1×2 플레이트 12개와 남색 경사 5개는 서로 다른 아이템이고, 회수하면 그 부품 그대로 돌아옵니다. **핫바는 자유롭습니다:** 2–12번 칸(키 **2–9**, **0**, **-**, **=**)에 어떤 부품이든 섞어 둘 수 있고(예: 남색 2×4 옆에 빨강 경사), 손에 든 부품을 우클릭으로 놓습니다. 처음에는 2×2 브릭이 색 순서로 들어 있습니다. 핫바나 가방에 없는 부품은 보이지 않게 보관됩니다. 인벤토리(I)에서 부품을 고르고 색을 누르면 그 부품이 핫바의 빈칸(없으면 손에 든 칸)으로 나오고, *All colors to hotbar*는 그 부품을 가진 색마다 그 색 키 칸에 넣습니다. 칸끼리는 끌어서 옮깁니다. **Tab**은 손에 든 부품을 같은 색의 다음 부품으로 바꿉니다(남색 1×2 → 남색 2×4). 회수한 부품은 핫바·가방에 같은 부품이 있으면 그 칸에 합쳐지고, 없으면 보관됩니다. 휠이 없는 트랙패드에서는 **B**(이전 칸)·**N**(다음 칸)으로 핫바를 한 칸씩 옮깁니다. 인벤토리(I) 위쪽은 부품 종류 버튼(Bricks·Plates…, 없는 부품은 흐리게)이고, 고르면 그 아래에 그 부품이 내가 가진 색마다 실제 모양으로 보이고 숫자는 개수입니다. 그 아래는 핫바 한 줄과 가방(LEGO part)입니다. *Sort by type & color*는 핫바는 그대로 두고 가방의 부품을 보관함으로 치우고, 가방의 LEGO part를 부품 종류별로 한 줄씩, 같은 종류 안에서는 색 순서로 정리합니다(같은 것끼리 합침). 처음 시작하면 8색으로 브릭·플레이트·타일·둥근 브릭·경사를 몇 개씩, 남색으로 기차·테크닉 첫 세트를 받습니다. 부품이 따로가 되기 전의 색 브릭은 2×2 브릭이 되고, 그 사람은 처음 한 번 같은 세트를 더 받습니다. 맥북 트랙패드에서는 **두 손가락 클릭**(시스템 설정 → 트랙패드 → 보조 클릭), **Control+클릭**, 또는 **F** 키가 우클릭과 같습니다. **Tab**은 다음 부품(브릭·플레이트·둥근 브릭·경사, 아래 표)입니다. 다음에 놓을 브릭은 인벤토리(I)의 *Turn next brick* 버튼으로 90° 돌리고, 이미 놓은 브릭은 세퍼레이터로 우클릭해 돌립니다. **U**(또는 **Shift**)는 내가 마지막으로 놓기·회수·회전한 동작을 되돌립니다. 인벤토리(I)의 *Undo last action* 버튼이나 `/undo`도 같습니다. 인벤토리(I) 상단 버튼이나 `/shape 2x4`로도 형태를 고릅니다. **I** 인벤토리, **C** 1인칭/3인칭 전환, **Esc → Exit to Menu 또는 Exit to OS**로 세계를 저장 종료합니다. `/home`은 안전한 시작점, `/guide`는 환영 화면, **`/keys`는 전체 키·명령 도움말 화면**입니다(인벤토리의 *Help: all keys* 버튼, 환영 화면의 *Keys and commands* 버튼으로도 열림). 채팅은 **T**, HUD/채팅 숨기기는 **F1/F2**입니다. 첫 건축 목표는 자투리 브릭으로 작은 집 만들기입니다.
+WASD 또는 **방향키** 이동, 마우스 시점, Space 점프(브릭 2칸 높이까지). **Q**/**E**는 왼쪽/오른쪽으로 45°씩 돌기입니다(마우스 없이도 방향 전환, 누르고 있으면 0.3초마다; 카트에서는 조향). macOS 입력 소스가 한글이면 WASD가 먹지 않을 수 있으니 ABC로 바꾸거나 방향키를 쓰세요. **1**은 세퍼레이터이며 좌클릭으로 부품을 회수합니다. **부품은 하나하나가 따로입니다:** 남색 1×2 플레이트 12개와 남색 경사 5개는 서로 다른 아이템이고, 회수하면 그 부품 그대로 돌아옵니다. **핫바는 자유롭습니다:** 2–12번 칸(키 **2–9**, **0**, **-**, **=**)에 어떤 부품이든 섞어 둘 수 있고(예: 남색 2×4 옆에 빨강 경사), 손에 든 부품을 우클릭으로 놓습니다. 처음에는 2×2 브릭이 색 순서로 들어 있습니다. 인벤토리(I)는 가진 모든 게임 부품을 형태별 줄과 색별 그림·개수로 한 번에 보여 줍니다(스크롤). 그림을 누르면 그 부품이 핫바의 빈칸(없으면 손에 든 칸)으로 나오고, *All colors to hotbar*는 그 부품을 가진 색마다 그 색 키 칸에 넣습니다. 칸끼리는 끌어서 옮깁니다. **Tab**은 손에 든 부품을 같은 색의 다음 부품으로 바꿉니다(남색 1×2 → 남색 2×4). 회수한 부품은 핫바의 같은 부품에 합쳐지거나 빈칸에 자동으로 들어갑니다(원래 색 키 우선). 핫바가 꽉 차면 가방의 같은 부품에 합치거나 보관하며, 인벤토리의 전체 목록에서 항상 보입니다. 휠이 없는 트랙패드에서는 **B**(이전 칸)·**N**(다음 칸)으로 핫바를 한 칸씩 옮깁니다. 인벤토리(I) 위쪽은 전체 소유 부품 목록(Bricks·Plates…)이며, 숫자는 핫바·가방·보관함을 합친 개수입니다. 종류 이름을 누르면 All colors to hotbar에 쓸 부품을 고릅니다. 그 아래는 핫바 한 줄과 가방(LEGO part)입니다. *Sort by type & color*는 핫바는 그대로 두고 가방의 부품을 보관함으로 치우고, 가방의 LEGO part를 부품 종류별로 한 줄씩, 같은 종류 안에서는 색 순서로 정리합니다(같은 것끼리 합침). 처음 시작하면 8색으로 브릭·플레이트·타일·둥근 브릭·경사를 몇 개씩, 남색으로 기차·테크닉 첫 세트를 받습니다. 부품이 따로가 되기 전의 색 브릭은 2×2 브릭이 되고, 그 사람은 처음 한 번 같은 세트를 더 받습니다. 맥북 트랙패드에서는 **두 손가락 클릭**(시스템 설정 → 트랙패드 → 보조 클릭), **Control+클릭**, 또는 **F** 키가 우클릭과 같습니다. **Tab**은 다음 부품(브릭·플레이트·둥근 브릭·경사, 아래 표)입니다. 다음에 놓을 브릭은 인벤토리(I)의 *Turn next brick* 버튼으로 90° 돌리고, 이미 놓은 브릭은 세퍼레이터로 우클릭해 돌립니다. **U**(또는 **Shift**)는 내가 마지막으로 놓기·회수·회전한 동작을 되돌립니다. 인벤토리(I)의 *Undo last action* 버튼이나 `/undo`도 같습니다. 인벤토리(I) 상단 버튼이나 `/shape 2x4`로도 형태를 고릅니다. **I** 인벤토리, **C** 1인칭/3인칭 전환, **Esc → Exit to Menu 또는 Exit to OS**로 세계를 저장 종료합니다. `/home`은 안전한 시작점, `/guide`는 환영 화면, **`/keys`는 전체 키·명령 도움말 화면**입니다(인벤토리의 *Help: all keys* 버튼, 환영 화면의 *Keys and commands* 버튼으로도 열림). 채팅은 **T**, HUD/채팅 숨기기는 **F1/F2**입니다. 첫 건축 목표는 자투리 브릭으로 작은 집 만들기입니다.
 
 ## 브릭 종류
 
-**Tab** 또는 E로 다음 부품으로 바꾸거나 인벤토리(I)의 줄별 버튼(Bricks / Plates / Tiles & Round / Slopes)으로 고릅니다. 버튼 툴팁과 하단 HUD에 실제 카탈로그 부품 번호가 나옵니다.
+**Tab**으로 다음 부품으로 바꾸거나 인벤토리(I)의 전체 목록에서 부품 그림을 눌러 핫바에 넣습니다. 버튼 툴팁과 하단 HUD에 실제 카탈로그 부품 번호가 나옵니다.
 
 | 게임 부품 | 부품 번호(design ID) | 칸 |
 | --- | --- | --- |
@@ -158,16 +160,23 @@ BrickWright로 만든 실제 레고 모델(충돌·뜬 부품 없음, 모두 연
 
 이름이 **bunnyland**인 세계(Leona의 세계)는 저절로 Bunnyland 서식지가 됩니다. 다른 세계도 `/habitat`(서식지 패널) → *Bunnyland* 또는 `/habitat set bunny`로 바꿀 수 있습니다(Workshop 제외). 처음 들어가면 북쪽 언덕을 깎은 자리에 **27칸 높이의 거대한 토끼 동상**(금색 받침, 부술 수 없음)이 서고, 당근밭 3개·물통 2개가 놓이고 토끼 8마리가 나옵니다. 화면 위에 토끼 수·잃은 수·먹이·물이 보입니다. 바닥판은 **초록 풀밭**(꽃 핀 곳이 섞임, 부술 수 없음)이 되고, 연못 4개(마르지 않는 물)와 클로버 16군데(야생 먹이, 3번 먹으면 비고 40초마다 다시 자람)가 생깁니다. 지어 놓은 것 아래·위는 그대로입니다. 마을이 시작한 자리 10칸 안의 연못·클로버는 그 마을의 먹이·물로 칩니다.
 
+- **짓기 + 방어:** Bunnyland에서는 `/war` 없이 칼·활을 사용할 수 있습니다. 가방(I)에 자동으로 들어온 Sword·Bow를 핫바로 옮겨 포식자를 쫓으세요. 건축 재료는 그대로 사용할 수 있습니다. 다른 전쟁 세계에서 오면 전쟁 모드가 끝나고 건축 가방으로 돌아옵니다.
+- **고양이 수호자:** 시작 키트에 Cat feeder 1개·Churu 3개가 추가됩니다(기존 마을도 받음). 급식기를 놓고 Churu를 든 채 우클릭하면 고양이 한 마리가 와서 12칸 안의 포식자를 쫓습니다. 한 튜브는 2분, 최대 6튜브까지 넣을 수 있고 먹이가 떨어지면 고양이는 떠납니다. 상점(`/colony`)에서 급식기 25클로버·Churu 3개 5클로버로 살 수 있습니다.
 - **먹이와 물:** 토끼는 배고픔·목마름이 줄어들면 24칸 안의 당근밭(6번 먹으면 비고 20초마다 하나씩 다시 자람)·물통(마르지 않음)으로 갑니다. 둘 다 바닥나면 하트가 줄어듭니다. 우클릭하면 토끼 상태가 보입니다. 패널의 *Get food and water*(또는 `/habitat kit`)로 당근밭 4·물통 2를 받아 놓고, 세퍼레이터 우클릭으로 다시 줍습니다.
 - **포식자:** 늑대(빠름, 하트 4), 사자(강함, 한 번에 잡음), 독수리(하늘에서 지붕 없는 토끼를 낚아챔)가 2–4분마다 세계 가장자리에서 옵니다(`/habitat wild off`로 끄기, `/predator wolf|lion|eagle`로 부르기). 주먹(칼은 3배)이나 전쟁 무기로 때려 쫓아냅니다. 늑대는 다가와 **머리를 숙이며 덤벼 물고**(털이 날리고 토끼가 튕겨 나감, 하트 4), 사자는 몇 칸 밖에서 **웅크렸다 덮치고**, 독수리는 **토끼를 낚아채 들고 날아갑니다**(4초 안에 독수리를 때리면 떨어뜨림). **두 칸 높이 울타리는 늑대·사자를 막고**(한 칸은 뛰어넘음, 언덕에 붙은 울타리는 언덕을 타고 넘어옴), **지붕은 독수리를 막습니다.**
 - **재해:** `/disaster flood|earthquake|asteroids`(또는 패널, `/disaster stop`)는 10초 경고 뒤 시작합니다. **홍수**는 낮은 땅을 두 칸까지 채웠다 빠지며(틈으로 들어오므로 막힌 벙커는 마른 채), 땅에 놓인 먹이를 상하게 합니다. 토끼는 높은 곳(y 2 이상)으로 달아납니다. **지진**은 땅을 흔들고 언덕에서 바위를 굴리며 벽이 막습니다. **소행성**은 주로 토끼 근처에 떨어져 풍경에 구덩이를 내고 먹이를 부숩니다. 브릭(지붕)에 맞으면 멈춥니다. 어떤 재해도 브릭을 부수지 않습니다.
 - **브릭 치우기:** `/clearbricks`는 지금 서식지 세계의 브릭을 모두 치웁니다(돌려받지 않음, 바닥은 풀밭으로). 동상·울타리·허치·먹이·동물·언덕과 나무는 그대로입니다. 그 세계의 주인(또는 서버 관리자)만 쓸 수 있습니다.
 - **토끼 스킨:** `/skin snow|cocoa|gray|rose`(패널 *Wear a skin*)로 귀와 꼬리가 달린 토끼 모습이 되고 `/skin off`로 돌아옵니다. 전쟁 모드 중에는 전쟁 모습이 먼저입니다.
 
+**낮·밤:** 5분 주기(낮 4분 30초 + 밤 30초)로 바뀝니다. 밤에는 이동·건축·전투·길들이기·상점·명령이 잠겨 준비한 방어 시설로 버팁니다. 밤마다 포식자가 평소 무리의 3배로 오고 무작위 재해가 한 번 발생합니다. 재해의 경고와 지속 시간은 밤 안에 맞추고, 새벽에 조작 권한을 복구합니다. HUD에 다음 전환까지 남은 시간이 표시됩니다. `/habitat` → **Day / night settings**(또는 `/habitat cycle`)에서 주기 켜기·끄기, 낮(10–3600초)·밤(5–600초) 길이, 밤 포식자 배율(0–10), 밤 조작 잠금, 재해(무작위·없음·종류 지정)를 서식지별로 바꿉니다. 저장하면 해당 서식지에 새 낮이 시작되며 설정은 재시작 후에도 유지됩니다.
+
 ### 내 토끼 마을 (심시티처럼)
 
-각 플레이어는 `/colony start`(또는 `/colony` 패널)로 **토끼 5마리로 자기 마을**을 시작합니다. 마을 토끼는 내 이름(내 색)을 달고 집 근처에 머뭅니다. 마을은 **새끼가 태어나야만** 커지고, 새끼는 마을이 행복하고(60% 이상) 집에 빈자리가 있을 때 태어납니다.
+야생 토끼를 우클릭하고 **Domesticate & follow**를 누르면 내 마을에 들어오고 내 이름표가 붙습니다. 따라오는 토끼를 집으로 데려가 `/colony stay`로 정착시키세요. HUD의 **Players**에 각 플레이어의 현재 소유 토끼 수가 표시되며, **21마리(20마리 초과)**를 모으면 승리합니다. 새끼도 포함하며, 야생 토끼는 제외합니다. 승리는 해당 서식지에 저장되고 이후 토끼를 잃어도 유지됩니다.
 
+각 플레이어는 `/colony start`(또는 `/colony` 패널)로 **토끼 5마리로 자기 마을**을 시작합니다. 마을 토끼는 내 이름(내 색)을 달고 집 근처에 머뭅니다. 마을은 야생 토끼를 길들이거나 새끼가 태어나면 커지고, 새끼는 마을이 행복하고(60% 이상) 집에 빈자리가 있을 때 태어납니다.
+
+- **허치 늘리기:** `/colony` 상점에서 **25클로버**로 사거나, **기본 2×2 브릭 8개(색상 혼합 가능)**로 **Build hutch**를 누르세요(`/colony craft hutch`). 만든 허치를 내 마을에 놓아야 **번식 공간 4칸**이 늘어납니다. 클로버 없이도 반복해서 만들 수 있고, 밤에는 새벽까지 기다려야 합니다.
 - **행복:** 집(허치 하나에 4마리), 먹이(당근밭 하나에 4마리), 물(물통 하나에 6마리), 안전(최근 5분에 잃은 수)으로 정해집니다. 내가 놓은 것만 내 마을 몫입니다. 패널의 **조언자**가 지금 무엇이 모자란지 알려 줍니다.
 - **클로버:** 토끼마다 클로버를 모읍니다(행복할수록 많이). 상점에서 **허치 25**(집이자 숨는 곳: 안에 든 토끼는 포식자와 소행성이 못 건드림, 낮은 땅이면 홍수는 들어옴), **당근밭 15**, **물통 15**, **보육원 60**(새끼가 더 자주, 2개까지), **망루 40**(20칸 안 토끼가 포식자를 20칸 밖에서 알아채고 나에게 알림)을 삽니다. 시작할 때 허치 2·당근밭 1·물통 1과 클로버 40을 받습니다.
 - **단계:** Burrow → Warren(10마리, +50 클로버) → Village(20, +100) → Town(35, +150) → Bunny City(50, +250). `/colony top`은 이 세계의 마을 순위입니다. 마을이 모두 사라지면 다시 시작할 수 있습니다.
@@ -339,3 +348,28 @@ Admin으로 연 서버에서는 **플레이어마다 자기 AI 빌더**가 있�
 ## 기반 선택 / 저작권
 
 Minetest Game, DevTest, 최소 자체 게임을 비교하여 작은 자체 게임을 선택했습니다. Office Doom은 README만 읽고 비교했으며 파일을 변경하거나 자산을 복사하지 않았습니다. 비교 근거·공식 다운로드·SHA-256·라이선스는 [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md)에 있습니다. BrickCraft 원본 코드와 생성 에셋은 MIT, Luanti 런타임은 별도 원본 라이선스를 따릅니다. 상표 로고와 기존 게임/브릭 캐릭터 자산을 복제하지 않았습니다.
+
+## Bunny Kingdom — Bunnyland + tower defense
+
+The server creates a separate **Bunny Kingdom** world at startup, available in **Which world?**. `/kingdom enter` also takes you there. Existing Bunnyland worlds stay as they are. Everyone in the kingdom cooperates as the blue bunnies' leaders: protect the castle (100 HP) through **three nights** to win. Castle HP reaching zero ends the round; `/kingdom restart` rallies a fresh army while keeping built towers, walls and ordinary brick buildings.
+
+The map has a blue castle, Bunny King, crowned giant bunny statue, shops, carrot farm, berry patches, river, waterfall and rocks among the existing hills. `/kingdom` opens construction, shopping and army orders. Right click a shop or a friendly soldier to open the same panel.
+
+- **Gather:** equip the gathering basket from inventory (I), then left click berries/carrots, water, tree trunks or rocks within 7 blocks for food, water, wood or stone. Sources recover; two workers also visit food/water sources and bring supplies home. The army uses 2 food and 2 water every 20 seconds; shortages cost castle HP.
+- **Build:** towers cost 16 wood + 12 stone; three-block wall sections cost 8 wood + 4 stone. Face a clear spot three blocks ahead, then choose Tower/Wall in `/kingdom`. Towers fire within 13 blocks and need line of sight. Enemies navigate around obstacles and can gnaw through kingdom wall/tower blocks. Ordinary BrickCraft building tools remain available.
+- **Recruit:** carrot lancers cost 8 food + 4 water, berry slingers 10 + 5, and acorn bombers 12 + 6 (12 guards total). More workers cost 10 food (up to 6). Orders: defend castle, follow leader, or hold near the castle. Repair restores up to 30 castle HP for 8 wood + 6 stone. Shop supplies exchange 8 food + 4 water for 16 wood + 12 stone.
+- **Battle:** 150-second days bring mixed red bunny armies; 60-second nights bring zombie bunnies. Movement, building and attacks remain enabled at night. Raids grow to 12 attackers per wave, with at most 24 present. Snow slows soldiers; asteroid and tsunami events use the habitat's shelter and rising-water systems.
+
+All five original bunny weapons arrive in the inventory; equip them on your hotbar. Left click attacks; allies are protected. Ammunition is unlimited.
+
+| Weapon | Role |
+| --- | --- |
+| Carrot Lance | 5-block reach, 3 damage, 0.7-second cooldown |
+| Radish Hammer | Close sweep, 5 damage, small area, 1.2-second cooldown |
+| Berry Slingshot | Fast ranged shots, 24 blocks, 2 damage |
+| Acorn Launcher | 18-block range, 3 damage, 3-block burst, 1.8-second cooldown |
+| Cabbage Shield | Short bash; while held within 8 blocks of the keep, reduces each castle hit by 2 |
+
+Blue and red armies both field lancers, slingers and bombers; zombies use the same weapon roles. Kingdom resources, army roster, towers, walls, castle health and progress are saved. Actors are temporary and restored from the roster while someone is present; no army attacks an empty kingdom. This is an initial cooperative survival balance; longer multiplayer playtesting is still needed.
+
+`python3 tools/test_kingdom.py` uses a disposable world and a real Luanti client on port 30024 to check the map, gathering, purchase failures, construction, specialist roster, tower fire, themed weapons, shield, raids, zombies, victory/defeat/restart, disaster registration and saved state. Generated art is reproducible with `python3 tools/generate_kingdom_assets.py`.

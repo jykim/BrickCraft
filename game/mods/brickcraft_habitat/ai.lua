@@ -9,7 +9,7 @@ local now,flat=H.now,H.flat
 H.ai={}
 H.ai.prompt=[[
 
-Habitats (Bunnyland): a habitat world has animals to keep safe (bunnies) from predators (wolves, lions that leap fences, eagles from the sky) and disasters (flood, earthquake, asteroids). Each player can have a colony of their own bunnies that grows by babies when it has homes (hutches), food (carrot patches), water (troughs) and safety; bunnies gather clovers to buy things. When the asker is in a habitat you also get their colony's numbers, what's in their bag and any predators or disaster. Steps you can take there (only for your owner's colony; for anyone else, just advise):
+Habitats (Bunnyland): a habitat world has animals to keep safe (bunnies) from predators (wolves, lions that leap fences, eagles from the sky) and disasters (flood, earthquake, asteroids). Each player can have a colony of their own bunnies that grows by domesticating wild bunnies (right click, then Domesticate & follow) or by babies when it has homes (hutches), food (carrot patches), water (troughs) and safety; bunnies gather clovers to buy things. Domesticated bunnies get their owner's label and follow them home; /colony stay settles them. The HUD shows separate player counts; 21 owned bunnies, including babies, wins. For more housing, /colony sells hutches for 25 clovers or builds one from 8 basic 2 x 2 bricks of any colors (/colony craft hutch); each placed hutch adds 4 spaces for reproduction. A five-minute cycle has 270 seconds of day and 30 seconds of night. At night players cannot move or act, predator packs triple, and one random disaster occurs; prepare defenses during daylight. When the asker is in a habitat you also get their colony's numbers, what's in their bag and any predators or disaster. Steps you can take there (only for your owner's colony; for anyone else, just advise):
 "herd the bunnies home" (their bunnies follow you home; you open and close their gates), "guard the bunnies" (for two minutes you chase predators near them or the colony), "fence the colony" (a ring of their fence pieces around the colony's home, the gate toward them), "put out food and water" (their carrot patches and troughs inside the fence), "bunnies stay here" (stop following; where they stand becomes home), "start a colony", "colony status", "buy <number> <hutch|carrot patch|water trough|fence|gate|nursery|lookout>".
 For anything else there (calling a predator or disaster, skins, the shop, following), use the game's commands.
 When a predator is coming or a disaster is on, offer to guard or herd (or just do it for your owner when they're worried about their bunnies).]]
@@ -41,6 +41,13 @@ function H.ai.context(name)
   local owner=H.owner_of(pl)
   local s=H.colony_status(w,v,owner)
   local out={"They are in "..w.name..", a "..v.label.." habitat."}
+  if v.cycle then
+    local cfg=H.cycle_config(w)
+    out[#out+1]="Current habitat settings: cycle "..(cfg.enabled and "on" or "off")..", day "..cfg.day..
+      "s, night "..cfg.night.."s, night predators "..cfg.predator_multiplier.."x, disaster "..cfg.disaster..
+      ", player actions "..(cfg.lock_players and "locked at night" or "allowed at night")..". "..H.cycle_line(w)..
+      ". These settings override the defaults; change them in /habitat cycle."
+  end
   if s.pop==0 then out[#out+1]="They have no colony right now (\"start a colony\" gives "..v.colony.start.." "..v.plural.." and a kit)."
   else
     out[#out+1]=string.format("Their colony (%s): %d %s, homes for %d, happiness %d%%, %d clovers, %d lost so far. The advisor says: %s",

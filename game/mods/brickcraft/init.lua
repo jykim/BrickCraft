@@ -1,6 +1,6 @@
 local C = core
 -- Automated checks skip the welcome and look pickers.
-local testing = C.settings:get_bool("brickcraft_integration_test",false) or
+local testing = C.settings:get_bool("brickcraft_world_api_test",false) or C.settings:get_bool("brickcraft_integration_test",false) or
   C.settings:get_bool("brickcraft_multiplayer_test",false) or C.settings:get_bool("brickcraft_house_test",false) or
   C.settings:get_bool("brickcraft_ai_test",false) or C.settings:get_bool("brickcraft_train_test",false) or
   C.settings:get_bool("brickcraft_war_test",false) or C.settings:get_bool("brickcraft_strict_test",false) or
@@ -149,7 +149,7 @@ local function strict_ok(player,check,...)
 end
 -- Where pieces are kept. The hotbar (slots 2-12) and the bag below it hold whatever pieces
 -- the player put there; every other piece waits in the hidden "pieces" list, and the
--- inventory screen (or Tab, for the held slot) brings one out (to_hotbar).
+-- inventory screen shows them all and brings one out (to_hotbar); Tab cycles the held slot.
 -- Room for two stacks of every piece in every color.
 local PIECES_SIZE=#colors*#shapes*2
 local HOTBAR=#colors+1 -- the separator and 11 slots
@@ -167,14 +167,37 @@ local function room_for(player,stack)
   return inv:room_for_item("main",stack)
 end
 -- Puts a stack in the player's inventory; returns what didn't fit. A piece joins its own
--- stack in the hotbar or bag when there is one, else waits in the hidden list.
+-- stack in the hotbar or bag when there is one, else uses a free hotbar slot.
+-- A full hotbar leaves the remaining pieces visible in the collection grid.
 local function give(player,stack)
   stack=ItemStack(stack)
   local inv=player:get_inventory()
   local piece=piece_of[stack:get_name()]
   if not piece or inv:get_size("pieces")==0 then return inv:add_item("main",stack) end
   if not at_war(inv) then
-    for i=2,inv:get_size("main") do
+    for i=2,HOTBAR do
+      local st=inv:get_stack("main",i)
+      if st:get_name()==stack:get_name() then
+        stack=st:add_item(stack); inv:set_stack("main",i,st)
+        if stack:is_empty() then return stack end
+      end
+    end
+    -- Harvested colors prefer their familiar color key, then any free hotbar slot.
+    local slot=color_index[piece.color]+1
+    if not inv:get_stack("main",slot):is_empty() then
+      slot=nil
+      for i=2,HOTBAR do
+        if inv:get_stack("main",i):is_empty() then slot=i; break end
+      end
+    end
+    if slot then
+      local st=inv:get_stack("main",slot)
+      stack=st:add_item(stack); inv:set_stack("main",slot,st)
+      if stack:is_empty() then return stack end
+    end
+  end
+  if not at_war(inv) then
+    for i=HOTBAR+1,inv:get_size("main") do
       local st=inv:get_stack("main",i)
       if st:get_name()==stack:get_name() then
         stack=st:add_item(stack); inv:set_stack("main",i,st)
@@ -260,6 +283,7 @@ function C.handle_node_drops(pos,drops,digger)
   return default_drops(pos,drops,digger)
 end
 local function collect(pos,node,player)
+  if not brickcraft.permissions.check(player,pos) then return false end
   local clicked=pos
   pos,node=primary_of(pos,node)
   local name=player:get_player_name()
@@ -281,6 +305,7 @@ local function collect(pos,node,player)
   if not strict_ok(player,strict.can_remove,pos) then return false end
   local tail,tail_node
   if def.brickcraft_long then
+    if not brickcraft.permissions.check(player,tail_pos(pos,node.param2)) then return false end
     tail=tail_pos(pos,node.param2)
     tail_node=C.get_node(tail)
   end
@@ -364,6 +389,8 @@ function place_brick(stack,placer,pointed)
   local s,item=piece.shape,"brickcraft:"..piece.color
   local udef=C.registered_nodes[C.get_node(pointed.under).name]
   local name=placer:get_player_name()
+  local target=(udef and udef.buildable_to) and pointed.under or pointed.above
+  if not brickcraft.permissions.check(placer,target) then return stack end
   if s.invented and strict.on(pointed.above) then
     C.chat_send_player(name,"Strict LEGO: the "..s.label.." isn't a real part. Pick another piece (Tab).")
     return stack
@@ -378,6 +405,7 @@ function place_brick(stack,placer,pointed)
   local pos=(udef and udef.buildable_to) and pointed.under or pointed.above
   local param2=(C.dir_to_facedir(placer:get_look_dir())+get_turn(placer))%4
   local tail=s.long and tail_pos(pos,param2)
+  if tail and not brickcraft.permissions.check(placer,tail) then return stack end
   if tail and not is_free(tail) then
     C.chat_send_player(name,"No room for a "..s.label.." here. Press Q to turn it.")
     return stack
@@ -396,14 +424,17 @@ end
 -- Separator right click turns a placed brick a quarter turn in place.
 local function turn_placed(pos,node,player)
   pos,node=primary_of(pos,node)
+  if not brickcraft.permissions.check(player,pos) then return false end
   local def=C.registered_nodes[node.name]
   if not def or not def.brickcraft_shape then return end
   if def.brickcraft_turn then return def.brickcraft_turn(pos,node,player) end
   local param2=(node.param2+1)%4
   if not strict_ok(player,strict.can_replace,pos,{name=node.name,param2=param2}) then return end
   local old_tail,new_tail
+  if def.brickcraft_long and not brickcraft.permissions.check(player,tail_pos(pos,param2)) then return false end
   if def.brickcraft_long then
     old_tail,new_tail=tail_pos(pos,node.param2),tail_pos(pos,param2)
+    if not brickcraft.permissions.check(player,old_tail) then return false end
     if not is_free(new_tail) then
       C.chat_send_player(player:get_player_name(),"No room to turn this long piece.")
       return
@@ -421,6 +452,9 @@ local function undo_last(player)
   local name=player:get_player_name()
   local action=history[name]
   if not action then C.chat_send_player(name,"Nothing to undo yet."); return false end
+  for _,key in ipairs({"pos","tail","old_tail","new_tail"}) do
+    if action[key] and not brickcraft.permissions.check(player,action[key]) then return false end
+  end
   if action.kind=="place" then
     if not same_node(action.pos,action.node) or
        (action.tail and not same_node(action.tail,action.tail_node)) then
@@ -487,7 +521,7 @@ C.register_tool("brickcraft:separator", {
     elseif pointed.type=="object" then
       -- An object that can be put away with the separator (a display model) says how.
       local ent=pointed.ref:get_luaentity()
-      if ent and ent._brickcraft_collect then ent:_brickcraft_collect(user) end
+      if ent and ent._brickcraft_collect and brickcraft.permissions.check(user,pointed.ref:get_pos()) then ent:_brickcraft_collect(user) end
     end
     return stack
   end,
@@ -699,7 +733,7 @@ local function make_world(name,owner,done,opts)
   if not c then return nil end
   local id=1
   for _,w in ipairs(worlds) do id=math.max(id,w.id+1) end
-  local w={id=id,name=name,owner=owner,x=c.x,z=c.z,built=false,strict=opts and opts.strict or nil}
+  local w={id=id,name=name,owner=owner,x=c.x,z=c.z,built=false,strict=opts and opts.strict or nil,write_owner=opts and opts.write_owner or nil,writers={}}
   worlds[#worlds+1]=w; save_worlds()
   build_world(w,done)
   return w
@@ -768,6 +802,7 @@ local help_rows={
   {"COMMANDS",""},
   {"/keys","This help screen"},{"/guide","Welcome screen"},{"/home","Back to the start of this world"},
   {"/world","Go to another world or make a new one"},
+  {"/worldaccess [grant|revoke <account>]","View world access, or let an account build in your world"},
   {"/undo","Undo your last build action"},
   {"/checkbuild","List loose pieces nearby (strict LEGO worlds don't allow any)"},
   {"/clicks","For a minute, show every click the game gets (when a click doesn't work)"},
@@ -1011,6 +1046,7 @@ end
 local picker_ids,picked,welcome_after={},{},{}
 local strict_pick={} -- player name -> true while "Strict LEGO" is ticked for a new world
 local function owner_label(w)
+  if w.write_owner then return w.write_owner end
   if w.id==0 then return "everyone" end
   return style_by_id[w.owner] and style_by_id[w.owner].label or w.owner
 end
@@ -1039,6 +1075,7 @@ local function show_world_picker(player)
       local n=counts[w.id] or 0
       items[#items+1]=(w.id==0 and "#f5872c" or "")..C.formspec_escape(w.name.."  ("..owner_label(w)..")"..
         (w.strict and "   [strict LEGO]" or "")..
+        (not brickcraft.permissions.can_write(player,w) and "   [read only]" or "")..
         (n>0 and "   "..n.." here" or "")..(w==here and "   < you are here" or ""))
     end
   end
@@ -1078,12 +1115,12 @@ local function new_world(player,title,strict_world)
     local p=C.get_player_by_name(name)
     if not p then return end
     enter_world(p,w)
-    C.chat_send_player(name,"Welcome to "..w.name.."! Your own fresh workshop. /world goes back.")
+    C.chat_send_player(name,"Welcome to "..w.name.."! Owner-only building. /worldaccess grant <account> lets a friend build. /world goes back.")
     if w.strict then
       C.chat_send_player(name,"Strict LEGO: pieces click onto studs below or hang from a piece above, nothing goes on "..
         "plates or tiles, and nothing may come loose. /checkbuild finds loose pieces.")
     end
-  end,{strict=strict_world})
+  end,{strict=strict_world,write_owner=name})
   if not w then C.chat_send_player(name,"There's no room for another world on this map."); return false end
   C.chat_send_player(name,"Making "..w.name.."...")
   return true
@@ -1107,54 +1144,54 @@ function brick_counts(player,shape,t)
   for _,c in ipairs(colors) do have[c]=t[piece_item(c,shape)] or 0 end
   return have
 end
+-- Keep the collection at the same scroll position when live counts refresh.
+local collection_scroll={}
 function inventory_formspec(player)
   local current=get_shape(player)
   local owned=tally(player)
-  local fs="formspec_version[6]size[10.8,12.8]label[.4,.4;BRICKCRAFT / YOUR BRICKS   (Tab: next piece)]"..
-    "button[7.65,.12;2.8,.52;sort;Sort by type & color]"..
-    "tooltip[sort;Pieces in the bag put away, LEGO parts lined up by part and color]"
-  -- One row per piece family; the tooltip names the real catalog part.
-  local rows,order={}, {}
-  local strict_here=strict.on(player:get_pos())
+  local fs="formspec_version[6]size[10.8,12.8]label[.4,.4;BRICKCRAFT / ALL YOUR PIECES]"..
+    "button[7.65,.12;2.8,.52;sort;Sort bag]"..
+    "tooltip[sort;Combine stacks and sort LEGO parts by part and color]"..
+    "label[.4,.85;All owned shapes and colors - click a piece to put it in your hotbar]"
+  local body,y,last_group="",0,nil
+  local total,kinds=0,0
   for _,s in ipairs(shapes) do
-    if not (strict_here and s.invented) then
-      if not rows[s.group] then rows[s.group]={}; order[#order+1]=s.group end
-      table.insert(rows[s.group],s)
+    local have=brick_counts(player,s,owned)
+    local n=0
+    for _,count in pairs(have) do n=n+count end
+    if n>0 then
+      total=total+n
+      if last_group~=s.group then
+        body=body.."label[.05,"..(y+.2)..";"..C.formspec_escape(s.group).."]"
+        y=y+.45; last_group=s.group
+      end
+      body=body.."button[.05,"..y..";2.35,.55;shape_"..s.id..";"..
+        C.formspec_escape(s.label).."]"..
+        "tooltip[shape_"..s.id..";"..C.formspec_escape("Part "..s.part.." - "..n.." owned. Select for All colors to hotbar.").."]"
+      for i,c in ipairs(colors) do
+        if have[c]>0 then
+          kinds=kinds+1
+          local x=2.5+(i-1)*.65
+          local item=piece_item(c,s)
+          local field="owned_"..s.id.."_"..c
+          body=body.."item_image_button["..x..","..y..";.62,.62;"..item..";"..field..";]"..
+            "label["..(x+.04)..","..(y+.78)..";"..have[c].."]"..
+            "tooltip["..field..";"..C.formspec_escape(labels[i].." "..s.label.." - part "..s.part..
+              " - "..have[c].." owned (includes hotbar and storage). Click: into hotbar.").."]"
+        end
+      end
+      y=y+1.05
     end
   end
-  for r,group in ipairs(order) do
-    local y=.8+(r-1)*.68
-    fs=fs.."label[.4,"..(y+.28)..";"..C.formspec_escape(group).."]"
-    for i,s in ipairs(rows[group]) do
-      local x=2.2+(i-1)*1.72
-      local total=0
-      for _,n in pairs(brick_counts(player,s,owned)) do total=total+n end
-      -- Pieces you have none of are dimmed.
-      fs=fs.."style[shape_"..s.id..";bgcolor="..(s==current and "#f5872c" or total>0 and "#3a5566" or "#26333b")..
-        (total>0 and "" or ";textcolor=#8a9aa3").."]"..
-        "button["..x..","..y..";1.66,.56;shape_"..s.id..";"..
-        C.formspec_escape((s.label:gsub("^Brick ",""):gsub("^Plate ",""):gsub("^Round Brick","Round")
-          :gsub("^Inverted Slope 45","Inverted"):gsub("^Slope 45","Slope"))).."]"..
-        "tooltip[shape_"..s.id..";"..C.formspec_escape(s.label.." - part "..s.part.." - you have "..total).."]"
-    end
-  end
-  -- The chosen piece in every color you have, and how many.
-  local have=brick_counts(player,current,owned)
-  fs=fs.."label[.4,5.1;"..C.formspec_escape(current.label.."  -  click a color to put it in your hotbar").."]"..
-    "button[7.65,4.86;2.8,.48;fill;All colors to hotbar]"..
-    "tooltip[fill;This piece in every color you have, each on its color's key (2-9 0 - =)]"
-  local n=0
-  for i,c in ipairs(colors) do
-    if have[c]>0 then
-      local x=.4+n*.94
-      local item=piece_item(c,current)
-      fs=fs.."item_image_button["..x..",5.35;.9,.9;"..(C.registered_items[item] and item or "brickcraft:"..c)..";take_"..c..";]"..
-        "label["..(x+.05)..",6.42;"..have[c].."]"..
-        "tooltip["..x..",5.35;.86,1.2;"..C.formspec_escape(labels[i].." "..current.label..": "..have[c].."  -  click: into your hotbar").."]"
-      n=n+1
-    end
-  end
-  if n==0 then fs=fs.."label[.4,5.8;"..C.formspec_escape("You have none of these. Collect one with the separator (key 1), or pick another piece.").."]" end
+  if total==0 then body="label[.1,.4;No game pieces yet. Collect bricks with the separator (key 1).]" end
+  local max_scroll=math.max(0,math.ceil((y-4.95)*10))
+  local scroll=math.min(collection_scroll[player:get_player_name()] or 0,max_scroll)
+  fs=fs.."scrollbaroptions[min=0;max="..max_scroll..";smallstep=5;largestep=40;thumbsize=49]"..
+    "scrollbar[10.05,1.25;.35,4.95;vertical;collection_scroll;"..scroll.."]"..
+    "scroll_container[.4,1.25;9.65,4.95;collection_scroll;vertical;.1]"..body.."scroll_container_end[]"..
+    "label[.4,6.5;"..total.." game pieces / "..kinds.." shape-color combinations]"..
+    "button[7.3,6.3;3.1,.48;fill;All colors to hotbar]"..
+    "tooltip[fill;"..C.formspec_escape(current.label.." in every owned color, on its color key").."]"
   -- Below: the hotbar (each color on its key) and the bag (LEGO parts, extra stacks).
   return fs.."style_type[list;size=.76;spacing=.08]"..
     "label[.4,6.9;Hotbar  (1: separator, 2-12: any pieces - drag to arrange)]list[current_player;main;.4,7.1;12,1;0]"..
@@ -1191,7 +1228,10 @@ C.register_globalstep(function(dt)
     if shown_held[name]~=w then shown_held[name]=w; update_hud(p) end
   end
 end)
-C.register_on_leaveplayer(function(p) shown_counts[p:get_player_name()]=nil; shown_held[p:get_player_name()]=nil end)
+C.register_on_leaveplayer(function(p)
+  local name=p:get_player_name()
+  shown_counts[name]=nil; shown_held[name]=nil; collection_scroll[name]=nil
+end)
 C.register_on_player_receive_fields(function(player,formname,fields)
   if formname=="brickcraft:welcome" and fields.help then show_help(player); return true end
   if formname=="brickcraft:style" then
@@ -1228,6 +1268,23 @@ C.register_on_player_receive_fields(function(player,formname,fields)
     return true
   end
   if formname~="" then return end
+  if fields.collection_scroll then
+    local event=C.explode_scrollbar_event(fields.collection_scroll)
+    if event.type=="CHG" then collection_scroll[player:get_player_name()]=math.max(0,event.value) end
+  end
+  -- Both the collection grid and the legacy shape/color actions use the same transfer.
+  for _,s in ipairs(shapes) do
+    for _,c in ipairs(colors) do
+      if fields["owned_"..s.id.."_"..c] then
+        if s.invented and strict.on(player:get_pos()) then
+          C.chat_send_player(player:get_player_name(),"This piece can't be used in a strict LEGO world.")
+          return true
+        end
+        fields["take_"..c]=true
+        player:get_meta():set_string("brickcraft_shape",s.id)
+      end
+    end
+  end
   if fields.undo then undo_last(player); return true end
   if fields.turn then turn_next(player); return true end
   if fields.sort then sort_bricks(player); return true end
@@ -1241,6 +1298,8 @@ C.register_on_player_receive_fields(function(player,formname,fields)
       slot=slot or (w>=2 and w<=HOTBAR and w) or HOTBAR
       local ok,why=to_hotbar(player,piece_item(c,get_shape(player)),slot)
       if not ok then C.chat_send_player(player:get_player_name(),why) end
+      player:set_inventory_formspec(inventory_formspec(player))
+      update_hud(player)
       return true
     end
   end
@@ -1505,3 +1564,10 @@ brickcraft={shapes=shape_by_id,shape_list=shapes,colors=colors,set_shape=set_sha
 -- can run any command for the player who asks.
 brickcraft.assist={helpers={}}
 function brickcraft.assist.register(def) brickcraft.assist.helpers[#brickcraft.assist.helpers+1]=def end
+
+-- Shared authorization and external commands load after the public core table exists.
+brickcraft.permissions=dofile(C.get_modpath("brickcraft").."/permissions.lua")({
+  world_by_id=world_by_id,workshop=WORKSHOP,save=save_worlds})
+brickcraft.world_api=dofile(C.get_modpath("brickcraft").."/world_api.lua")({
+  world_by_id=world_by_id,workshop=WORKSHOP,primary_of=primary_of,tail_pos=tail_pos,
+  place=place_brick,collect=collect,rotate=turn_placed,history=history,same_node=same_node})

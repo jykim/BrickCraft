@@ -732,6 +732,7 @@ C.register_on_player_receive_fields(function(player,formname,fields)
   local g=w and games[w.id]
   local c=ctx[name]
   if not g or not c then return true end
+  if not brickcraft.permissions.check(player,{x=w.x,y=0,z=w.z}) then return true end
   local road=fields.road and fields.road:lower()
   if ROAD_NAME[road or ""] then c.road=road end
   road=c.road or "south"

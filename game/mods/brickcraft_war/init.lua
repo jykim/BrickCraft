@@ -40,6 +40,17 @@ local AMMO_START,AMMO_MAX,AMMO_PILE=6,30,3
 local TUNE={red_cannon_every=8,build_every=12,archer_every=2,siege_per_side=26,castle_cannon_every=12}
 
 local war={} -- name -> {hp, lives, kos, ammo, shield (time), hurt (time), look, last={move->time}, hud={}}
+-- Habitat defense shares the normal building inventory and never opts into PvP.
+local defense={}
+local function defense_state(player)
+  local H=brickcraft.habitat
+  if not H then return end
+  local w,v=H.world_at(player:get_pos())
+  if not (v and v.defense) then return end
+  local name=player:get_player_name()
+  defense[name]=defense[name] or {last={}}
+  return defense[name]
+end
 local things={} -- cannons and knights up now (luaentities)
 local piles={} -- cannonball piles lying about (luaentities)
 local function now() return C.get_us_time()/1e6 end
@@ -139,7 +150,16 @@ end
 -- dir is the way it flies (attacker to target when nil); side is the attacker's (a
 -- cannonball's attacker may be gone). Nobody hurts their own side (a player's is their
 -- team), but players can always fight players. Returns true when it landed.
-local function hit(target,attacker,move,dir,side)
+local function hit(target,attacker,move,dir,side,defending)
+  if defending or (attacker and attacker:is_player() and not war[attacker:get_player_name()]) then
+    local H=brickcraft.habitat
+    local ent=not target:is_player() and target:get_luaentity()
+    if not (H and ent and H.hunters[ent]) then return false end
+    if attacker then
+      local w,v=H.world_at(attacker:get_pos())
+      if not (v and v.defense and brickcraft.world_at(target:get_pos())==w) then return false end
+    end
+  end
   local m=MOVES[move]
   local tp=target:get_pos()
   if not tp then return false end
@@ -181,7 +201,7 @@ end
 
 -- Sword strikes, boot kicks and shoves; each has its own cooldown.
 local function move_by(player,target,move)
-  local s=war[player:get_player_name()]
+  local s=war[player:get_player_name()] or (move=="sword" and defense_state(player))
   if not s then return false end
   local t=now()
   if (s.last[move] or 0)+MOVES[move].cool>t then return false end
@@ -190,7 +210,7 @@ local function move_by(player,target,move)
 end
 local function keep(stack) return stack end
 C.register_tool(":brickcraft:sword",{
-  description="Brick Sword (war)\nLeft click: strike (1 heart)\nRight click a player: shove",
+  description="Brick Sword\nBunnyland: defend while building; elsewhere: /war\nLeft click: strike (1 heart)\nRight click a player: shove",
   inventory_image="brickcraft_sword.png",wield_image="brickcraft_sword.png",wield_scale={x=1.5,y=1.5,z=1},range=3.5,
   groups={not_in_creative_inventory=1},
   on_use=function(stack,user,pointed)
@@ -541,7 +561,7 @@ C.register_entity(":brickcraft:arrow",{
         local own=(ref:is_player() and ref:get_player_name()==self._shooter) or ref==self._from or
           (self._side and side_of(ref)==self._side and not ref:is_player())
         if not own and is_target(ref) then
-          hit(ref,self._shooter and C.get_player_by_name(self._shooter) or self._from,"arrow",vel,self._side)
+          hit(ref,self._shooter and C.get_player_by_name(self._shooter) or self._from,"arrow",vel,self._side,self._defending)
           self.object:remove(); return
         end
       elseif pt.type=="node" then
@@ -562,13 +582,15 @@ local function loose(pos,dir,shooter,from,side)
 end
 local function shoot_arrow(player)
   local name=player:get_player_name()
-  local s=war[name]
+  local s=war[name] or defense_state(player)
   if not s then return end
   local t=now()
   if (s.last.arrow or 0)+MOVES.arrow.cool>t then return end
   s.last.arrow=t
   local dir=player:get_look_dir()
-  return loose(vector.add(vector.offset(player:get_pos(),0,1.45,0),vector.multiply(dir,.6)),dir,name,nil,team_of(name))
+  local obj=loose(vector.add(vector.offset(player:get_pos(),0,1.45,0),vector.multiply(dir,.6)),dir,name,nil,team_of(name))
+  if obj then obj:get_luaentity()._defending=not war[name] end
+  return obj
 end
 -- The Brick Blaster: a shot straight along the crosshair, hitting the first target in
 -- GUN_RANGE and nothing else (no splash, no broken bricks; a block stops it). No ammo.
@@ -606,7 +628,7 @@ C.register_tool(":brickcraft:gun",{
   on_drop=keep,
 })
 C.register_tool(":brickcraft:bow",{
-  description="Bow (war)\nLeft click: shoot an arrow where you look (1 heart)\nAs many arrows as you like",
+  description="Bow\nBunnyland: defend while building; elsewhere: /war\nLeft click: shoot an arrow where you look (1 heart)\nAs many arrows as you like",
   inventory_image="brickcraft_bow.png",wield_image="brickcraft_bow.png",range=4,
   groups={not_in_creative_inventory=1},
   on_use=function(stack,user) shoot_arrow(user); return stack end,
@@ -1695,6 +1717,7 @@ end
 local function start(player)
   local name=player:get_player_name()
   if war[name] then return false end
+  if defense_state(player) then brickcraft.habitat.defense_kit(player); return false end
   local inv=player:get_inventory()
   inv:set_size("war_stash",inv:get_size("main"))
   inv:set_list("war_stash",inv:get_list("main"))
@@ -1730,7 +1753,7 @@ C.register_chatcommand("war",{description="Start or stop war mode: cannons, swor
     local p=C.get_player_by_name(name)
     if not p then return false,"Player is not connected." end
     if war[name] then stop(p); return true end
-    start(p)
+    if not start(p) then return true,"Build and defend together! Sword and Bow are in your bag (I): drag them to the hotbar. No /war needed in Bunnyland." end
     return true,"War mode! 1 Sword  2 Cannon (left click fires)  3 Boot  4 Blue Knight  5 Bow. /battle calls a Red Army. You have 3 lives; low on hearts you slow down, and hearts come back if you keep out of the fight. Only players in war can be hit; builds are safe. /war again to stop."
   end})
 C.register_on_player_receive_fields(function(player,formname,fields)
@@ -1744,6 +1767,7 @@ C.register_on_joinplayer(function(player) unstash(player) end)
 C.register_on_leaveplayer(function(player)
   local name=player:get_player_name()
   if war[name] then stop(player) end
+  defense[name]=nil
 end)
 
 -- War Lab (experimental): a world made once for everyone to try war mode in, listed in

@@ -1,5 +1,5 @@
 -- Colonies: each player raises their own colony in a habitat, SimCity style. It starts
--- with a few creatures (5 bunnies in Bunnyland) and only grows by births, which need
+-- with a few creatures (5 bunnies in Bunnyland) and grows by domestication or births, which need
 -- room (homes), food, water and safety. Creatures gather clovers (income per creature);
 -- clovers buy structures from the shop. Bigger colonies reach new levels and rewards.
 --
@@ -149,6 +149,100 @@ local function level_of(v,best)
   for k,l in ipairs(v.colony.levels) do if best>=l[1] then lv,i=l,k end end
   return lv,i
 end
+-- A win belongs to each player in this habitat and survives later losses/restarts.
+function H.colony_progress(w,v,owner)
+  local c=H.colony(w,owner)
+  local pop=H.creature_count(w,owner)
+  local changed=false
+  if pop>(c.best or 0) then
+    local before=level_of(v,c.best or 0)
+    c.best=pop; changed=true
+    local lv=level_of(v,pop)
+    if lv~=before then
+      c.clovers=(c.clovers or 0)+(lv[3] or 0)
+      H.tell(w,label_of(owner).."'s colony is now a "..lv[2].."! +"..(lv[3] or 0).." clovers","#ffe27a")
+    end
+  end
+  if v.colony.win_count and pop>=v.colony.win_count and not c.won then
+    c.won=true; changed=true
+    H.tell(w,label_of(owner).." wins! "..pop.." "..v.plural.." in their colony!","#ffe27a")
+  end
+  if changed then H.save(w) end
+end
+
+function H.colony_scores(w)
+  local counts={}
+  for owner in pairs(H.state(w).colonies or {}) do counts[owner]=0 end
+  for _,p in ipairs(H.players_in(w)) do counts[owner_of(p)]=counts[owner_of(p)] or 0 end
+  for ent in pairs(H.live) do
+    local q=ent.object:get_pos()
+    if q and not ent._dead and ent._owner and brickcraft.world_at(q)==w then
+      counts[ent._owner]=(counts[ent._owner] or 0)+1
+    end
+  end
+  local rows={}
+  for owner,n in pairs(counts) do
+    local c=(H.state(w).colonies or {})[owner]
+    rows[#rows+1]={owner=owner,pop=n,won=c and c.won or false}
+  end
+  table.sort(rows,function(a,b) if a.pop~=b.pop then return a.pop>b.pop end return a.owner<b.owner end)
+  return rows
+end
+function H.score_line(w,v)
+  local out={}
+  for _,r in ipairs(H.colony_scores(w)) do
+    out[#out+1]=label_of(r.owner)..": "..r.pop..(v.colony.win_count and "/"..v.colony.win_count or "")..(r.won and " WON!" or "")
+  end
+  return "Players: "..table.concat(out,"  |  ")
+end
+
+-- Right click a wild animal, then explicitly welcome it into your colony.
+local taming={}
+function H.domesticate(ent,p)
+  if H.actions_blocked and H.actions_blocked(p) then return false,"Rest until dawn to domesticate animals." end
+  local q=ent.object:get_pos()
+  local w,v=H.world_at(p:get_pos())
+  if not q or ent._dead or ent._carried then return false,"That animal isn't available to domesticate." end
+  if ent._owner then return false,"That animal already belongs to a colony." end
+  if not (w and v.colony and ent._kind==v.creature and brickcraft.world_at(q)==w) then
+    return false,"Domesticate wild animals in their habitat world."
+  end
+  if vector.distance(q,p:get_pos())>7 or not C.line_of_sight(vector.offset(p:get_pos(),0,.5,0),vector.offset(q,0,.2,0)) then
+    return false,"Move closer to the wild animal, with nothing between you."
+  end
+  local owner=owner_of(p)
+  if H.creature_count(w,owner)>=(v.colony.max or 60) then return false,"Your colony is full." end
+  local c=H.colony(w,owner)
+  if not c.start then
+    c.start=vector.round(p:get_pos()); c.started=1; c.kit_given={}
+    c.clovers=math.max(c.clovers or 0,v.colony.clovers or 40)
+  end
+  ent._owner=owner; ent._home_until=nil
+  ent._follow,ent._follow_until=p:get_player_name(),now()+120
+  ent:_dress()
+  c.domesticated=(c.domesticated or 0)+1; c.gone=nil
+  H.colony_progress(w,v,owner); H.save(w)
+  return true,"This "..H.creatures[ent._kind].label:lower().." is now yours and follows you! Lead it home, then /colony stay."
+end
+function H.domestication_panel(ent,p)
+  if ent._dead or ent._carried then return end
+  taming[p:get_player_name()]=ent
+  C.show_formspec(p:get_player_name(),"brickcraft_habitat:domesticate",
+    "formspec_version[6]size[8,3.6]bgcolor[#142936;true]"..
+    "label[.5,.6;Wild "..C.formspec_escape(H.creatures[ent._kind].label:lower()).."]"..
+    "label[.5,1.2;Make it part of your colony. It gets your label and follows you.]"..
+    "button_exit[.5,2.2;4,.8;domesticate;Domesticate & follow]button_exit[4.8,2.2;2.7,.8;cancel;Leave wild]")
+end
+C.register_on_player_receive_fields(function(p,formname,fields)
+  if formname~="brickcraft_habitat:domesticate" then return end
+  local name=p:get_player_name()
+  local ent=taming[name]; taming[name]=nil
+  if fields.domesticate and ent then
+    local _,msg=H.domesticate(ent,p); C.chat_send_player(name,msg)
+  end
+  return true
+end)
+C.register_on_leaveplayer(function(p) taming[p:get_player_name()]=nil end)
 -- How a colony is doing: pop, cap, happy (0-100), each need (0-1), advice, level name.
 function H.colony_status(w,v,owner)
   local c=H.colony(w,owner)
@@ -176,7 +270,7 @@ function H.colony_status(w,v,owner)
   local P=v.plural
   local advice
   if pop==0 then advice="Start a colony: /colony start (or the button)."
-  elseif t.cap<=pop then advice="Out of room ("..pop.."/"..t.cap.."): place a hutch so babies can be born."
+  elseif t.cap<=pop then advice="Homes full ("..pop.."/"..t.cap.."). /colony: buy or build a hutch, then place it (+4 room)."
   elseif food<1 then advice="Hungry: each carrot patch feeds "..(cfg.feeds or 4).." "..P..". Place more."
   elseif water<1 then advice="Thirsty: each water trough serves "..(cfg.waters or 6).." "..P..". Place more."
   elseif safety<1 then advice=#recent.." lost lately: fences two high, roofs, hutches and a lookout keep them safe."
@@ -192,8 +286,10 @@ function H.colony_line(p,w,v)
   if not v.colony then return nil end
   local owner=owner_of(p)
   local s=H.colony_status(w,v,owner)
-  if s.pop==0 then return "/colony start: begin your own colony of "..v.colony.start.." "..v.plural end
-  return "Your colony ("..s.level.."): "..s.pop.." "..v.plural..", homes "..s.cap.."  ·  happy "..s.happy..
+  local goal=v.colony.win_count and "/"..v.colony.win_count or ""
+  local won=H.colony(w,owner).won and "  YOU WON!" or ""
+  if s.pop==0 then return "Your "..v.plural..": 0"..goal..won.." · /colony start, or right click a wild animal to domesticate it." end
+  return "Your "..v.plural..": "..s.pop..goal..won.." ("..s.level.."), homes "..s.cap.."  ·  happy "..s.happy..
     "%  ·  "..s.clovers.." clovers\n"..s.advice
 end
 
@@ -327,7 +423,7 @@ local function top_up(w,v,owner,c)
           local left=brickcraft.give(p,"brickcraft_habitat:"..id.." "..n)
           if left:get_count()<n then
             c.kit_given[id]=true
-            local d=C.registered_nodes["brickcraft_habitat:"..id]
+            local d=C.registered_items["brickcraft_habitat:"..id]
             got[#got+1]=(n-left:get_count()).." "..((d and d.description or id):match("^[^\n]+"))
           end
           if not left:is_empty() then C.chat_send_player(p:get_player_name(),"Your bag is full: make room for the rest of your colony kit.") end
@@ -342,6 +438,7 @@ local function top_up(w,v,owner,c)
   end
 end
 function H.start_colony(p)
+  if H.actions_blocked and H.actions_blocked(p) then return false,"Rest until dawn to start a colony." end
   local w,v=H.world_at(p:get_pos())
   if not w then return false,"Colonies are started in a habitat world (like Bunnyland)." end
   if not v.colony then return false,v.label.." has no colonies." end
@@ -353,7 +450,7 @@ function H.start_colony(p)
   local got={}
   for id,n in pairs(v.colony.kit or {}) do
     brickcraft.give(p,"brickcraft_habitat:"..id.." "..n)
-    local d=C.registered_nodes["brickcraft_habitat:"..id]
+    local d=C.registered_items["brickcraft_habitat:"..id]
     got[#got+1]=n.." "..((d and d.description or id):match("^[^\n]+"))
   end
   table.sort(got)
@@ -372,6 +469,7 @@ local function mine_near(p,r)
   return out
 end
 function H.call(p)
+  if H.actions_blocked and H.actions_blocked(p) then return false,"Rest until dawn to call your colony." end
   local w,v=H.world_at(p:get_pos())
   if not (w and v.colony) then return false,"Call your colony in a habitat world." end
   local list=mine_near(p,30)
@@ -380,6 +478,7 @@ function H.call(p)
   return true,#list.." "..v.plural.." follow you (2 minutes). Lead them through the gate, then /colony stay."
 end
 function H.stay(p)
+  if H.actions_blocked and H.actions_blocked(p) then return false,"Rest until dawn to settle your colony." end
   local w,v=H.world_at(p:get_pos())
   if not (w and v.colony) then return false,"Not in a habitat world." end
   local name=p:get_player_name()
@@ -393,6 +492,7 @@ function H.stay(p)
   return true,(n>0 and n.." stopped. " or "").."Your colony's home is here now: they stay near it (or your nearest hutch here)."
 end
 function H.buy(p,id)
+  if H.actions_blocked and H.actions_blocked(p) then return false,"Rest until dawn to use the shop." end
   local w,v=H.world_at(p:get_pos())
   if not (w and v.colony) then return false,"Buy things in a habitat with colonies." end
   local cost,count
@@ -404,9 +504,28 @@ function H.buy(p,id)
   if not brickcraft.room_for(p,item.." "..count) then return false,"No room in your bag." end
   c.clovers=c.clovers-cost; H.save(w)
   brickcraft.give(p,item.." "..count)
-  local d=C.registered_nodes[item]
+  local d=C.registered_items[item]
   local what=((d and d.description or id):match("^[^\n]+")):lower()
   return true,"Bought "..(count>1 and count.." "..what.."s" or "a "..what).." for "..cost.." clovers."
+end
+-- Build housing from collected basic bricks as an alternative to spending clovers.
+function H.craft_hutch(p)
+  if H.actions_blocked and H.actions_blocked(p) then return false,"Rest until dawn to build a hutch." end
+  local w,v=H.world_at(p:get_pos())
+  if not (w and v.colony and v.colony.hutch_bricks) then return false,"Build bunny hutches in Bunnyland." end
+  local cost=v.colony.hutch_bricks
+  local plan,left={},cost
+  for _,color in ipairs(brickcraft.colors) do
+    local item="brickcraft:"..color
+    local n=math.min(left,brickcraft.count_of(p,item))
+    if n>0 then plan[#plan+1]={item=item,count=n}; left=left-n end
+    if left==0 then break end
+  end
+  if left>0 then return false,"A hutch needs "..cost.." basic 2 x 2 bricks, in any mix of colors. Collect more bricks first." end
+  if not brickcraft.room_for(p,"brickcraft_habitat:hutch") then return false,"Make room in your bag for a hutch first." end
+  for _,e in ipairs(plan) do brickcraft.take(p,e.item.." "..e.count) end
+  brickcraft.give(p,"brickcraft_habitat:hutch")
+  return true,"Built a hutch from "..cost.." bricks! Place it near your colony: it adds room for 4 bunnies so babies can be born."
 end
 local save_wait={}
 -- Every second, for each colony in w (someone's there): clovers come in, babies are born
@@ -437,25 +556,17 @@ function H.colony_tick(w,v)
               c.born=(c.born or 0)+1
               local n=s.pop+1
               H.tell(w,"A baby "..H.creatures[v.creature].label:lower().." was born in "..label_of(owner).."'s colony! ("..n..")","#ffd6e8")
-              if n>(c.best or 0) then
-                local before=level_of(v,c.best or 0)
-                c.best=n
-                local lv=level_of(v,n)
-                if lv~=before then
-                  c.clovers=c.clovers+(lv[3] or 0)
-                  H.tell(w,label_of(owner).."'s colony is now a "..lv[2].."! +"..(lv[3] or 0).." clovers","#ffe27a")
-                end
-              end
               H.save(w)
             end
           end
         end
       else c.next_birth=nil end
       c.gone=nil
-    elseif (c.started or 0)>0 and not c.gone and (c.born or 0)>0 then
+    elseif (c.started or 0)>0 and not c.gone and ((c.born or 0)+(c.domesticated or 0))>0 then
       c.gone=true; H.save(w)
       H.tell(w,label_of(owner).."'s colony is gone. /colony start begins a new one.","#ff9a8a")
     end
+    H.colony_progress(w,v,owner)
   end
   save_wait[w.id]=(save_wait[w.id] or 10)-1
   if save_wait[w.id]<=0 then save_wait[w.id]=10; H.save(w) end
@@ -476,9 +587,9 @@ function H.colony_panel(p)
   local owner=owner_of(p)
   local s=H.colony_status(w,v,owner)
   local P=v.plural
-  local fs="formspec_version[6]size[11,10.2]bgcolor[#142936;true]"..
+  local fs="formspec_version[6]size[11,12.2]bgcolor[#142936;true]"..
     "label[.6,.6;"..C.formspec_escape((label_of(owner).."'s colony / "..s.level):upper()).."]"..
-    "label[.6,1.2;"..C.formspec_escape(s.pop.." "..P.."   homes for "..s.cap.."   best "..s.best..
+    "label[.6,1.2;"..C.formspec_escape(s.pop..(v.colony.win_count and "/"..v.colony.win_count or "").." "..P..(H.colony(w,owner).won and "  YOU WON!" or "").."   homes for "..s.cap.."   best "..s.best..
       "   born "..s.born.."   lost "..s.lost).."]"..
     "label[.6,1.7;"..C.formspec_escape(s.clovers.." clovers   (each of your "..P.." gathers clovers; happier ones gather more)").."]"..
     "label[6.2,2.3;Happiness "..s.happy.."%]"..
@@ -488,19 +599,24 @@ function H.colony_panel(p)
     "box[.6,4.6;9.8,.8;#1d3a4a]label[.8,5.0;"..C.formspec_escape("Advisor: "..s.advice).."]"..
     "label[.6,5.9;Shop (clovers)]"
   for i,e in ipairs(v.colony.shop) do
-    local d=C.registered_nodes["brickcraft_habitat:"..e[1]]
+    local d=C.registered_items["brickcraft_habitat:"..e[1]]
     local lbl=((e[3] and e[3].." x " or "")..(d and d.description or e[1]):match("^[^\n]+")).."  "..e[2]
     local x,y=.6+((i-1)%3)*3.3,6.2+math.floor((i-1)/3)*.9
     fs=fs.."style[buy_"..e[1]..";bgcolor="..(s.clovers>=e[2] and "#3a7a52" or "#3a5566").."]"..
       "button["..x..","..y..";3.2,.75;buy_"..e[1]..";"..C.formspec_escape(lbl).."]"..
       "tooltip[buy_"..e[1]..";"..C.formspec_escape((d and d.description or ""):gsub("\nRight click.*$","")).."]"
   end
+  if v.colony.hutch_bricks then
+    fs=fs.."button[.6,9.2;5.4,.7;craft_hutch;Build hutch: "..v.colony.hutch_bricks.." basic bricks]"..
+      "label[6.2,9.55;Place it: +4 bunny spaces]"..
+      "tooltip[craft_hutch;Trade basic 2 x 2 bricks of any colors for one hutch. No clovers needed.]"
+  end
   local lv,i=level_of(v,s.best)
   local nxt=v.colony.levels[i+1]
-  fs=fs.."label[.6,8.3;"..C.formspec_escape(nxt and ("Next: "..nxt[2].." at "..nxt[1].." "..P.." (+"..(nxt[3] or 0).." clovers)") or "Top level reached!").."]"
-  if s.pop==0 then fs=fs.."style[start;bgcolor=#f5872c]button[.6,8.9;3.6,.8;start;Start a colony of "..v.colony.start.."]"
-  else fs=fs.."button[.6,8.9;1.75,.8;call;Call them]button[2.45,8.9;1.75,.8;stay;Stay here]" end
-  fs=fs.."button[4.4,8.9;3,.8;habitat;Habitat panel]button_exit[7.6,8.9;2.8,.8;close;Back to building]"
+  fs=fs.."label[.6,10.2;"..C.formspec_escape(nxt and ("Next: "..nxt[2].." at "..nxt[1].." "..P.." (+"..(nxt[3] or 0).." clovers)") or "Top level reached!").."]"
+  if s.pop==0 then fs=fs.."style[start;bgcolor=#f5872c]button[.6,10.8;3.6,.8;start;Start a colony of "..v.colony.start.."]"
+  else fs=fs.."button[.6,10.8;1.75,.8;call;Call them]button[2.45,10.8;1.75,.8;stay;Stay here]" end
+  fs=fs.."button[4.4,10.8;3,.8;habitat;Habitat panel]button_exit[7.6,10.8;2.8,.8;close;Back to building]"
   C.show_formspec(name,"brickcraft_habitat:colony",fs)
 end
 C.register_on_player_receive_fields(function(p,formname,fields)
@@ -510,19 +626,21 @@ C.register_on_player_receive_fields(function(p,formname,fields)
   if fields.start then local _,msg=H.start_colony(p); C.chat_send_player(name,msg); H.colony_panel(p); return true end
   if fields.call then local _,msg=H.call(p); C.chat_send_player(name,msg); C.close_formspec(name,"brickcraft_habitat:colony"); return true end
   if fields.stay then local _,msg=H.stay(p); C.chat_send_player(name,msg); H.colony_panel(p); return true end
+  if fields.craft_hutch then local _,msg=H.craft_hutch(p); C.chat_send_player(name,msg); H.colony_panel(p); return true end
   for f in pairs(fields) do
     local id=f:match("^buy_(.+)$")
     if id then local _,msg=H.buy(p,id); C.chat_send_player(name,msg); H.colony_panel(p); return true end
   end
   return true
 end)
-C.register_chatcommand("colony",{params="[start | call | stay | buy <item> | top]",
+C.register_chatcommand("colony",{params="[start | call | stay | buy <item> | craft hutch | top]",
   description="Your own colony in a habitat: start one with 5 bunnies, see how it's doing, buy hutches and food",
   func=function(name,param)
     local p=C.get_player_by_name(name); if not p then return end
     local cmd,arg=param:match("^(%S*)%s*(.-)%s*$")
     if cmd=="start" then local _,msg=H.start_colony(p); return true,msg end
     if cmd=="buy" then local _,msg=H.buy(p,arg); return true,msg end
+    if cmd=="craft" and arg=="hutch" then return H.craft_hutch(p) end
     if cmd=="call" then local _,msg=H.call(p); return true,msg end
     if cmd=="stay" then local _,msg=H.stay(p); return true,msg end
     if cmd=="top" then
@@ -535,7 +653,7 @@ C.register_chatcommand("colony",{params="[start | call | stay | buy <item> | top
       end
       table.sort(rows,function(a,b) return a.s.pop>b.s.pop end)
       local out={}
-      for i,r in ipairs(rows) do out[#out+1]=i..". "..label_of(r.owner)..": "..r.s.pop.." "..v.plural.." ("..r.s.level..", best "..r.s.best..")" end
+      for i,r in ipairs(rows) do out[#out+1]=i..". "..label_of(r.owner)..": "..r.s.pop.." "..v.plural.." ("..r.s.level..", best "..r.s.best..")"..(H.colony(w,r.owner).won and " WON!" or "") end
       return true,#out>0 and table.concat(out,"\n") or "No colonies yet."
     end
     H.colony_panel(p); return true

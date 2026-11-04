@@ -29,9 +29,26 @@ C.register_on_joinplayer(function(player)
       assert(inv:get_stack("main",2):get_name()=="brickcraft:coral","the kit's 2 x 2s start on the color keys")
       inv:set_list("main",{}); inv:set_list("pieces",{}); inv:set_stack("main",1,"brickcraft:separator")
       local function click(fields) for _,f in ipairs(C.registered_on_player_receive_fields) do if f(player,"",fields) then break end end end
-      -- A piece with no stack in the hotbar or bag waits put away until it's brought out.
+      -- Collected bricks automatically appear in their color's empty hotbar slot.
       brickcraft.give(player,"brickcraft:coral 24")
-      assert(inv:get_stack("main",2):is_empty() and have("brickcraft:coral")==24,"new pieces wait put away")
+      assert(inv:get_stack("main",2):get_name()=="brickcraft:coral" and have("brickcraft:coral")==24,
+        "new pieces go straight to the hotbar")
+      -- A full hotbar keeps overflow visible in the collection, alongside other shapes.
+      for i=3,12 do inv:set_stack("main",i,"brickcraft:separator") end
+      brickcraft.give(player,"brickcraft:green 7")
+      brickcraft.give(player,"brickcraft:gold_1x1 5")
+      assert(inv:contains_item("pieces","brickcraft:green 7"),"full hotbar stores harvested bricks")
+      brickcraft.refresh_inventory(player)
+      local fs=player:get_inventory_formspec()
+      assert(fs:find("owned_2x2_green",1,true) and fs:find("owned_1x1_gold",1,true),
+        "collection shows stored colors and shapes together")
+      assert(fs:find("7 owned (includes hotbar and storage)",1,true),"stored count visible")
+      inv:set_stack("main",10,"")
+      click({owned_2x2_green="x"})
+      assert(inv:get_stack("main",10):get_name()=="brickcraft:green" and have("brickcraft:green")==7,
+        "collection click brings the exact stored piece into an empty hotbar slot")
+      for i=3,12 do inv:set_stack("main",i,"") end
+      inv:set_list("pieces",{})
       assert(brickcraft.to_hotbar(player,"brickcraft:coral",2),"to the hotbar")
       assert(inv:get_stack("main",2):get_name()=="brickcraft:coral" and inv:get_stack("main",2):get_count()==24,"all 24 on slot 2")
       assert(place(player,2,{x=1,y=-1,z=2},p)==23,"placement uses one piece")
@@ -39,6 +56,9 @@ C.register_on_joinplayer(function(player)
       -- Free hotbar: different pieces side by side. I > a piece > a color puts it in the first
       -- empty hotbar slot.
       for _,id in ipairs({"_1x2","_2x4","_plate"}) do brickcraft.give(player,"brickcraft:gold"..id.." 24") end
+      for i=3,5 do
+        inv:add_item("pieces",inv:get_stack("main",i)); inv:set_stack("main",i,"")
+      end
       player:set_look_horizontal(0); player:set_look_vertical(0)
       for i,id in ipairs({"1x2","2x4","plate"}) do
         brickcraft.set_shape(player,brickcraft.shapes[id]); click({take_gold="x"})
@@ -168,6 +188,9 @@ C.register_on_joinplayer(function(player)
         separator(player,"on_use",found)
         assert(C.get_node(found).name=="air",scenery.." harvested")
         assert(count("brickcraft:"..item)==before+1,scenery.." gives one "..item.." brick")
+        local color_slot=({green=10,brown=11,tan=12})[item]
+        assert(inv:get_stack("main",color_slot):get_name()=="brickcraft:"..item,
+          "mined "..item.." appears on its hotbar color key")
         if scenery=="trunk" then
           assert(brickcraft.undo(player),"undo harvest succeeds")
           assert(C.get_node(found).name=="brickcraft:trunk" and count("brickcraft:brown")==before,

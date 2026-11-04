@@ -812,6 +812,7 @@ end
 
 -- A LEGO part item put down with its foot at `foot`.
 local function put_part(player,stack,foot)
+  if not brickcraft.permissions.check(player,foot) then return stack end
   local meta=stack:get_meta()
   local p={mesh=meta:get_string("mesh"),color=meta:get_string("bc_color"),part=meta:get_string("part"),
     cname=meta:get_string("cname"),hx=meta:get_float("hx"),hy=meta:get_float("hy"),hz=meta:get_float("hz")}
@@ -843,6 +844,7 @@ local function unify(player,inst)
   return true
 end
 local function before_change(player,inst,action)
+  if not brickcraft.permissions.check(player,inst) then return false end
   if inst.modified then return action() end
   local def=def_of(inst)
   local name=player:get_player_name()
@@ -862,6 +864,7 @@ C.register_on_player_receive_fields(function(player,formname,fields)
   local name=player:get_player_name()
   local p=pending[name]; pending[name]=nil
   local inst=p and by_id[p.id]
+  if inst and not brickcraft.permissions.check(player,inst) then return true end
   if fields.yes and inst and unify(player,inst) then p.action() end
   return true
 end)
@@ -911,6 +914,7 @@ C.register_on_player_receive_fields(function(player,formname,fields)
   local ctx=menu[player:get_player_name()]
   local inst=ctx and by_id[ctx.id]
   if not inst then return true end
+  if not brickcraft.permissions.check(player,inst) then return true end
   local close=true
   if fields.take then before_change(player,inst,function() take_part(player,inst,ctx.i) end)
   elseif fields["break"] then break_all(player,inst)
@@ -1148,6 +1152,7 @@ local function place(name,param)
   end
   local foot,below=spot_for(player,m,scale)
   if not foot then return false,"Nowhere to stand it in front of you." end
+  if not brickcraft.permissions.check(player,foot) then return false,"World write permission required." end
   if S.on(foot) and not on_studs(below) then
     return false,"Strict LEGO: a model has to stand on studs (the ground or the top of a brick), not on a plate, tile or slope."
   end

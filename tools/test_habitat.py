@@ -1,7 +1,8 @@
 """Bunnyland (brickcraft_habitat) with a real Luanti GUI client on a dedicated server.
 Uses a dedicated test world and port 30021; never touches the user's workshop.
+Pass --eagles-only for roof/carrying regressions or --colonies-only for domestication/scoring; --cycle-only checks day/night rules.
 """
-import os, subprocess, time, tempfile
+import os, subprocess, time, tempfile, sys
 from pathlib import Path
 root=Path(__file__).resolve().parents[1]
 testroot=root/'tests'/'run'
@@ -22,7 +23,10 @@ def user_dir(name):
     env=os.environ.copy();env['LUANTI_USER_PATH']=str(user)
     return env
 server_conf=test/'server.conf'
-server_conf.write_text((root/'server.conf').read_text()+'\nbrickcraft_habitat_test = true\n')
+server_conf.write_text((root/'server.conf').read_text()+'\nbrickcraft_habitat_test = true\n'+
+    ('brickcraft_eagle_test_only = true\n' if '--eagles-only' in sys.argv else '')+
+    ('brickcraft_colony_test_only = true\n' if '--colonies-only' in sys.argv else '')+
+    ('brickcraft_cycle_test_only = true\n' if '--cycle-only' in sys.argv else ''))
 client_conf=(root/'brickcraft.conf').read_text()+'\nenable_register_confirmation = false\nscreen_w = 800\nscreen_h = 560\nwindow_maximized = false\n'
 log=test/'server.log'
 procs=[]

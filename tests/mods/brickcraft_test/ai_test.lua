@@ -85,6 +85,11 @@ C.register_on_joinplayer(function(player)
     local said={}
     local send=C.chat_send_all
     C.chat_send_all=function(msg) said[#said+1]=C.strip_colors(msg); return send(msg) end
+    local send_player=C.chat_send_player
+    C.chat_send_player=function(target,msg)
+      if target==name then said[#said+1]=C.strip_colors(msg) end
+      return send_player(target,msg)
+    end
     local function heard(pattern) for _,m in ipairs(said) do if m:find(pattern) then return m end end end
     local function players_part(done)
       local bp=jms.state().bot:get_pos()
@@ -105,6 +110,17 @@ C.register_on_joinplayer(function(player)
         local dir,id=brickcraft.reports.dir
         for _,f in ipairs(C.get_dir_list(dir,false)) do if f:find("%.title$") then id=f:gsub("%.title$","") end end
         assert(id,"report queued in "..dir)
+        local report=assert(io.open(dir.."/"..id..".md","r"))
+        local body=report:read("*a"); report:close()
+        local location=C.parse_json(assert(body:match("```json\n(.-)\n```"),"report has a world pointer"))
+        assert(location.world_id==brickcraft.world_at(player:get_pos()).id and location.save=="world",
+          "report points to this save and the reporting player's world")
+        assert(location.position and location.look and location.captured_at,"position, look and time captured")
+        local view_file=assert(io.open(dir.."/"..id..".view.json","r"),"report captured a screenshot scene")
+        local view=C.parse_json(view_file:read("*a")); view_file:close()
+        assert(not view.error,view.error)
+        assert(view.location.world_id==location.world_id,"image scene matches reporting world")
+        assert(not body:find("<summary>Area in front of them",1,true),"no bulky map dump in report")
         C.mkdir(dir.."/sent"); C.safe_file_write(dir.."/sent/"..id..".url","https://example.test/issues/1")
         wait(function() return heard("example.test/issues/1") end,10,"jms tells the issue link",function()
           C.log("action","BRICKCRAFT AI report: "..heard("example.test/issues/1"))

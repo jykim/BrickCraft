@@ -976,13 +976,14 @@ end
 -- (tools/post_issues.zsh), leaving issues/sent/<id>.url for the builder to tell the player.
 local REPORTS=C.get_worldpath().."/issues"
 local reports={} -- id -> tell(url), for the builder that took it
-local function queue_report(title,body,label,tell)
+local function queue_report(title,body,label,tell,view,recipient)
   C.mkdir(REPORTS)
-  local id=os.date("%Y%m%d-%H%M%S").."-"..math.random(1000,9999)
+  local id=view and view.id or (os.date("%Y%m%d-%H%M%S").."-"..math.random(1000,9999))
   C.safe_file_write(REPORTS.."/"..id..".md",body)
   C.safe_file_write(REPORTS.."/"..id..".label",label)
   C.safe_file_write(REPORTS.."/"..id..".title",title)
-  reports[id]=tell
+  if recipient then brickcraft.reports.notifications.track(id,title,recipient)
+  else reports[id]=tell end
   return id
 end
 local report_timer=0
@@ -999,7 +1000,21 @@ C.register_globalstep(function(dt)
     end
   end
 end)
-brickcraft.reports={queue=queue_report,dir=REPORTS,system=[[You write GitHub issues for BrickCraft, a toy-brick sandbox game a family (kids included) plays together. A player told their AI builder about something wrong in the game, or an idea for it. Turn their words into an issue the game's developer can act on later.
+brickcraft.reports={queue=queue_report,dir=REPORTS,
+  -- Capture now, before the asynchronous write-up: the player may move or switch worlds.
+  location=function(player)
+    local p=player:get_pos()
+    local world=brickcraft.world_at(p)
+    local function rounded(n) return math.floor(n*100+.5)/100 end
+    return {
+      save=C.get_worldpath():match("([^/]+)$"),
+      world_id=world.id,world_name=world.name,
+      position={x=rounded(p.x),y=rounded(p.y),z=rounded(p.z)},
+      look={yaw=rounded(player:get_look_horizontal()),pitch=rounded(player:get_look_vertical())},
+      captured_at=os.date("!%Y-%m-%dT%H:%M:%SZ"),
+    }
+  end,
+  system=[[You write GitHub issues for BrickCraft, a toy-brick sandbox game a family (kids included) plays together. A player told their AI builder about something wrong in the game, or an idea for it. Turn their words into an issue the game's developer can act on later.
 
 You get what was said in chat lately (it can explain what "that" means, but don't copy anyone's chat into the issue), their exact words, where they were and what they held, and the area in front of them as a list (x and z 0-15, y -1 ground to 8; "<piece> <color> x y z turn", "track straight|curve x y z turn", "cart x y z moving|stopped", "player <name> ...").
 
@@ -1007,6 +1022,9 @@ Answer with one JSON object and nothing else:
 - "title": a short, specific issue title in English (under 70 characters).
 - "kind": "bug" if something doesn't work as it should, "idea" for a wish or new feature.
 - "body": Markdown in English: what happened or what they want, steps to see it if you can tell, and what in the area list looks related. Don't guess at causes in the code. Don't add personal details beyond the in-game name.]]}
+
+brickcraft.reports.capture_view=dofile(C.get_modpath("brickcraft_ai").."/report_view.lua")
+brickcraft.reports.notifications=dofile(C.get_modpath("brickcraft_ai").."/report_notifications.lua")(REPORTS,storage)
 
 -- One Local AI API serves every builder: at most CLAUDE_MAX requests at once, the rest wait.
 local CLAUDE_MAX=tonumber(S:get("brickcraft_ai_parallel")) or 2
@@ -1257,6 +1275,16 @@ local function new_worker(owner)
   local hands_meta={get_string=function(_,k) return meta_data[k] or "" end,set_string=function(_,k,v) meta_data[k]=v end,
     get_int=function(_,k) return tonumber(meta_data[k]) or 0 end,set_int=function(_,k,v) meta_data[k]=v end}
   local hands={
+    _brickcraft_principal=function()
+      local function resolve()
+        for _,p in ipairs(C.get_connected_players()) do
+          if brickcraft.playing_as(p)==owner then return p:get_player_name() end
+        end
+        return owner=="jms" and id() or ""
+      end
+      brickcraft.permissions.delegates[id()]=resolve
+      return resolve()
+    end,
     is_player=function() return true end, get_player_name=function() return id() end,
     get_inventory=function() return inv end, get_wield_list=function() return "main" end,
     get_wield_index=function() return wield end,
@@ -1599,10 +1627,13 @@ local function new_worker(owner)
     local pl=C.get_player_by_name(name)
     local facts="Reported by "..who.." to "..w.name.." (AI builder), "..os.date("!%Y-%m-%d %H:%M UTC")
     local area=""
+    local location=pl and brickcraft.reports.location(pl)
+    local view=pl and brickcraft.reports.capture_view(pl,location,REPORTS)
+    local recipient={style=pl and brickcraft.playing_as(pl),name=name}
     if pl then
-      local pos=vector.round(pl:get_pos())
+      local pos=location.position
       local held=pl:get_wielded_item():get_short_description()
-      facts=facts.."\nWorld: "..brickcraft.world_at(pos).name..", at "..pos.x..","..pos.y..","..pos.z..
+      facts=facts.."\nWorld: "..location.world_name.." (#"..location.world_id.."), at "..pos.x..","..pos.y..","..pos.z..
         "; holding "..(held~="" and held or "nothing")..(pl:get_attach() and "; riding a cart" or "")
       if same_world(pl:get_pos(),base()) then area=describe(area_of(name)) end
     end
@@ -1610,12 +1641,12 @@ local function new_worker(owner)
     local function post(title,body,kind)
       title=title:gsub("[%c]"," "):sub(1,80)
       local full=body.."\n\n---\n**In the game:**\n\n"..quote.."\n\n"..facts:gsub("\n","  \n")..
-        (area~="" and "\n\n<details><summary>Area in front of them</summary>\n\n```\n"..area.."\n```\n</details>" or "")
+        (location and "\n\n**World location** (position in nodes; yaw/pitch in radians):\n\n```json\n"..
+          C.write_json(location).."\n```\nUse `/world` to select this world. This points to the live world, not a frozen snapshot." or
+          "\n\nWorld location unavailable: the reporting player was no longer connected.")
       brickcraft.reports.queue(title,full,kind=="idea" and "enhancement" or "bug",function(url)
         say("Your report is on GitHub now, "..who..": "..url)
-      end)
-      -- Talking already said it was written down.
-      if not via_chat then say("Thanks "..who.."! I wrote it down for the game's makers: \""..title.."\". It goes on GitHub soon.") end
+      end,view,recipient)
     end
     if not use_claude then post(words:sub(1,70),"A player reported this from inside the game.",idea and "idea" or "bug") return end
     if not via_chat then say("Okay "..who..", I'm writing that down...",true) end
@@ -2396,6 +2427,33 @@ C.register_chatcommand("botname",{params="<name>",description="Name your builder
     if param=="" then return true,"Your builder is called "..wk.name..". /botname <name> renames it." end
     local ok,msg=wk.rename(param)
     return ok,ok and "Your builder is called "..wk.name.." now." or msg
+  end})
+-- Reports have their own commands so a player does not need to remember their builder's
+-- name. They still go through that builder, which adds the same world/position context and
+-- lets the player know when tools/post_issues.zsh has made the GitHub issue.
+local function report_command(kind)
+  return function(name,param)
+    local wk=own_worker(name)
+    if not wk then return false,"Pick who's playing first." end
+    param=(param or ""):gsub("^%s+",""):gsub("%s+$","")
+    if param=="" then
+      return false,"Say what happened: /"..(kind=="idea" and "feature" or "bug").." <description>"
+    end
+    C.after(.1,wk.handle,name,(kind=="idea" and "idea: " or "bug: ")..param)
+    return true,"Thanks! Your builder is writing that report now."
+  end
+end
+C.register_chatcommand("bug",{params="<description>",description="Report a BrickCraft bug",
+  func=report_command("bug")})
+C.register_chatcommand("feature",{params="<description>",description="Suggest a BrickCraft feature",
+  func=report_command("idea")})
+C.register_chatcommand("report",{params="<bug|feature> <description>",description="Report a bug or suggest a feature",
+  func=function(name,param)
+    local kind,words=(param or ""):match("^%s*(%S+)%s+(.+)$")
+    kind=kind and kind:lower() or ""
+    if kind=="bug" then return report_command("bug")(name,words) end
+    if kind=="feature" or kind=="idea" then return report_command("idea")(name,words) end
+    return false,"Use /report bug <description> or /report feature <description>."
   end})
 if JMS then
   C.register_chatcommand(LNAME,{params="<request>",description="Ask "..NAME.." (AI) to build something",

@@ -72,7 +72,8 @@ local function statue(put,S)
   for x=-3,3 do put(x,1,-7+0,"rose") end               -- a rose stripe on the plinth's front
 end
 
-H.register_variant("bunny",{label="Bunnyland",plural="bunnies",creature="bunny",count=8,max=16,
+H.register_variant("bunny",{label="Bunnyland",defense=true,plural="bunnies",creature="bunny",count=8,max=16,
+  cycle={day=270,night=30},
   statue={x=0,z=37,radius=7,height=30,build=statue},
   sources={{"carrot_patch",-8,26},{"carrot_patch",8,26},{"carrot_patch",-16,26},
     {"water_trough",0,25},{"water_trough",16,26}},
@@ -89,10 +90,10 @@ H.register_variant("bunny",{label="Bunnyland",plural="bunnies",creature="bunny",
     "and don't let a hill touch the fence: animals climb hills.",
   -- Each player's own colony (colony.lua). Balance from tools/sim_habitat.py.
   pack_per=12,
-  colony={start=5,max=60,clovers=40,income=.1,birth=90,feeds=4,waters=6,happy=60,
-    kit={hutch=2,carrot_patch=1,water_trough=1,fence=32,fence_gate=1},
-    shop={{"fence",10,8},{"fence_gate",5},{"hutch",25},{"carrot_patch",15},{"water_trough",15},{"nursery",60},{"lookout",40}},
+  colony={start=5,max=60,win_count=21,hutch_bricks=8,clovers=40,income=.1,birth=90,feeds=4,waters=6,happy=60,
+    kit={hutch=2,carrot_patch=1,water_trough=1,fence=32,fence_gate=1,cat_feeder=1,churu=3},
+    shop={{"fence",10,8},{"fence_gate",5},{"hutch",25},{"carrot_patch",15},{"water_trough",15},{"nursery",60},{"lookout",40},{"cat_feeder",25},{"churu",5,3}},
     levels={{0,"Burrow"},{10,"Warren",50},{20,"Village",100},{35,"Town",150},{50,"Bunny City",250}}},
   tip="Fences two bricks high stop wolves and lions. Roofs hide bunnies from eagles and asteroids. "..
-    "Bunnies need carrots and water: keep them where predators and floods can't reach."})
+    "Use Sword and Bow from your bag while building. Stock a Cat feeder with churu to attract a guardian cat."})
 end
