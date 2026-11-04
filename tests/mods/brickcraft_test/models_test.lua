@@ -1,6 +1,6 @@
 -- Opt-in check (tools/test_models.py): models of real parts (brickcraft_models).
 --   * The shared Model Gallery is a strict LEGO world in the world list with every sample
---     at the game's scale on its spot, each made of its parts while someone is near, with
+--     at minifig scale on its spot, each made of its parts while someone is near, with
 --     support nodes to stand on.
 --   * /model puts one down facing the player, at any size; the menu's size changes it.
 --   * The first change asks, then resizes to the game's scale for good.
@@ -41,7 +41,7 @@ C.register_on_joinplayer(function(player)
         assert(inst,m.slug.." stands in the gallery")
         local spot=M.GALLERY[m.slug]
         assert(inst.x==w.x+spot.x and inst.z==w.z+spot.z and inst.y==-.5 and inst.turn==0,m.slug.." on its spot")
-        assert((inst.scale or 1)==1 and not inst.modified,m.slug.." at the game's scale, not changed")
+        assert(inst.scale==M.DEFAULT_SCALE and not inst.modified,m.slug.." at minifig scale, not changed")
       end
       -- Media on demand: the files come once the player is near, then the parts appear.
       assert(not C.get_dir_list(C.get_modpath("brickcraft_models").."/models",false) or
@@ -61,18 +61,19 @@ C.register_on_joinplayer(function(player)
       assert(complete,"every part is there once the files came: "..total)
       assert(M.has_media(name,M.files_of(M.models.bonsai)),"the player has the bonsai's files")
       log(string.format("media on demand: the gallery's files came in %.1f s",(C.get_us_time()-t0)/1e6))
-      -- One scale: the bonsai is 27 brick rows tall; a real 2 x 2 brick is one cell.
+      -- Real proportions: the bonsai is 27 brick rows (16.3 cells of 16 mm) tall; a real 2 x 2
+      -- brick is one cell across and 11.3 mm tall with its studs.
       local bonsai=M.models.bonsai
-      assert(math.abs(bonsai.h-27.17)<.1,"the bonsai is 27 cells tall: "..bonsai.h)
+      assert(math.abs(bonsai.h-16.3)<.1,"the bonsai is 16.3 cells tall: "..bonsai.h)
       for _,p in ipairs(M.models.house.parts) do
-        if p.part=="3003" then assert(math.abs(p.hx-.5)<.02 and math.abs(p.hy*2-1.18)<.05,"a 3003 is one cell (with its studs)") end
+        if p.part=="3003" then assert(math.abs(p.hx-.5)<.02 and math.abs(p.hy*2-.71)<.03,"a 3003 is one cell across, 11.3 mm tall") end
       end
       -- Support to stand on: the cat's middle column.
       local cat=insts.cat
       local n=0
       for _ in pairs(cat.support) do n=n+1 end
       assert(n>10 and C.get_node(at(-14,2,4)).name==M.SUPPORT,"support nodes fill the cat: "..n)
-      log("Model Gallery: "..total.." real parts in "..#M.catalog.." models at the game's scale, support to stand on")
+      log("Model Gallery: "..total.." real parts in "..#M.catalog.." models at minifig scale, support to stand on")
 
       -- /model at a size, facing the player; the size changes until the model is changed.
       player:set_pos(at(20,0.5,-22)); player:set_look_horizontal(0); player:set_look_vertical(0)

@@ -1,10 +1,11 @@
 -- Models: builds of real LEGO parts made with BrickWright (validated there: no collisions,
 -- nothing floating, all connected), standing in the world part by part.
 --
--- Size 1 is the game's own scale: a cell is 2 x 2 studs wide and one brick tall, so a
--- model's real 2 x 2 brick is exactly a game 2 x 2 brick and a plate a third of a cell
--- (tools/import_brickwright.py writes the parts that way). A model goes down at any size
--- (/model bonsai 0.3) and its size can change from its menu, until it's first changed
+-- Parts keep their real proportions: a cell is 16 mm every way, 2 x 2 studs across and five
+-- plates tall (tools/import_brickwright.py writes them so; `cell_mm` in the data). Size 1 is
+-- the game's grid: a real 2 x 2 brick is a game 2 x 2 brick across. A model goes down at
+-- minifig scale (DEFAULT_SCALE: a minifig as tall as a player) unless a size is given
+-- (/model bonsai 0.3), and its size can change from its menu, until it's first changed
 -- itself: before a part comes off, it's broken, rebuilt or built on, the player is warned
 -- and the model goes to size 1 for good, so its parts are the game's pieces. With the separator:
 --   * left click takes one part off into the inventory: a part the game has (bricks,
@@ -35,10 +36,16 @@ local GAME_RGB={coral={235,93,72},gold={249,193,65},mint={74,183,147},sky={74,16
 -- Model definitions -----------------------------------------------------------------------
 local models,catalog={},{} -- slug -> def; the defs in list order
 
+-- Meshes in real proportions (`cell_mm`), by prefix; older ones (a cell a brick tall) stay
+-- as they were, stretched, until they're sent again.
+local real_prefix={}
+local function prefix_of(mesh) return mesh and mesh:match("^(.*)_%d+%.glb$") end
+
 local function def_from(data)
   local d={slug=data.slug,title=data.title or data.slug,record=data.record,pieces=data.pieces or #data.parts,
     w=data.w,h=data.h,d=data.d,prompt=data.prompt,bricks=data.bricks,parts={},adj={},ground={}}
   local prefix=data.mesh_prefix or ("brickcraft_model_"..data.slug)
+  real_prefix[prefix]=data.cell_mm==16 or nil
   for i,p in ipairs(data.parts) do
     d.parts[i]={mesh=prefix.."_"..p[1]..".glb",color=p[2],x=p[3],y=p[4],z=p[5],hx=p[6],hy=p[7],hz=p[8],
       part=p[9] or "?",cname=p[10] or ""}
@@ -138,6 +145,29 @@ local function rot(x,z,t)
   return x,z
 end
 local MIN_SCALE,MAX_SCALE=.1,3
+-- A real minifig is about 40 mm (2.5 cells) tall; a player is 1.75 cells.
+local DEFAULT_SCALE=.7
+
+-- Once, from parts a cell a brick tall (16 x 9.6 mm cells) to real proportions: parts put
+-- down or fallen off keep their sizes in the instance, so those whose meshes are real now
+-- come down to real heights; every model's support is redone when its parts next appear;
+-- models nobody changed go to minifig scale, the default now.
+if not state.real then
+  local OLD_Y=9.6/16
+  local function fix(p)
+    if real_prefix[prefix_of(p.mesh)] then
+      for _,f in ipairs({"y","hy","uhy"}) do if p[f] then p[f]=p[f]*OLD_Y end end
+    end
+  end
+  for _,inst in ipairs(state.list) do
+    if inst.part then fix(inst.part) end
+    if inst.custom then for _,q in ipairs(inst.custom.parts) do fix(q) end end
+    if inst.slug and not inst.modified and (inst.scale or 1)==1 then inst.scale=DEFAULT_SCALE end
+    inst.resupport=true
+  end
+  state.real=true
+  save()
+end
 local function part_box(inst,p)
   local s=inst.scale or 1
   local x,z=rot(p.x*s,p.z*s,inst.turn or 0)
@@ -241,10 +271,26 @@ local function spawn_part(inst,i,p)
 end
 
 local hold={} -- instance id -> until when its parts wait (they're still falling)
+local function resupport(inst)
+  local cells=support_cells(inst,inst.gone or {})
+  local lo,hi
+  for _,t in ipairs({cells,inst.support or {}}) do
+    for k in pairs(t) do
+      local q=unkey(k)
+      lo=lo and {x=math.min(lo.x,q.x),y=math.min(lo.y,q.y),z=math.min(lo.z,q.z)} or q
+      hi=hi and {x=math.max(hi.x,q.x),y=math.max(hi.y,q.y),z=math.max(hi.z,q.z)} or q
+    end
+  end
+  if lo then C.load_area(lo,hi) end
+  apply_support(inst,cells)
+  inst.resupport=nil
+  save()
+end
 local function spawn(inst)
   local def=def_of(inst)
   if not def or spawned[inst.id] then return end
   if hold[inst.id] and C.get_us_time()<hold[inst.id] then return end
+  if inst.resupport then resupport(inst) end
   spawned[inst.id]={}
   for i,p in ipairs(def.parts) do
     if not (inst.gone or {})[i] then spawn_part(inst,i,p) end
@@ -526,6 +572,7 @@ local function item_for(p)
   meta:set_string("mesh",up.mesh)
   for _,f in ipairs({"color","part","cname"}) do meta:set_string(f,p[f]) end
   for _,f in ipairs({"hx","hy","hz"}) do meta:set_float(f,up[f]) end
+  meta:set_int("real",1)
   -- Its own picture (rendered at import, light grey) in its colour.
   local icon=up.mesh:gsub("%.glb$",".png").."^[multiply:"..p.color:sub(1,7)
   meta:set_string("inventory_image",icon)
@@ -699,7 +746,7 @@ function organize(player,inst,quiet)
       if x>0 and x+w>width then x=0; z=z+row+.5; row=0 end
       local high=math.min(STACK,left)
       -- Bricks nest on the studs below; thin or odd parts just sit on one another.
-      local pitch=up.hy*2>.5 and up.hy*2-.18 or up.hy*2
+      local pitch=up.hy*2>.5 and up.hy*2-.11 or up.hy*2 -- a stud is 1.7 mm
       for n=1,high do
         parts[#parts+1]={mesh=up.mesh,umesh=up.mesh,color=kind.p.color,part=kind.p.part,cname=kind.p.cname,
           x=x+w/2,y=up.hy+(n-1)*pitch,z=z+dz/2,hx=up.hx,hy=up.hy,hz=up.hz,uhx=up.hx,uhy=up.hy,uhz=up.hz}
@@ -756,6 +803,8 @@ local function put_part(player,stack,foot)
   local p={mesh=meta:get_string("mesh"),color=meta:get_string("bc_color"),part=meta:get_string("part"),
     cname=meta:get_string("cname"),hx=meta:get_float("hx"),hy=meta:get_float("hy"),hz=meta:get_float("hz")}
   if p.mesh=="" then return stack end
+  -- Taken before real proportions (a cell a brick tall), its mesh real now: its real height.
+  if meta:get_int("real")==0 and real_prefix[prefix_of(p.mesh)] then p.hy=p.hy*9.6/16 end
   new_instance({part=p,x=foot.x,y=foot.y,z=foot.z,turn=yaw_turn(player),modified=true})
   stack:take_item(1)
   return stack
@@ -1040,11 +1089,11 @@ local function spot_for(player,def,scale)
 end
 
 local function list_text()
-  local rows={"Models (real LEGO builds from BrickWright, same scale as game bricks):"}
+  local rows={"Models (real LEGO builds from BrickWright, sizes at the game's grid, size 1):"}
   for i,m in ipairs(catalog) do
     rows[#rows+1]=string.format("  %d. %s  %s: %d pieces, %.0f x %.0f cells, %.0f tall",i,m.slug,m.title,m.pieces,m.w,m.d,m.h)
   end
-  rows[#rows+1]="/model <name or number> [size] puts one in front of you (size 1 = game bricks). Separator: left click takes a part, right click opens the model's menu."
+  rows[#rows+1]="/model <name or number> [size] puts one in front of you (minifig scale, "..DEFAULT_SCALE.."; size 1 = game bricks). Separator: left click takes a part, right click opens the model's menu."
   return table.concat(rows,"\n")
 end
 
@@ -1055,7 +1104,7 @@ local function place(name,param)
   if not which then return true,list_text() end
   local m=models[which] or catalog[tonumber(which) or 0]
   if not m then return false,"No model called "..which..".\n"..list_text() end
-  local scale=1
+  local scale=DEFAULT_SCALE
   if size~="" then
     scale=tonumber(size)
     if not scale or scale<MIN_SCALE or scale>MAX_SCALE then return false,"Size is a number from "..MIN_SCALE.." to "..MAX_SCALE.." (1 = game bricks)." end
@@ -1068,7 +1117,7 @@ local function place(name,param)
   local inst=new_instance({slug=m.slug,x=foot.x,y=foot.y,z=foot.z,turn=yaw_turn(player),scale=scale})
   spawn(inst)
   return true,string.format("%s: %d real parts, %.0f cells tall%s.",m.title,#m.parts,m.h*scale,
-    scale==1 and " (the game's scale)" or ", size "..scale)
+    scale==1 and " (the game's grid)" or scale==DEFAULT_SCALE and ", minifig scale (size "..scale..")" or ", size "..scale)
 end
 
 C.register_chatcommand("model",{params="[name]",
@@ -1077,7 +1126,7 @@ C.register_chatcommand("models",{description="List the models",func=function() r
 
 for _,row in ipairs({
   {"/model","List the models (real LEGO builds from BrickWright)"},
-  {"/model bonsai [size]","Put one in front of you (size 1 = game bricks, change it in its menu)"},
+  {"/model bonsai [size]","Put one in front of you (minifig scale; size 1 = game bricks, change it in its menu)"},
   {"Separator on a model","Left click: take a part into the inventory. Right click or F: menu (break apart, stack parts, game bricks, turn, size, put away)"},
   {"Brick on a model","Right click a part with a brick to build on it"},
 }) do brickcraft.help[#brickcraft.help+1]=row end
@@ -1095,7 +1144,7 @@ local R=24
 local function gallery_world() for _,w in ipairs(brickcraft.worlds()) do if w.gallery then return w end end end
 
 local function gallery_place(w,m,at)
-  new_instance({slug=m.slug,x=w.x+at.x,y=-.5,z=w.z+at.z,turn=0})
+  new_instance({slug=m.slug,x=w.x+at.x,y=-.5,z=w.z+at.z,turn=0,scale=DEFAULT_SCALE})
   w.gallery_models[m.slug]=true
 end
 
@@ -1200,4 +1249,4 @@ brickcraft.models={catalog=catalog,models=models,place=place,gallery=gallery_wor
   instances=function() return state.list end,instance=function(id) return by_id[id] end,
   spawned=function(id) return spawned[id] end,take_part=take_part,break_all=break_all,convert=convert,
   turn=turn_model,put_away=put_away,organize=organize,resize=resize,unify=unify,before_change=before_change,hanging=hanging,support_cells=support_cells,def_of=def_of,
-  item_for=item_for,put_part=put_part,has_media=has_media,files_of=files_of,media=files,settle=settle,box_of=box_of,floor_under=floor_under,check_inbox=check_inbox,SUPPORT=SUPPORT}
+  item_for=item_for,put_part=put_part,has_media=has_media,files_of=files_of,media=files,settle=settle,box_of=box_of,floor_under=floor_under,check_inbox=check_inbox,SUPPORT=SUPPORT,DEFAULT_SCALE=DEFAULT_SCALE}

@@ -15,11 +15,12 @@ into a world's inbox (<world>/brickwright_models/<slug>/) instead, where the run
 picks it up without a restart; the same version (the same mesh) isn't sent twice. `--status`
 says whether a build is there and whether it's the gallery's current version.
 
-One scale for both: a game cell is 2 x 2 studs (16 mm) wide and one brick (9.6 mm) tall,
-the way the game draws its own bricks. A model's parts use the same, so a real 2 x 2 brick
-is exactly a game 2 x 2 brick, a plate a third of a cell, and the game-brick version of a
-model fills the cells the model stands in. (Real parts look taller than in BrickWright,
-like the game's bricks do.)
+Real proportions: a game cell is 16 mm every way, 2 x 2 studs across and five plates tall,
+so a real 2 x 2 brick is a game 2 x 2 brick across, three fifths of a cell tall, a plate a
+fifth, and the parts look as they do in BrickWright (not stretched up to a cell a brick).
+The game-brick version of a model fills the 16 mm cells the model stands in. Models go
+down at minifig scale by default (the game's DEFAULT_SCALE), where a minifig is a player's
+height; `cell_mm` in the data says these are real proportions.
 
 Coordinates are written in Luanti's (left-handed: the glTF loader turns z round), so the
 parts' places agree with their meshes: a model's front faces -z.
@@ -38,11 +39,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MOD = ROOT / 'game' / 'mods' / 'brickcraft_models'
 GALLERY = Path(os.environ.get('BRICKWRIGHT_SITE', '/Volumes/990PRO/lifidea/Projects/dev/brickwright/site'))
-CELL_M = 0.016          # a cell is 2 studs = 16 mm wide (x, z)
-BRICK_M = 0.0096        # and one brick = 9.6 mm tall (y)
-UNITS = 10 / CELL_M     # Luanti mesh units: 10 per cell, across
-UNITS_Y = 10 / BRICK_M  # and up
-STRETCH = CELL_M / BRICK_M
+CELL_M = 0.016          # a cell is 2 studs = 16 mm, every way (real proportions)
+UNITS = 10 / CELL_M     # Luanti mesh units: 10 per cell
 MAX_VERTS = 65535       # 16-bit indices per primitive
 MAX_INDICES = 65535     # Luanti's glTF loader also counts corners against this ('too many vertices')
 TOUCH_M = 0.0005        # parts closer than this touch
@@ -271,18 +269,13 @@ def convert(slug, record, gallery=GALLERY):
             # The mesh is written in glTF's axes (z back round); the loader turns it again.
             for k in range(0, len(P), 3):
                 P[k] = (P[k] - mid[0]) * UNITS
-                P[k + 1] = (P[k + 1] - mid[1]) * UNITS_Y
+                P[k + 1] = (P[k + 1] - mid[1]) * UNITS
                 P[k + 2] = -(P[k + 2] - mid[2]) * UNITS
-            N = array('f', nor)
-            for k in range(0, len(N), 3):  # normals of a mesh stretched up by STRETCH
-                nx, ny, nz = N[k], N[k + 1] / STRETCH, N[k + 2]
-                l = math.sqrt(nx * nx + ny * ny + nz * nz) or 1
-                N[k], N[k + 1], N[k + 2] = nx / l, ny / l, nz / l
-            meshes.append(glb_bytes(f'{slug}_{len(meshes) + 1}', P, N, idx))
+            meshes.append(glb_bytes(f'{slug}_{len(meshes) + 1}', P, array('f', nor), idx))
             mesh_of[key] = len(meshes)
         return mesh_of[key], mid
 
-    unit = (CELL_M, BRICK_M, CELL_M)
+    unit = (CELL_M, CELL_M, CELL_M)
     for p in parts:
         k, mid = add_mesh(p['key'], p['pos'], p['nor'], p['idx'], p['lo'], p['hi'])
         upos, unor, uidx = uprights[p['ukey']]
@@ -310,7 +303,7 @@ def convert(slug, record, gallery=GALLERY):
                 links.append([i + 1, j + 1])
     ground = [i + 1 for i, p in enumerate(parts) if p['lo'][1] - lo[1] < TOUCH_M]
 
-    # Game bricks: a cell is 16 x 16 mm and one brick row (9.6 mm) tall. Surfaces are sampled
+    # Game bricks: a cell is 16 mm every way. Surfaces are sampled
     # every 4 mm; each cell takes the game colour with the most area in it.
     votes = {}
     for p in parts:
@@ -331,17 +324,17 @@ def convert(slug, record, gallery=GALLERY):
                     x = A[0] + s * e1[0] + q * e2[0] - origin[0]
                     y = A[1] + s * e1[1] + q * e2[1] - origin[1]
                     z = A[2] + s * e1[2] + q * e2[2] - origin[2]
-                    cell = (round(x / CELL_M), int(y // BRICK_M), round(z / CELL_M))
+                    cell = (round(x / CELL_M), int(y // CELL_M), round(z / CELL_M))
                     d = votes.setdefault(cell, {})
                     d[color] = d.get(color, 0) + w
-    min_area = (CELL_M * BRICK_M) * 0.06  # a cell needs a bit of surface, not one grazing corner
+    min_area = (CELL_M * CELL_M) * 0.06  # a cell needs a bit of surface, not one grazing corner
     bricks = sorted([[x, y, z, max(d, key=d.get)] for (x, y, z), d in votes.items() if sum(d.values()) >= min_area],
                     key=lambda b: (b[1], b[0], b[2]))
 
     return {
         'slug': slug, 'record': record,
-        'w': round((hi[0] - lo[0]) / CELL_M, 2), 'h': round((hi[1] - lo[1]) / BRICK_M, 2), 'd': round((hi[2] - lo[2]) / CELL_M, 2),
-        'alpha': any(c[3] < 255 for c in colors),
+        'w': round((hi[0] - lo[0]) / CELL_M, 2), 'h': round((hi[1] - lo[1]) / CELL_M, 2), 'd': round((hi[2] - lo[2]) / CELL_M, 2),
+        'cell_mm': 16, 'alpha': any(c[3] < 255 for c in colors),
         'parts': out_parts, 'links': links, 'ground': ground, 'bricks': bricks,
     }, meshes, icons
 
@@ -350,13 +343,13 @@ ICON = 32
 
 
 def part_picture(pos, idx, mid):
-    """A light grey picture of a part (game proportions), lit from above, for its icon."""
+    """A light grey picture of a part (real proportions), lit from above, for its icon."""
     S = ICON * 2  # drawn twice as big, then halved: smooth edges
     cy, sy = math.cos(math.radians(35)), math.sin(math.radians(35))
     cp, sp = math.cos(math.radians(28)), math.sin(math.radians(28))
     pts = []
     for k in range(0, len(pos), 3):
-        x, y, z = (pos[k] - mid[0]) / CELL_M, (pos[k + 1] - mid[1]) / BRICK_M, (pos[k + 2] - mid[2]) / CELL_M
+        x, y, z = (pos[k] - mid[0]) / CELL_M, (pos[k + 1] - mid[1]) / CELL_M, (pos[k + 2] - mid[2]) / CELL_M
         x, z = x * cy - z * sy, x * sy + z * cy  # turned a little
         y, z = y * cp - z * sp, y * sp + z * cp  # seen from a little above
         pts.append((x, y, z))
