@@ -226,7 +226,7 @@ local function update_hud(player)
       text=text,number=0xffffff,alignment={x=0,y=0},scale={x=100,y=20}})
   end
 end
-local inventory_formspec
+local inventory_formspec,brick_counts
 local function set_shape(player,shape)
   player:get_meta():set_string("brickcraft_shape",shape.id)
   player:set_inventory_formspec(inventory_formspec(player))
@@ -961,9 +961,20 @@ local function new_world(player,title,strict_world)
   return true
 end
 
+-- Bricks of each game color, wherever they are (in war mode they wait in war_stash).
+function brick_counts(player)
+  local inv=player:get_inventory()
+  local list=inv:get_size("war_stash")>0 and "war_stash" or "main"
+  local have={}
+  for _,st in ipairs(inv:get_list(list)) do
+    local c=st:get_name():match("^brickcraft:(%a+)$")
+    if c then have[c]=(have[c] or 0)+st:get_count() end
+  end
+  return have
+end
 function inventory_formspec(player)
   local current=get_shape(player)
-  local fs="formspec_version[6]size[10.8,13.2]label[.4,.4;BRICKCRAFT / YOUR BRICKS   (Tab: next piece)]"..
+  local fs="formspec_version[6]size[10.8,12.8]label[.4,.4;BRICKCRAFT / YOUR BRICKS   (Tab: next piece)]"..
     "button[7.65,.12;2.8,.52;sort;Sort by type & color]"..
     "tooltip[sort;Each color goes to its key (2-9 0 - =), LEGO parts line up by part and color]"
   -- One row per piece family; the tooltip names the real catalog part.
@@ -987,17 +998,56 @@ function inventory_formspec(player)
         "tooltip[shape_"..s.id..";"..C.formspec_escape(s.label.." - part "..s.part.." - uses "..s.cost.." brick"..(s.cost>1 and "s" or "")).."]"
     end
   end
-  return fs.."list[current_player;main;.4,4.9;8,4;]"..
-    "label[.4,10.1;1: Separator | 2-9 0 - =, wheel: Colors | Right click or F: Build | Q/E: Look left/right | U: Undo]"..
-    "label[.4,10.6;2 x 4 pieces and carts use 2 bricks of their color. The others use 1.]listring[current_player;main]"..
-    "style[undo;bgcolor=#f5872c]button[.4,11;2.4,.6;undo;Undo last action]"..
-    "button[2.95,11;2.4,.6;look;Switch player]button[5.5,11;2.4,.6;world;Switch world]"..
-    "button[8.05,11;2.4,.6;help;Help: all keys]"..
-    "button[8.05,11.8;2.4,.6;turn;Turn next brick]"..
-    (brickcraft.war and "style[war;bgcolor=#b8402c]button[.4,11.8;2.4,.6;war;"..
+  -- The chosen piece in every color you have, with how many of it your bricks make.
+  local have=brick_counts(player)
+  local each=current.cost>1 and " ("..current.cost.." bricks each)" or ""
+  fs=fs.."label[.4,5.1;"..C.formspec_escape(current.label..each.."  -  your colors, and how many you can build").."]"
+  local n=0
+  for i,c in ipairs(colors) do
+    local pieces=math.floor((have[c] or 0)/current.cost)
+    if pieces>0 then
+      local x=.4+n*.94
+      local node="brickcraft:"..c..current.suffix
+      local key=i<8 and tostring(i+1) or ({"9","0","-","="})[i-7]
+      fs=fs.."item_image["..x..",5.35;.9,.9;"..(C.registered_nodes[node] and node or "brickcraft:"..c).."]"..
+        "label["..(x+.05)..",6.42;"..pieces.."]"..
+        "tooltip["..x..",5.35;.86,1.2;"..C.formspec_escape(labels[i].." "..current.label..": "..pieces..
+          " ("..have[c].." brick"..(have[c]==1 and "" or "s")..")  -  key "..key).."]"
+      n=n+1
+    end
+  end
+  if n==0 then fs=fs.."label[.4,5.8;"..C.formspec_escape("Not enough bricks for this piece. Collect some with the separator (key 1).").."]" end
+  -- Below: the hotbar (each color on its key) and the bag (LEGO parts, extra stacks).
+  return fs.."style_type[list;size=.76;spacing=.08]"..
+    "label[.4,6.9;Hotbar  (1: separator, 2-9 0 - =: colors)]list[current_player;main;.4,7.1;12,1;0]"..
+    "label[.4,8.15;Bag: LEGO parts and extra bricks  (drag one to the hotbar to build with it)]"..
+    "list[current_player;main;.4,8.35;10,2;12]listring[current_player;main]"..
+    "label[.4,10.3;Right click or F: Build  |  Q/E: Look left/right  |  U: Undo  |  Tab: Next piece]"..
+    "style[undo;bgcolor=#f5872c]button[.4,10.65;2.4,.6;undo;Undo last action]"..
+    "button[2.95,10.65;2.4,.6;look;Switch player]button[5.5,10.65;2.4,.6;world;Switch world]"..
+    "button[8.05,10.65;2.4,.6;help;Help: all keys]"..
+    "button[8.05,11.45;2.4,.6;turn;Turn next brick]"..
+    (brickcraft.war and "style[war;bgcolor=#b8402c]button[.4,11.45;2.4,.6;war;"..
       (brickcraft.war.on(player) and "Stop war" or "War mode").."]"..
-    "label[.4,12.75;Cannons, swords, kicks: only players in war mode can be hit]" or "")
+    "label[.4,12.4;Cannons, swords, kicks: only players in war mode can be hit]" or "")
 end
+-- The inventory screen is drawn ahead of time, so its counts are redrawn when the bricks change.
+local shown_counts={}
+local function counts_sig(player)
+  local t,have={},brick_counts(player)
+  for _,c in ipairs(colors) do t[#t+1]=have[c] or 0 end
+  return table.concat(t,",")
+end
+local count_timer=0
+C.register_globalstep(function(dt)
+  count_timer=count_timer+dt; if count_timer<.5 then return end; count_timer=0
+  for _,p in ipairs(C.get_connected_players()) do
+    local sig=counts_sig(p)
+    local name=p:get_player_name()
+    if shown_counts[name]~=sig then shown_counts[name]=sig; p:set_inventory_formspec(inventory_formspec(p)) end
+  end
+end)
+C.register_on_leaveplayer(function(p) shown_counts[p:get_player_name()]=nil end)
 C.register_on_player_receive_fields(function(player,formname,fields)
   if formname=="brickcraft:welcome" and fields.help then show_help(player); return true end
   if formname=="brickcraft:style" then
