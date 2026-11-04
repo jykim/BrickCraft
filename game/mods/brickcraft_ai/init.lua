@@ -2323,6 +2323,33 @@ C.register_chatcommand("botname",{params="<name>",description="Name your builder
     local ok,msg=wk.rename(param)
     return ok,ok and "Your builder is called "..wk.name.." now." or msg
   end})
+-- Reports have their own commands so a player does not need to remember their builder's
+-- name. They still go through that builder, which adds the same world/position context and
+-- lets the player know when tools/post_issues.zsh has made the GitHub issue.
+local function report_command(kind)
+  return function(name,param)
+    local wk=own_worker(name)
+    if not wk then return false,"Pick who's playing first." end
+    param=(param or ""):gsub("^%s+",""):gsub("%s+$","")
+    if param=="" then
+      return false,"Say what happened: /"..(kind=="idea" and "feature" or "bug").." <description>"
+    end
+    C.after(.1,wk.handle,name,(kind=="idea" and "idea: " or "bug: ")..param)
+    return true,"Thanks! Your builder is writing that report now."
+  end
+end
+C.register_chatcommand("bug",{params="<description>",description="Report a BrickCraft bug",
+  func=report_command("bug")})
+C.register_chatcommand("feature",{params="<description>",description="Suggest a BrickCraft feature",
+  func=report_command("idea")})
+C.register_chatcommand("report",{params="<bug|feature> <description>",description="Report a bug or suggest a feature",
+  func=function(name,param)
+    local kind,words=(param or ""):match("^%s*(%S+)%s+(.+)$")
+    kind=kind and kind:lower() or ""
+    if kind=="bug" then return report_command("bug")(name,words) end
+    if kind=="feature" or kind=="idea" then return report_command("idea")(name,words) end
+    return false,"Use /report bug <description> or /report feature <description>."
+  end})
 if JMS then
   C.register_chatcommand(LNAME,{params="<request>",description="Ask "..NAME.." (AI) to build something",
     func=function(name,param) C.after(.1,worker_of("jms").handle,name,param or ""); return true end})
@@ -2368,6 +2395,24 @@ end)
 C.register_on_shutdown(function()
   for _,wk in pairs(workers) do wk.save() end
 end)
+
+-- The Admin launcher uses this heartbeat to deploy a merged improvement only when the
+-- server has no players. Atomic safe_file_write prevents a half-written status read.
+local server_status_file=C.get_worldpath().."/server-status.json"
+local server_status_timer=0
+local function write_server_status(running)
+  C.safe_file_write(server_status_file,C.write_json({
+    running=running,players=#C.get_connected_players(),updated=os.time()
+  }))
+end
+C.register_globalstep(function(dt)
+  server_status_timer=server_status_timer+dt
+  if server_status_timer>=2 then server_status_timer=0; write_server_status(true) end
+end)
+C.register_on_joinplayer(function() C.after(0,write_server_status,true) end)
+C.register_on_leaveplayer(function() C.after(0,write_server_status,true) end)
+C.register_on_shutdown(function() write_server_status(false) end)
+write_server_status(true)
 
 brickcraft.ai={name=NAME,parse_request=parse_request,parse_plan=parse_plan,blueprint=blueprint,
   describe=describe,chat_system=function() return SYSTEM_CHAT end,

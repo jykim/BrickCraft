@@ -96,6 +96,8 @@ C.register_on_joinplayer(function(player)
       assert(ai.player_in(f) and ai.player_in(vector.offset(f,0,1,0)),"player's own cells")
       assert(not ai.player_in(vector.offset(f,0,2,0)) and not ai.player_in(vector.offset(f,2,0,0)),"cells clear of the player")
       ai.set_small_talk(false)
+      assert(C.registered_chatcommands.report and C.registered_chatcommands.bug and
+        C.registered_chatcommands.feature,"report slash commands registered")
       -- A bug report is queued as an issue; once the poster leaves its link, jms says it.
       chat(name,"jms, report the cart stops on curves")
       wait(function() return heard("I wrote it down for the game's makers") end,5,"jms takes the report",function()
@@ -105,7 +107,8 @@ C.register_on_joinplayer(function(player)
         C.mkdir(dir.."/sent"); C.safe_file_write(dir.."/sent/"..id..".url","https://example.test/issues/1")
         wait(function() return heard("example.test/issues/1") end,10,"jms tells the issue link",function()
           C.log("action","BRICKCRAFT AI report: "..heard("example.test/issues/1"))
-          chat(name,"jms, idea: trains could whistle") -- an idea, queued for tools/post_issues.zsh
+          local ok=C.registered_chatcommands.report.func(name,"feature trains could whistle")
+          assert(ok,"/report feature accepts a report") -- queued for tools/post_issues.zsh
         end)
       end)
       chat(name,"jms, where is Leona?")
