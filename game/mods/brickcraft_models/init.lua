@@ -44,7 +44,8 @@ local function prefix_of(mesh) return mesh and mesh:match("^(.*)_%d+%.glb$") end
 
 local function def_from(data)
   local d={slug=data.slug,title=data.title or data.slug,record=data.record,pieces=data.pieces or #data.parts,
-    w=data.w,h=data.h,d=data.d,prompt=data.prompt,bricks=data.bricks,parts={},adj={},ground={}}
+    w=data.w,h=data.h,d=data.d,prompt=data.prompt,bricks=data.bricks,parts={},adj={},ground={},
+    preview=data.preview,preview_colors=data.preview_colors}
   local prefix=data.mesh_prefix or ("brickcraft_model_"..data.slug)
   real_prefix[prefix]=data.cell_mm==16 or nil
   for i,p in ipairs(data.parts) do
@@ -1138,11 +1139,188 @@ local function place(name,param)
     scale==1 and " (the game's grid)" or scale==DEFAULT_SCALE and ", minifig scale (size "..scale..")" or ", size "..scale)
 end
 
+
+-- The gallery screen --------------------------------------------------------------------------
+-- Every model to look at before it goes down: turning in 3D (drag to turn it yourself), its
+-- size chosen with a slider or a preset and drawn next to a player at that size, then put in
+-- front of you. The 3D view is one mesh of the whole model (the import's preview: a formspec
+-- shows one mesh), lit by a grey ramp in its texture coordinates.
+local PLAYER_H=1.75
+local SHADE="brickcraft_model_shade.png"
+local gal={} -- player name -> {i = the model's place in the catalog, scale, wait = asked for its view at}
+local function main_color(def)
+  local n,best,bn={},nil,0
+  for _,p in ipairs(def.parts) do
+    n[p.color]=(n[p.color] or 0)+1
+    if n[p.color]>bn then best,bn=p.color,n[p.color] end
+  end
+  return (best or "#888888"):sub(1,7)
+end
+local function fmt(v) return (string.format("%.2f",v):gsub("0+$",""):gsub("%.$","")) end
+local function times_you(h)
+  local r=h/PLAYER_H
+  if r>=1.15 then return string.format("%.1f x your height",r) end
+  if r>=.87 then return "about your height" end
+  return string.format("%d%% of your height",math.floor(r*100+.5))
+end
+
+-- The size next to a player, both to scale: a figure, the model's front as a box, the ground.
+local function size_picture(def,scale,x0,y0,pw,ph)
+  local mw,mh=def.w*scale,def.h*scale
+  local fw=.6 -- a player's width
+  local k=math.min(ph*.82/math.max(mh,PLAYER_H),(pw-.5)/(fw+.4+mw))
+  local ground=y0+ph-.35
+  local function box(x,y,w,h,c)
+    return "box["..fmt(x)..","..fmt(y)..";"..fmt(math.max(w,.03))..","..fmt(math.max(h,.03))..";"..c.."]"
+  end
+  local px=x0+.25
+  local fs=box(x0,y0,pw,ph,"#2a3b46")..box(x0+.1,ground,pw-.2,.04,"#7d8c94")
+  -- The figure: legs, body, head (a player is 1.75 cells: head .5, body .6, legs .65).
+  local h=PLAYER_H*k
+  fs=fs..box(px+fw*k*.15,ground-h*.37,fw*k*.7,h*.37,"#3a5a8c")..box(px,ground-h*.71,fw*k,h*.34,"#f5872c")..
+    box(px+fw*k*.2,ground-h,fw*k*.6,h*.29,"#f2c79b")
+  local mx=px+fw*k+.4
+  local top=ground-mh*k
+  fs=fs..box(mx-.03,top-.03,math.max(mw*k,.03)+.06,math.max(mh*k,.03)+.03,"#c8d2d8")..box(mx,top,mw*k,mh*k,main_color(def))..
+    "label["..fmt(x0+.15)..","..fmt(ground+.2)..";You]"..
+    "label["..fmt(mx)..","..fmt(math.max(y0+.2,top-.22))..";"..C.formspec_escape(fmt(mh).." cells tall").."]"
+  return fs
+end
+
+local function gallery_formspec(name)
+  local g=gal[name]
+  local def=catalog[g.i]
+  local items={}
+  for _,m in ipairs(catalog) do items[#items+1]=C.formspec_escape(m.title.."  ("..m.pieces..")") end
+  local fs="formspec_version[6]size[17.4,10.6]bgcolor[#0b1218cc]"..
+    "label[.4,.5;Models: look, choose a size, put one in front of you]"..
+    "textlist[.4,.9;3.9,8.4;pick;"..table.concat(items,",")..";"..g.i..";false]"..
+    "box[4.6,.9;7.6,8.4;#5d7381]"
+  if not def then return fs.."button_exit[.4,9.6;3.9,.7;close;Close]" end
+  local ready=def.preview and (sent[name] or {})[def.preview]==true
+  if ready then
+    local tex={}
+    for _,c in ipairs(def.preview_colors) do tex[#tex+1]=C.formspec_escape(SHADE.."^[multiply:"..c:sub(1,7)) end
+    fs=fs.."model[4.6,.9;7.6,8.4;view;"..def.preview..";"..table.concat(tex,",")..";-18,200;true;true]"..
+      "label[4.8,9.0;Drag to turn it]"
+  elseif def.preview then
+    fs=fs.."label[6.9,4.9;Loading the 3D view...]"
+  else
+    fs=fs.."textarea[5.2,4.2;6.4,1.6;;;"..C.formspec_escape("No 3D view for this one yet (it was sent before the gallery had them). Send it from BrickWright again, or run tools/import_brickwright.py --previews.").."]"
+  end
+  local s=g.scale
+  local x=12.6
+  fs=fs.."label["..x..",1.1;"..C.formspec_escape(def.title).."]"..
+    "label["..x..",1.6;"..C.formspec_escape(def.pieces.." pieces").."]"..
+    "label["..x..",2.25;"..C.formspec_escape("Size "..fmt(s)..(s==DEFAULT_SCALE and " (minifig)" or s==1 and " (game bricks)" or "")).."]"..
+    "scrollbaroptions[min="..math.floor(MIN_SCALE*100)..";max="..math.floor(MAX_SCALE*100)..";smallstep=5;largestep=25]"..
+    "scrollbar["..x..",2.5;4.4,.45;horizontal;scale;"..math.floor(s*100+.5).."]"..
+    "button["..x..",3.1;.7,.6;smaller;-]"..
+    "field["..(x+.8)..",3.1;1.4,.6;size;;"..fmt(s).."]field_close_on_enter[size;false]"..
+    "button["..(x+2.3)..",3.1;.7,.6;bigger;+]"..
+    "button["..(x+3.1)..",3.1;1.3,.6;set;Set]"..
+    "button["..x..",3.85;1.4,.6;s_small;Small]button["..(x+1.5)..",3.85;1.4,.6;s_minifig;Minifig]"..
+    "button["..(x+3)..",3.85;1.4,.6;s_game;Bricks]"..
+    "tooltip[s_small;Size 0.3]tooltip[s_minifig;Size "..DEFAULT_SCALE..": a minifig as tall as you]"..
+    "tooltip[s_game;Size 1: its bricks the size of game bricks]"..
+    "label["..x..",4.85;"..C.formspec_escape(string.format("%s x %s cells, %s tall",fmt(def.w*s),fmt(def.d*s),fmt(def.h*s))).."]"..
+    "label["..x..",5.3;"..C.formspec_escape(times_you(def.h*s)).."]"..
+    size_picture(def,s,x,5.6,4.4,2.6)..
+    "style[place;bgcolor=#f5872c]button_exit["..x..",8.5;4.4,.8;place;Put it in front of me]"..
+    "button_exit[.4,9.6;3.9,.7;close;Close]"
+  return fs
+end
+
+local function show_gallery(player)
+  local name=player:get_player_name()
+  local g=gal[name]
+  if not g then return end
+  local def=catalog[g.i]
+  g.open=true
+  C.show_formspec(name,"brickcraft_models:gallery",gallery_formspec(name))
+  if def and def.preview and not has_media(name,{def.preview}) then
+    -- Its view is on its way (the screen says it's loading): shown when it's there.
+    local function check(tries)
+      local p=C.get_player_by_name(name)
+      if not (p and gal[name] and gal[name].open and catalog[gal[name].i]==def) or tries>240 then return end
+      if has_media(name,{def.preview}) then show_gallery(p) else C.after(.25,function() check(tries+1) end) end
+    end
+    C.after(.25,function() check(0) end)
+  end
+end
+
+local function open_gallery(player,which)
+  local name=player:get_player_name()
+  local g=gal[name] or {i=1,scale=DEFAULT_SCALE}
+  if which then
+    for i,m in ipairs(catalog) do if m.slug==which or tostring(i)==which then g.i=i end end
+  end
+  if g.i>#catalog then g.i=1 end
+  gal[name]=g
+  show_gallery(player)
+end
+
+local function snap(v) return math.max(MIN_SCALE,math.min(MAX_SCALE,math.floor(v*100+.5)/100)) end
+C.register_on_player_receive_fields(function(player,formname,fields)
+  local name=player:get_player_name()
+  if formname=="" and fields.gallery then open_gallery(player); return true end
+  if formname~="brickcraft_models:gallery" then return end
+  local g=gal[name]
+  if not g then return true end
+  if fields.quit or fields.close then g.open=false end
+  local redraw=false
+  if fields.pick then
+    local ev=C.explode_textlist_event(fields.pick)
+    if ev.type=="CHG" or ev.type=="DCL" then
+      if ev.index~=g.i then g.i=ev.index; redraw=true end
+    end
+  end
+  if fields.scale then
+    local ev=C.explode_scrollbar_event(fields.scale)
+    if ev.type=="CHG" then
+      local s=snap(ev.value/100)
+      if s~=g.scale then g.scale=s; redraw=true end
+    end
+  end
+  local typed=tonumber(((fields.size or ""):gsub(",",".")))
+  if fields.set or fields.key_enter_field=="size" then
+    if typed then g.scale=snap(typed) end
+    redraw=true
+  end
+  if fields.smaller then g.scale=snap(g.scale-(g.scale>1 and .25 or .05)); redraw=true end
+  if fields.bigger then g.scale=snap(g.scale+(g.scale>=1 and .25 or .05)); redraw=true end
+  if fields.s_small then g.scale=.3; redraw=true end
+  if fields.s_minifig then g.scale=DEFAULT_SCALE; redraw=true end
+  if fields.s_game then g.scale=1; redraw=true end
+  if fields.place then
+    g.open=false
+    local def=catalog[g.i]
+    if def then
+      local ok,msg=place(name,def.slug.." "..g.scale)
+      if msg then say(player,msg) end
+    end
+    return true
+  end
+  if redraw and g.open~=false then show_gallery(player) end
+  return true
+end)
+C.register_on_leaveplayer(function(player) gal[player:get_player_name()]=nil end)
+
+C.register_chatcommand("gallery",{params="[name]",
+  description="Look at the models in 3D, choose a size, and put one in front of you",
+  func=function(name,param)
+    local player=C.get_player_by_name(name)
+    if not player then return false,"No player." end
+    open_gallery(player,param:match("%S+"))
+    return true
+  end})
+
 C.register_chatcommand("model",{params="[name]",
   description="Put a real LEGO model (from BrickWright) in front of you; no name lists them",func=place})
 C.register_chatcommand("models",{description="List the models",func=function() return true,list_text() end})
 
 for _,row in ipairs({
+  {"/gallery  (I > Model gallery)","See every model turning in 3D, choose its size next to you, and put it in front of you"},
   {"/model","List the models (real LEGO builds from BrickWright)"},
   {"/model bonsai [size]","Put one in front of you (minifig scale; size 1 = game bricks, change it in its menu)"},
   {"Separator on a model","Left click: take a part into the inventory. Right click or F: menu (break apart, stack parts, game bricks, turn, size, put away)"},
@@ -1238,6 +1416,10 @@ local function check_inbox(announce)
           if f then f:close(); files[file]=dir.."/"..file elseif ext==".glb" then ok=false end
         end
       end
+      if data.preview then
+        local f=io.open(dir.."/"..data.preview,"rb")
+        if f then f:close(); files[data.preview]=dir.."/"..data.preview else d.preview=nil end
+      end
       if ok then
         local was=models[slug]
         add_def(d)
@@ -1263,7 +1445,7 @@ C.register_globalstep(function(dtime)
   check_inbox(true)
 end)
 
-brickcraft.models={catalog=catalog,models=models,place=place,gallery=gallery_world,GALLERY=GALLERY,
+brickcraft.models={catalog=catalog,models=models,place=place,open_gallery=open_gallery,gallery_formspec=gallery_formspec,gallery_state=gal,gallery=gallery_world,GALLERY=GALLERY,
   instances=function() return state.list end,instance=function(id) return by_id[id] end,
   spawned=function(id) return spawned[id] end,take_part=take_part,break_all=break_all,convert=convert,
   turn=turn_model,put_away=put_away,organize=organize,resize=resize,unify=unify,before_change=before_change,hanging=hanging,support_cells=support_cells,def_of=def_of,

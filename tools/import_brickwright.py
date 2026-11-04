@@ -5,6 +5,7 @@ Reads a build's mesh (`<record>.glb`: one node per LDraw part, metres) from the 
 gallery and writes, per model:
 
   brickcraft_model_<slug>_<k>.glb  one mesh per distinct part and rotation, around its middle
+  brickcraft_model_<slug>_preview.glb  the whole model in one mesh, for the Model Gallery's 3D view
   <slug>.json / model.json         the parts (mesh, colour, middle, half size), which parts
                                    touch, which stand on the ground, and the same build in
                                    game bricks (for "Convert to game bricks")
@@ -31,6 +32,7 @@ Python standard library only, like the other tools.
     python3 tools/import_brickwright.py <slug>=<record id> ...  # others, into the game
     python3 tools/import_brickwright.py --send <record id> [--title T] [--world DIR] [--gallery DIR]
     python3 tools/import_brickwright.py --status <record id> [--world DIR] [--gallery DIR]
+    python3 tools/import_brickwright.py --previews [--world DIR]  # gallery views for models without one
 """
 import hashlib, json, math, os, re, struct, sys, time, zlib
 from array import array
@@ -170,6 +172,147 @@ def glb_bytes(name, pos, nor, idx):
     head += b' ' * (-len(head) % 4)
     return (struct.pack('<III', 0x46546C67, 2, 12 + 8 + len(head) + 8 + len(out))
             + struct.pack('<II', len(head), 0x4E4F534A) + head + struct.pack('<II', len(out), 0x004E4942) + bytes(out))
+
+
+PREVIEW_MM = (0.8, 3.0)  # the gallery's 3D view: corners closer than this join (a 120th of the model)
+PREVIEW_LIGHT = (0.35, 0.85, 0.40)  # glTF axes: from above, the front and the right
+
+
+def glb_groups(name, groups):
+    """One mesh of several one-colour groups (pos, uv, idx), each split to the loader's
+    limits; returns the bytes and, per primitive in order, its group (its texture)."""
+    out = bytearray()
+    views, accessors, prims, owner = [], [], [], []
+
+    def add_view(blob, target):
+        while len(out) % 4: out.append(0)
+        views.append({'buffer': 0, 'byteOffset': len(out), 'byteLength': len(blob), 'target': target})
+        out.extend(blob)
+        return len(views) - 1
+
+    for g, (pos, nor, uv, idx) in enumerate(groups):
+        tri = 0
+        while tri < len(idx):
+            remap, local, corners = {}, array('H'), array('I')
+            while tri < len(idx):
+                new = sum(1 for v in idx[tri:tri + 3] if v not in remap)
+                if len(remap) + new > MAX_VERTS or len(local) + 3 > MAX_INDICES: break
+                for v in idx[tri:tri + 3]:
+                    if v not in remap:
+                        remap[v] = len(corners); corners.append(v)
+                    local.append(remap[v])
+                tri += 3
+            P, N, T = array('f'), array('f'), array('f')
+            lo, hi = [math.inf] * 3, [-math.inf] * 3
+            for v in corners:
+                p3 = pos[3 * v:3 * v + 3]
+                P.extend(p3); N.extend(nor[3 * v:3 * v + 3]); T.extend(uv[2 * v:2 * v + 2])
+                for a in range(3):
+                    lo[a] = min(lo[a], p3[a]); hi[a] = max(hi[a], p3[a])
+            a0 = len(accessors)
+            accessors += [
+                {'bufferView': add_view(P.tobytes(), 34962), 'componentType': 5126, 'count': len(corners),
+                 'type': 'VEC3', 'min': lo, 'max': hi},
+                {'bufferView': add_view(N.tobytes(), 34962), 'componentType': 5126, 'count': len(corners), 'type': 'VEC3'},
+                {'bufferView': add_view(T.tobytes(), 34962), 'componentType': 5126, 'count': len(corners), 'type': 'VEC2'},
+                {'bufferView': add_view(local.tobytes(), 34963), 'componentType': 5123, 'count': len(local), 'type': 'SCALAR'},
+            ]
+            prims.append({'attributes': {'POSITION': a0, 'NORMAL': a0 + 1, 'TEXCOORD_0': a0 + 2},
+                          'indices': a0 + 3, 'material': g, 'mode': 4})
+            owner.append(g)
+    while len(out) % 4: out.append(0)
+    gltf = {
+        'asset': {'version': '2.0', 'generator': 'BrickCraft tools/import_brickwright.py'},
+        'scene': 0, 'scenes': [{'nodes': [0]}], 'nodes': [{'mesh': 0, 'name': name}],
+        'meshes': [{'name': name, 'primitives': prims}],
+        # Luanti gives out textures in the order of this file's `textures`: one per colour.
+        'materials': [{'name': f'colour{g}', 'pbrMetallicRoughness': {'baseColorTexture': {'index': g},
+                       'metallicFactor': 0, 'roughnessFactor': 1}} for g in range(len(groups))],
+        'samplers': [{'magFilter': 9729, 'minFilter': 9729}],
+        'textures': [{'sampler': 0} for _ in groups],
+        'accessors': accessors, 'bufferViews': views, 'buffers': [{'byteLength': len(out)}],
+    }
+    head = json.dumps(gltf, separators=(',', ':')).encode()
+    head += b' ' * (-len(head) % 4)
+    blob = (struct.pack('<III', 0x46546C67, 2, 12 + 8 + len(head) + 8 + len(out))
+            + struct.pack('<II', len(head), 0x4E4F534A) + head + struct.pack('<II', len(out), 0x004E4942) + bytes(out))
+    return blob, owner
+
+
+def glb_parse(blob):
+    magic, _, _ = struct.unpack_from('<III', blob, 0)
+    off, js, binary = 12, None, None
+    while off < len(blob):
+        length, kind = struct.unpack_from('<II', blob, off)
+        chunk = blob[off + 8:off + 8 + length]
+        if kind == 0x4E4F534A: js = json.loads(chunk)
+        elif kind == 0x004E4942: binary = chunk
+        off += 8 + length
+    return js, binary
+
+
+def preview(model, meshes):
+    """The whole model as one mesh for the gallery's 3D view (a formspec model[] shows one
+    mesh): every part where it stands, a group per colour, corners closer than PREVIEW_MM
+    merged (a big model has hundreds of thousands), and its light baked into the texture
+    coordinates (u across a grey ramp, brickcraft_model_shade.png), since the view has no
+    light of its own. Returns the bytes and the colours, in the order of its textures."""
+    # A finer grid than a few pixels of the view wastes the player's download.
+    mm = min(PREVIEW_MM[1], max(PREVIEW_MM[0], max(model['w'], model['h'], model['d']) * 16 / 120))
+    grid = mm / 16 * 10  # mesh units: 10 a cell
+    ln = math.sqrt(sum(v * v for v in PREVIEW_LIGHT)); L = [v / ln for v in PREVIEW_LIGHT]
+    parsed = {}
+    groups, colors = {}, []
+    for p in model['parts']:
+        k, color = p[0], p[1]
+        if k not in parsed:
+            js, binary = glb_parse(meshes[k - 1])
+            tris = []
+            for prim in js['meshes'][0]['primitives']:
+                P = accessor(js, binary, prim['attributes']['POSITION'])
+                I = accessor(js, binary, prim['indices'])
+                tris.append((P, I))
+            parsed[k] = tris
+        # Its middle, in the mesh's glTF axes (z turned round).
+        ox, oy, oz = p[2] * 10, p[3] * 10, -p[4] * 10
+        if color not in groups:
+            groups[color] = {'cells': {}, 'pos': array('f'), 'nor': array('f'), 'uv': array('f'),
+                             'idx': array('I'), 'seen': set()}
+            colors.append(color)
+        g = groups[color]
+        for P, I in parsed[k]:
+            for t in range(0, len(I), 3):
+                A = [P[3 * I[t + j] + a] + (ox, oy, oz)[a] for j in range(3) for a in range(3)]
+                u = (A[3] - A[0], A[4] - A[1], A[5] - A[2]); v = (A[6] - A[0], A[7] - A[1], A[8] - A[2])
+                n = (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
+                nl = math.sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2])
+                if nl == 0: continue
+                n = (n[0] / nl, n[1] / nl, n[2] / nl)
+                # Corners join only on faces facing about the same way (sharp edges stay).
+                facing = (round(n[0] * 2), round(n[1] * 2), round(n[2] * 2))
+                corner = []
+                for j in range(3):
+                    c = (round(A[3 * j] / grid), round(A[3 * j + 1] / grid), round(A[3 * j + 2] / grid), facing)
+                    if c not in g['cells']:
+                        g['cells'][c] = len(g['pos']) // 3
+                        g['pos'].extend((c[0] * grid, c[1] * grid, c[2] * grid))
+                        g['nor'].extend(n)
+                        light = .38 + .62 * max(0.0, n[0] * L[0] + n[1] * L[1] + n[2] * L[2])
+                        g['uv'].extend((light, .5))
+                    corner.append(g['cells'][c])
+                if len(set(corner)) < 3: continue
+                tkey = tuple(sorted(corner))
+                if tkey in g['seen']: continue
+                g['seen'].add(tkey)
+                g['idx'].extend(corner)
+    blob, owner = glb_groups(f'{model["slug"]}_preview',
+                             [(groups[c]['pos'], groups[c]['nor'], groups[c]['uv'], groups[c]['idx']) for c in colors])
+    return blob, colors
+
+
+def shade_ramp(path):
+    """The grey ramp the gallery's view is lit by: dark on the left, white on the right."""
+    png(path, 64, 1, [[c for x in range(64) for c in (round(255 * x / 63),) * 3 + (255,)]])
 
 
 def nearest_game_color(rgb):
@@ -418,10 +561,36 @@ def write_model(model, meshes, mesh_dir, data_path, prefix=None, icons=None, ico
         png(icon_dir / f'{prefix}_{k}.png', ICON, ICON, rows)
     model['meshes'] = len(meshes)
     model['mesh_prefix'] = prefix
+    add_preview(model, meshes, mesh_dir, prefix)
     # Written last, under a temporary name: a reader that sees the json sees every mesh.
     tmp = data_path.with_suffix('.tmp')
     tmp.write_text(json.dumps(model, ensure_ascii=False, separators=(',', ':')))
     tmp.rename(data_path)
+
+
+def add_preview(model, meshes, mesh_dir, prefix):
+    """The gallery's 3D view of the model (one mesh), next to its parts."""
+    blob, colors = preview(model, meshes)
+    (mesh_dir / f'{prefix}_preview.glb').write_bytes(blob)
+    model['preview'] = f'{prefix}_preview.glb'
+    model['preview_colors'] = colors
+    return blob
+
+
+def add_previews(world=None):
+    """Gallery views for models imported or sent before there were any (samples, and the
+    world's inbox), from their meshes on disk."""
+    found = [(MOD / 'data' / f'{s}.json', MOD / 'parts') for s in sorted(p.stem for p in (MOD / 'data').glob('*.json'))]
+    found += [(j, j.parent) for j in sorted((world_dir(world) / 'brickwright_models').glob('*/model.json'))]
+    for data_path, mesh_dir in found:
+        model = json.loads(data_path.read_text())
+        prefix = model.get('mesh_prefix') or f'brickcraft_model_{model["slug"]}'
+        meshes = [(mesh_dir / f'{prefix}_{k}.glb').read_bytes() for k in range(1, model['meshes'] + 1)]
+        blob = add_preview(model, meshes, mesh_dir, prefix)
+        tmp = data_path.with_suffix('.tmp')
+        tmp.write_text(json.dumps(model, ensure_ascii=False, separators=(',', ':')))
+        tmp.rename(data_path)
+        print(f'{model["slug"]:24} preview {len(blob) / 1e6:.1f} MB, {len(model["preview_colors"])} colours', flush=True)
 
 
 def gallery_meta(gallery):
@@ -462,6 +631,7 @@ def part_icon(path):
 def import_samples(picks):
     (MOD / 'textures').mkdir(parents=True, exist_ok=True)
     part_icon(MOD / 'textures' / 'brickcraft_real_part.png')
+    shade_ramp(MOD / 'textures' / 'brickcraft_model_shade.png')
     meta = gallery_meta(GALLERY)
     for slug, record in picks.items():
         model, meshes, icons = convert(slug, record)
@@ -556,6 +726,10 @@ def send(record, title=None, world=None, gallery=GALLERY):
 
 
 def main(argv):
+    if argv and argv[0] == '--previews':
+        shade_ramp(MOD / 'textures' / 'brickcraft_model_shade.png')
+        add_previews(argv[2] if argv[1:2] == ['--world'] else None)
+        return
     if argv and argv[0] in ('--send', '--status'):
         args = {'record': None, 'title': None, 'world': None, 'gallery': GALLERY}
         rest = argv[1:]

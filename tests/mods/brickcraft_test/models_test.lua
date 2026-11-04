@@ -284,6 +284,37 @@ C.register_on_joinplayer(function(player)
         log("break apart a size-0.1 bonsai with a near-full inventory: "..taken.." parts taken, "..#rest.custom.parts.." sorted into stacks")
       end
 
+      -- The gallery screen: every model with its 3D view, a size chosen there, then put down.
+      do
+        local function send(form,fields)
+          for _,f in ipairs(C.registered_on_player_receive_fields) do if f(player,form,fields) then return end end
+        end
+        for _,m in ipairs(M.catalog) do
+          assert(m.preview and M.media[m.preview] and #m.preview_colors>0,m.slug.." has a 3D view")
+        end
+        player:set_pos(at(20,0.5,-24)); player:set_look_horizontal(0); player:set_look_vertical(0)
+        send("",{gallery="Model gallery"})
+        local g=M.gallery_state[name]
+        assert(g and g.open and g.i==1 and g.scale==M.DEFAULT_SCALE,"I > Model gallery opens it at minifig scale")
+        send("brickcraft_models:gallery",{pick="CHG:3"})
+        assert(M.catalog[g.i].slug=="cat","choosing the cat")
+        for _=1,100 do if M.has_media(name,{M.catalog[3].preview}) then break end; sleep(.1) end
+        local fs=M.gallery_formspec(name)
+        assert(fs:find("model%[") and fs:find(M.catalog[3].preview,1,true),"its 3D view is on the screen")
+        send("brickcraft_models:gallery",{scale="CHG:150"})
+        assert(g.scale==1.5,"the slider sets the size: "..g.scale)
+        send("brickcraft_models:gallery",{smaller="-"})
+        assert(g.scale==1.25,"- makes it smaller: "..g.scale)
+        send("brickcraft_models:gallery",{size="0.4",key_enter_field="size"})
+        assert(g.scale==.4,"a typed size and Enter")
+        assert(M.gallery_formspec(name):find("Size 0.4",1,true),"the screen shows the size")
+        local before=#M.instances()
+        send("brickcraft_models:gallery",{place="Put it in front of me"})
+        local put=M.instances()[#M.instances()]
+        assert(#M.instances()==before+1 and put.slug=="cat" and put.scale==.4 and not g.open,"put down at that size")
+        log("gallery: 3D views for all "..#M.catalog.." models, the cat chosen, size 0.4, put down")
+      end
+
       player:set_pos(at(0,3,-14)); player:set_look_horizontal(0); player:set_look_vertical(.12)
       log("READY")
       sleep(4)

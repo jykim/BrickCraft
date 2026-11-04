@@ -14,8 +14,8 @@ C.register_alias("mapgen_singlenode", "air")
 C.register_item(":", {type="none", wield_image="brickcraft_hand.png", range=7,
   tool_capabilities={full_punch_interval=1, groupcaps={}}})
 
--- Shapes share one inventory item per color: the hotbar stays 1 separator + 8 colors.
--- cost = voxel cells occupied; the 2 x 2 node keeps its original name for saved worlds.
+-- Every piece in every color is its own item (piece_item); the 2 x 2's is the plain color
+-- name, as before pieces, so saved worlds and inventories keep their bricks.
 -- One cell = 2 x 2 studs wide and one brick tall; a plate is a third of a brick.
 -- Bodies fill their cell and studs poke into the cell above, so a brick stacked on top
 -- hides the studs it covers, like real bricks clicking together.
@@ -32,71 +32,79 @@ local function plate(x1,z1,xs,zs)
   return studs({{-.5,-.5,-.5,x1,PLATE_TOP,z1}},xs,zs,PLATE_TOP,PLATE_TOP+.14)
 end
 local shapes = {
-  {id="2x2", suffix="", label="Brick 2 x 2", part="3003", group="Bricks", cost=1,
+  {id="2x2", suffix="", label="Brick 2 x 2", part="3003", group="Bricks",
    boxes=studs({{-.5,-.5,-.5,.5,.5,.5}},{-.25,.25},{-.25,.25},.5,.64)},
-  {id="1x2", suffix="_1x2", label="Brick 1 x 2", part="3004", group="Bricks", cost=1,
+  {id="1x2", suffix="_1x2", label="Brick 1 x 2", part="3004", group="Bricks",
    boxes=studs({{-.5,-.5,-.5,0,.5,.5}},{-.25},{-.25,.25},.5,.64),
    collision={-.5,-.5,-.5,0,.5,.5}},
-  {id="2x4", suffix="_2x4", label="Brick 2 x 4", part="3001", group="Bricks", cost=2, long=true,
+  {id="2x4", suffix="_2x4", label="Brick 2 x 4", part="3001", group="Bricks", long=true,
    boxes=studs({{-.5,-.5,-.5,.5,.5,1.5}},{-.25,.25},{-.25,.25,.75,1.25},.5,.64)},
-  {id="1x1", suffix="_1x1", label="Brick 1 x 1", part="3005", group="Bricks", cost=1,
+  {id="1x1", suffix="_1x1", label="Brick 1 x 1", part="3005", group="Bricks",
    boxes=studs({{-.5,-.5,-.5,0,.5,0}},{-.25},{-.25},.5,.64),
    collision={-.5,-.5,-.5,0,.5,0}},
-  {id="plate", suffix="_plate", label="Plate 2 x 2", part="3022", group="Plates", cost=1,
+  {id="plate", suffix="_plate", label="Plate 2 x 2", part="3022", group="Plates",
    boxes=plate(.5,.5,{-.25,.25},{-.25,.25}),
    collision={-.5,-.5,-.5,.5,PLATE_TOP,.5}},
-  {id="plate_1x2", suffix="_plate_1x2", label="Plate 1 x 2", part="3023", group="Plates", cost=1,
+  {id="plate_1x2", suffix="_plate_1x2", label="Plate 1 x 2", part="3023", group="Plates",
    boxes=plate(0,.5,{-.25},{-.25,.25}),
    collision={-.5,-.5,-.5,0,PLATE_TOP,.5}},
-  {id="plate_2x4", suffix="_plate_2x4", label="Plate 2 x 4", part="3020", group="Plates", cost=2, long=true,
+  {id="plate_2x4", suffix="_plate_2x4", label="Plate 2 x 4", part="3020", group="Plates", long=true,
    boxes=plate(.5,1.5,{-.25,.25},{-.25,.25,.75,1.25}),
    collision={-.5,-.5,-.5,.5,PLATE_TOP,.5}},
-  {id="plate_1x1", suffix="_plate_1x1", label="Plate 1 x 1", part="3024", group="Plates", cost=1,
+  {id="plate_1x1", suffix="_plate_1x1", label="Plate 1 x 1", part="3024", group="Plates",
    boxes=plate(0,0,{-.25},{-.25}),
    collision={-.5,-.5,-.5,0,PLATE_TOP,0}},
   -- Tiles are smooth plates: no studs, a flat finish for floors and roof ridges.
-  {id="tile_2x2", suffix="_tile_2x2", label="Tile 2 x 2", part="3068", group="Tiles & Round", cost=1,
+  {id="tile_2x2", suffix="_tile_2x2", label="Tile 2 x 2", part="3068", group="Tiles & Round",
    boxes=plate(.5,.5,{},{}),
    collision={-.5,-.5,-.5,.5,PLATE_TOP,.5}},
-  {id="tile_1x2", suffix="_tile_1x2", label="Tile 1 x 2", part="3069", group="Tiles & Round", cost=1,
+  {id="tile_1x2", suffix="_tile_1x2", label="Tile 1 x 2", part="3069", group="Tiles & Round",
    boxes=plate(0,.5,{},{}),
    collision={-.5,-.5,-.5,0,PLATE_TOP,.5}},
-  {id="round_2x2", suffix="_round_2x2", label="Round Brick 2 x 2", part="3941", group="Tiles & Round", cost=1,
+  {id="round_2x2", suffix="_round_2x2", label="Round Brick 2 x 2", part="3941", group="Tiles & Round",
    mesh="brickcraft_round_2x2.obj"},
-  {id="round_1x1", suffix="_round_1x1", label="Round Brick 1 x 1", part="3062", group="Tiles & Round", cost=1,
+  {id="round_1x1", suffix="_round_1x1", label="Round Brick 1 x 1", part="3062", group="Tiles & Round",
    mesh="brickcraft_round_1x1.obj",
    collision={-.5,-.5,-.5,0,.5,0}},
-  {id="slope_2x2", suffix="_slope_2x2", label="Slope 45 2 x 2", part="3039", group="Slopes", cost=1,
+  {id="slope_2x2", suffix="_slope_2x2", label="Slope 45 2 x 2", part="3039", group="Slopes",
    mesh="brickcraft_slope_2x2.obj",
    collision={{-.5,-.5,-.5,.5,0,.5},{-.5,0,0,.5,.5,.5}}},
-  {id="slope_2x1", suffix="_slope_2x1", label="Slope 45 2 x 1", part="3040", group="Slopes", cost=1,
+  {id="slope_2x1", suffix="_slope_2x1", label="Slope 45 2 x 1", part="3040", group="Slopes",
    mesh="brickcraft_slope_2x1.obj",
    collision={{-.5,-.5,-.5,0,0,.5},{-.5,0,0,0,.5,.5}}},
   -- Inverted: full studded top, the 45-degree face underneath toward the builder.
-  {id="slope_inv_2x2", suffix="_slope_inv_2x2", label="Inverted Slope 45 2 x 2", part="3660", group="Slopes", cost=1,
+  {id="slope_inv_2x2", suffix="_slope_inv_2x2", label="Inverted Slope 45 2 x 2", part="3660", group="Slopes",
    mesh="brickcraft_slope_inv_2x2.obj",
    collision={{-.5,0,-.5,.5,.5,.5},{-.5,-.5,0,.5,0,.5}}},
   -- Train pieces (brickcraft_trains): track is a node that joins the track next to it; a cart
   -- goes on track, and a motor and a battery box go on a cart (right click the cart).
-  {id="track", suffix="_track", label="Train Track", part="53401", group="Trains", cost=1, train="track"},
-  {id="cart", suffix="_cart", label="Train Cart", part="92339", group="Trains", cost=2, train="cart"},
+  {id="track", suffix="_track", label="Train Track", part="53401", group="Trains", train="track"},
+  {id="cart", suffix="_cart", label="Train Cart", part="92339", group="Trains", train="cart"},
   -- invented: no real part looks like it (the coach borrows the cart's number), so strict
   -- LEGO worlds don't offer it.
-  {id="coach", suffix="_coach", label="Passenger Car", part="92339", group="Trains", cost=3, train="coach", invented=true},
-  {id="motor", suffix="_motor", label="Train Motor", part="88002", group="Trains", cost=1, train="motor"},
-  {id="battery", suffix="_battery", label="Battery Box", part="8881", group="Trains", cost=1, train="battery"},
+  {id="coach", suffix="_coach", label="Passenger Car", part="92339", group="Trains", train="coach", invented=true},
+  {id="motor", suffix="_motor", label="Train Motor", part="88002", group="Trains", train="motor", item="_motor_node"},
+  {id="battery", suffix="_battery", label="Battery Box", part="8881", group="Trains", train="battery", item="_battery_node"},
   -- Technic (brickcraft_technic): axles and gears turned by a Train Motor and Battery Box put on
   -- the ground.
-  {id="technic_brick", suffix="_technic_brick", label="Technic Brick", part="32064", group="Technic", cost=1, technic="brick"},
-  {id="axle", suffix="_axle", label="Axle", part="3705", group="Technic", cost=1, technic="axle"},
-  {id="gear8", suffix="_gear8", label="Gear 8", part="3647", group="Technic", cost=1, technic="gear8"},
-  {id="gear24", suffix="_gear24", label="Gear 24", part="3648", group="Technic", cost=1, technic="gear24"},
-  {id="gear40", suffix="_gear40", label="Gear 40", part="3649", group="Technic", cost=1, technic="gear40"},
+  {id="technic_brick", suffix="_technic_brick", label="Technic Brick", part="32064", group="Technic", technic="brick"},
+  {id="axle", suffix="_axle", label="Axle", part="3705", group="Technic", technic="axle"},
+  {id="gear8", suffix="_gear8", label="Gear 8", part="3647", group="Technic", technic="gear8"},
+  {id="gear24", suffix="_gear24", label="Gear 24", part="3648", group="Technic", technic="gear24"},
+  {id="gear40", suffix="_gear40", label="Gear 40", part="3649", group="Technic", technic="gear40"},
 }
 local technic_test=C.settings:get_bool("brickcraft_technic_test",false)
 testing=testing or technic_test
 local shape_by_id = {}
 for i, s in ipairs(shapes) do s.index=i; shape_by_id[s.id]=s end
+-- The item a piece is in a color, and what an item is (its shape and color).
+local function piece_item(color,s) return "brickcraft:"..color..(s.item or s.suffix) end
+local piece_of={}
+local color_index={}
+for i,c in ipairs(colors) do
+  color_index[c]=i
+  for _,s in ipairs(shapes) do piece_of[piece_item(c,s)]={shape=s,color=c} end
+end
 
 local function get_shape(player)
   return shape_by_id[player:get_meta():get_string("brickcraft_shape")] or shapes[1]
@@ -139,6 +147,83 @@ local function strict_ok(player,check,...)
   if not ok and player and player:is_player() then C.chat_send_player(player:get_player_name(),"Strict LEGO: "..why) end
   return ok
 end
+-- Where pieces are kept. The hotbar (slots 2-12, one per color, on the color keys) holds the
+-- chosen piece; every other piece waits in the hidden "pieces" list, and Tab or a piece
+-- button swaps them (normalize). In war mode the hotbar is the war kit, so pieces wait too.
+local PIECES_SIZE=#colors*#shapes+24
+local function at_war(inv) return inv:get_size("war_stash")>0 end
+local function count_of(player,name)
+  local inv,n=player:get_inventory(),0
+  for _,list in ipairs({"main","pieces","war_stash"}) do
+    for _,st in ipairs(inv:get_list(list) or {}) do if st:get_name()==name then n=n+st:get_count() end end
+  end
+  return n
+end
+local function room_for(player,stack)
+  local inv=player:get_inventory()
+  if piece_of[ItemStack(stack):get_name()] and inv:get_size("pieces")>0 then return inv:room_for_item("pieces",stack) end
+  return inv:room_for_item("main",stack)
+end
+-- Puts a stack in the player's inventory; returns what didn't fit.
+local function give(player,stack)
+  stack=ItemStack(stack)
+  local inv=player:get_inventory()
+  local piece=piece_of[stack:get_name()]
+  if not piece or inv:get_size("pieces")==0 then return inv:add_item("main",stack) end
+  if not at_war(inv) and piece.shape==get_shape(player) then
+    local slot=color_index[piece.color]+1
+    local st=inv:get_stack("main",slot)
+    if st:is_empty() or st:get_name()==stack:get_name() then
+      stack=st:add_item(stack); inv:set_stack("main",slot,st)
+      if stack:is_empty() then return stack end
+    end
+  end
+  return inv:add_item("pieces",stack)
+end
+-- Takes a stack from wherever the player keeps it (all of it, or nothing).
+local function take(player,stack)
+  stack=ItemStack(stack)
+  if count_of(player,stack:get_name())<stack:get_count() then return false end
+  local inv,left=player:get_inventory(),stack:get_count()
+  for _,list in ipairs({"pieces","main","war_stash"}) do
+    if left>0 and inv:get_size(list)>0 then
+      left=left-inv:remove_item(list,stack:get_name().." "..left):get_count()
+    end
+  end
+  return true
+end
+-- The hotbar shows the chosen piece in each color: pieces out of the other slots go to the
+-- hidden list, and the chosen piece comes out to its color's slot.
+local function normalize(player)
+  local inv=player:get_inventory()
+  if inv:get_size("pieces")==0 or at_war(inv) then return end
+  for i=2,inv:get_size("main") do
+    local st=inv:get_stack("main",i)
+    if piece_of[st:get_name()] then inv:set_stack("main",i,inv:add_item("pieces",st)) end
+  end
+  local cur=get_shape(player)
+  for i,c in ipairs(colors) do
+    local name,slot=piece_item(c,cur),i+1
+    local n=0
+    for _,st in ipairs(inv:get_list("pieces")) do if st:get_name()==name then n=n+st:get_count() end end
+    if n>0 and inv:get_stack("main",slot):is_empty() then
+      inv:set_stack("main",slot,inv:remove_item("pieces",name.." "..math.min(n,999)))
+    end
+  end
+end
+-- Hands are not dropped: what a player digs goes to its place (handle_node_drops).
+local default_drops=C.handle_node_drops
+function C.handle_node_drops(pos,drops,digger)
+  if digger and digger.is_player and digger:is_player() and digger:get_inventory() and
+     digger:get_inventory():get_size("pieces")>0 then
+    for _,d in ipairs(drops) do
+      local left=give(digger,d)
+      if not left:is_empty() then C.add_item(pos,left) end
+    end
+    return
+  end
+  return default_drops(pos,drops,digger)
+end
 local function collect(pos,node,player)
   local clicked=pos
   pos,node=primary_of(pos,node)
@@ -153,7 +238,8 @@ local function collect(pos,node,player)
     if pos~=clicked then C.remove_node(clicked) end
     return false
   end
-  if not player:get_inventory():room_for_item("main", def.drop) then
+  local drop=def.drop or node.name
+  if not room_for(player,drop) then
     C.chat_send_player(name, "Inventory full: place some bricks first.")
     return false
   end
@@ -166,7 +252,7 @@ local function collect(pos,node,player)
   local result=C.node_dig(pos,node,player)
   if not same_node(pos,node) then
     remember(player,{kind="collect",pos=copy_pos(pos),node={name=node.name,param2=node.param2},
-      drop=def.drop,tail=tail and copy_pos(tail),tail_node=tail_node and
+      drop=drop,tail=tail and copy_pos(tail),tail_node=tail_node and
         {name=tail_node.name,param2=tail_node.param2}})
   end
   return result
@@ -183,18 +269,14 @@ for i, color in ipairs(colors) do
       node_box=not s.mesh and {type="fixed", fixed=s.boxes} or nil,
       tiles={"brickcraft_"..color..".png"}, paramtype="light", paramtype2="facedir",
       collision_box=box, selection_box=box,
+      -- Collected, a piece comes back as itself (drop defaults to the node).
       groups={brick=1, not_in_creative_inventory=s.suffix~="" and 1 or nil}, stack_max=999,
-      drop=item..(s.cost>1 and " "..s.cost or ""),
       sunlight_propagates=s.id~="2x2", brickcraft_shape=s.id, brickcraft_long=s.long,
       on_dig=collect,
-    }
-    if s.id=="2x2" then
-      def.description=labels[i].." Bricks"
       -- Node items default to 4 nodes of reach; match the separator so building works
       -- from as far away as collecting does (and in third-person view).
-      def.range=7
-      def.on_place=function(stack,placer,pointed) return place_brick(stack,placer,pointed,item) end
-    end
+      range=7, on_place=function(stack,placer,pointed) return place_brick(stack,placer,pointed) end,
+    }
     if s.long then
       def.on_destruct=function(pos)
         local t=tail_pos(pos,C.get_node(pos).param2)
@@ -229,6 +311,7 @@ end
 local inventory_formspec,brick_counts
 local function set_shape(player,shape)
   player:get_meta():set_string("brickcraft_shape",shape.id)
+  normalize(player)
   player:set_inventory_formspec(inventory_formspec(player))
   update_hud(player)
 end
@@ -238,15 +321,14 @@ function turn_next(player)
   update_hud(player)
 end
 
-function place_brick(stack,placer,pointed,item)
+-- Right click with a piece puts that piece down (item: its color's 2 x 2, "brickcraft:navy").
+function place_brick(stack,placer,pointed)
   if pointed.type~="node" or not placer or not placer:is_player() then return stack end
+  local piece=piece_of[stack:get_name()]
+  if not piece or stack:is_empty() then return stack end
+  local s,item=piece.shape,"brickcraft:"..piece.color
   local udef=C.registered_nodes[C.get_node(pointed.under).name]
   local name=placer:get_player_name()
-  local s=get_shape(placer)
-  if stack:get_count()<s.cost then
-    C.chat_send_player(name,"A "..s.label.." needs "..s.cost.." bricks of this color.")
-    return stack
-  end
   if s.invented and strict.on(pointed.above) then
     C.chat_send_player(name,"Strict LEGO: the "..s.label.." isn't a real part. Pick another piece (Tab).")
     return stack
@@ -269,9 +351,9 @@ function place_brick(stack,placer,pointed,item)
   local _,placed=C.item_place_node(ItemStack(item..s.suffix),placer,pointed,param2)
   if not placed then return stack end
   if tail then C.set_node(tail,{name=item..s.suffix.."_tail",param2=param2}) end
-  stack:take_item(s.cost)
+  stack:take_item(1)
   remember(placer,{kind="place",pos=copy_pos(pos),node={name=item..s.suffix,param2=param2},
-    drop=item.." "..s.cost,tail=tail and copy_pos(tail),tail_node=tail and
+    drop=item..s.suffix,tail=tail and copy_pos(tail),tail_node=tail and
       {name=item..s.suffix.."_tail",param2=param2}})
   return stack
 end
@@ -304,31 +386,30 @@ local function undo_last(player)
   local name=player:get_player_name()
   local action=history[name]
   if not action then C.chat_send_player(name,"Nothing to undo yet."); return false end
-  local inv=player:get_inventory()
   if action.kind=="place" then
     if not same_node(action.pos,action.node) or
        (action.tail and not same_node(action.tail,action.tail_node)) then
       C.chat_send_player(name,"Can't undo: that brick was changed by someone else.")
       return false
     end
-    if not inv:room_for_item("main",action.drop) then
+    if not room_for(player,action.drop) then
       C.chat_send_player(name,"Can't undo: your inventory is full.")
       return false
     end
     if not strict_ok(player,strict.can_remove,action.pos) then return false end
     C.remove_node(action.pos) -- long-piece on_destruct also removes its tail
-    inv:add_item("main",action.drop)
+    give(player,action.drop)
   elseif action.kind=="collect" then
     if not is_free(action.pos) or (action.tail and not is_free(action.tail)) then
       C.chat_send_player(name,"Can't undo: another brick now occupies that space.")
       return false
     end
-    if not inv:contains_item("main",action.drop) then
+    if count_of(player,ItemStack(action.drop):get_name())<ItemStack(action.drop):get_count() then
       C.chat_send_player(name,"Can't undo: you no longer have the collected brick.")
       return false
     end
     if not strict_ok(player,strict.can_place,action.pos,action.node) then return false end
-    inv:remove_item("main",action.drop)
+    take(player,action.drop)
     C.set_node(action.pos,action.node)
     if action.tail then C.set_node(action.tail,action.tail_node) end
   elseif action.kind=="turn" then
@@ -1027,6 +1108,8 @@ function inventory_formspec(player)
     "button[2.95,10.65;2.4,.6;look;Switch player]button[5.5,10.65;2.4,.6;world;Switch world]"..
     "button[8.05,10.65;2.4,.6;help;Help: all keys]"..
     "button[8.05,11.45;2.4,.6;turn;Turn next brick]"..
+    (brickcraft.models and "button[5.5,11.45;2.4,.6;gallery;Model gallery]"..
+      "tooltip[gallery;Every model turning in 3D: choose its size, put it in front of you (/gallery)]" or "")..
     (brickcraft.war and "style[war;bgcolor=#b8402c]button[.4,11.45;2.4,.6;war;"..
       (brickcraft.war.on(player) and "Stop war" or "War mode").."]"..
     "label[.4,12.4;Cannons, swords, kicks: only players in war mode can be hit]" or "")
