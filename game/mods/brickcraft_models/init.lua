@@ -587,6 +587,9 @@ end
 
 -- Every part, top first, while the inventory has room (all of them come off, so none is
 -- left hanging; bricks on the model were checked first).
+local organize -- (below) sorts what doesn't fit into the inventory into stacks
+-- Breaking a model needs no warning or resize: it goes away, and parts in the inventory are
+-- the game's size whatever size the model was.
 local function break_all(player,inst)
   local def=def_of(inst)
   if S.on(inst) and bricks_on(inst,{}) then
@@ -595,15 +598,20 @@ local function break_all(player,inst)
   local idx={}
   for i in ipairs(def.parts) do if not inst.gone[i] then idx[#idx+1]=i end end
   table.sort(idx,function(a,b) return def.parts[a].y+def.parts[a].hy>def.parts[b].y+def.parts[b].hy end)
-  local n,full=0,false
+  local n,left=0,0
   for _,i in ipairs(idx) do
     if not by_id[inst.id] then break end
     local stack=item_for(def.parts[i])
-    if not player:get_inventory():room_for_item("main",stack) then full=true; break end
-    if take_part(player,inst,i,true,true) then n=n+1 end
+    if player:get_inventory():room_for_item("main",stack) then
+      if take_part(player,inst,i,true,true) then n=n+1 end
+    else left=left+1 end
   end
-  say(player,"Took "..n.." real part"..(n==1 and "" or "s").." into your inventory"..
-    (full and " (it's full: the rest stays on the model)." or "."))
+  local msg="Took "..n.." real part"..(n==1 and "" or "s").." into your inventory."
+  if left>0 and by_id[inst.id] then
+    local stacks=organize(player,inst,true)
+    msg=msg.." It's full, so the other "..left.." are sorted into stacks here"..(stacks and "" or "").."."
+  end
+  say(player,msg)
 end
 
 local function turn_model(player,inst)
@@ -655,7 +663,7 @@ end
 -- in one colour a stack (up to 8 high, standing upright), the biggest first, in rows.
 -- The stacks are a model of their own (custom), each stack joined from the bottom up.
 local STACK=8
-local function organize(player,inst)
+function organize(player,inst,quiet)
   local def=def_of(inst)
   if S.on(inst) and bricks_on(inst,{}) then
     return say(player,"Strict LEGO: game bricks stand on this model. Take them off first.")
@@ -711,7 +719,7 @@ local function organize(player,inst)
   local stacks=new_instance({custom={title="Parts of "..title:gsub("^Parts of ",""),parts=parts,links=links,ground=ground},
     x=foot.x,y=foot.y,z=foot.z,turn=0,scale=1,modified=true})
   spawn(stacks)
-  say(player,"Sorted "..#parts.." parts into "..#placed.." stacks.")
+  if not quiet then say(player,"Sorted "..#parts.." parts into "..#placed.." stacks.") end
   return stacks
 end
 
@@ -823,12 +831,15 @@ local function show_menu(player,inst,i)
     "label[.4,.6;"..C.formspec_escape(def.title).."]"..
     "label[.4,1.1;"..C.formspec_escape(left.." of "..#def.parts.." real parts on it. This one: "..p.part..
       (p.cname~="" and " ("..p.cname..")" or "")).."]"..
-    "button[3.8,1.6;3.2,.8;take;Take this part]"..
-    "button[.4,1.6;3.2,.8;break;Break it apart]"..
-    (def.bricks and "button[.4,2.5;3.2,.8;convert;Rebuild in game bricks]" or "")..
-    "button[3.8,2.5;3.2,.8;stack;Stack its parts]"..
-    "button[.4,3.4;6.6,.8;turn;Turn it a quarter]"..
-    "button[.4,4.3;6.6,.8;away;Put it away (parts don't go to the inventory)]"..
+    "button[.4,1.6;3.2,.8;stack;Break into stacks here]"..
+    "button[3.8,1.6;3.2,.8;break;Break into my inventory]"..
+    "button[.4,2.5;3.2,.8;take;Take this part]"..
+    (def.bricks and "button[3.8,2.5;3.2,.8;convert;Rebuild in game bricks]" or "")..
+    "button[.4,3.4;3.2,.8;turn;Turn it a quarter]"..
+    "button[3.8,3.4;3.2,.8;away;Put it away]"..
+    "tooltip[stack;Its parts, sorted into upright stacks of one kind and colour, where it stood]"..
+    "tooltip[break;Its parts into your inventory; what doesn't fit is sorted into stacks here]"..
+    "tooltip[away;Gone, parts and all (/model brings it back)]"..
     "button_exit[.4,7.2;6.6,.8;close;Close]"
   C.show_formspec(name,"brickcraft_models:menu",fs)
 end
@@ -839,9 +850,9 @@ C.register_on_player_receive_fields(function(player,formname,fields)
   if not inst then return true end
   local close=true
   if fields.take then before_change(player,inst,function() take_part(player,inst,ctx.i) end)
-  elseif fields["break"] then before_change(player,inst,function() break_all(player,inst) end)
+  elseif fields["break"] then break_all(player,inst)
   elseif fields.convert then before_change(player,inst,function() convert(player,inst) end)
-  elseif fields.stack then before_change(player,inst,function() organize(player,inst) end)
+  elseif fields.stack then organize(player,inst) -- it goes away: no warning, no resize
   elseif fields.turn then turn_model(player,inst); close=false
   elseif fields.away then put_away(player,inst)
   elseif fields.resize or fields.key_enter_field=="size" then

@@ -188,8 +188,7 @@ C.register_on_joinplayer(function(player)
       -- Stack its parts: the mech into neat stacks, one kind and colour each, upright.
       local mech=insts.mech
       local mdef=M.def_of(mech)
-      assert(M.unify(player,mech))
-      local stacks=M.organize(player,mech)
+      local stacks=M.organize(player,mech) -- no warning: the model goes away
       assert(stacks and not M.instance(mech.id),"the mech is sorted into stacks")
       local sdef=M.def_of(stacks)
       assert(#sdef.parts==#mdef.parts,"every part is in a stack: "..#sdef.parts)
@@ -250,6 +249,39 @@ C.register_on_joinplayer(function(player)
       end
       assert(n==#sent.parts,"its "..#sent.parts.." parts are there: "..n)
       log("sent from BrickWright: "..sent.title.." ("..sent.slug..", "..n.." parts) without a restart")
+
+      -- What a player did: a size-0.1 bonsai, the menu's "Break it apart", the warning's
+      -- "Resize and go on", with an inventory 26 of 32 slots full.
+      do
+        for i=1,inv:get_size("main") do inv:set_stack("main",i,"") end
+        inv:set_stack("main",1,"brickcraft:separator")
+        for i=2,26 do inv:set_stack("main",i,"brickcraft:"..brickcraft.colors[(i%8)+1].." "..i) end
+        player:set_pos(at(-20,0.5,-24)); player:set_look_horizontal(0); player:set_look_vertical(0)
+        sleep(.3)
+        local ok,msg=M.place(name,"bonsai 0.1")
+        assert(ok,tostring(msg))
+        local small
+        for _,o in ipairs(M.instances()) do if o.slug=="bonsai" and o.scale==.1 then small=o end end
+        for _=1,100 do if M.spawned(small.id) and next(M.spawned(small.id)) then break end; sleep(.1) end
+        local _,obj=next(M.spawned(small.id))
+        local e=obj:get_luaentity()
+        e.on_rightclick(e,player)
+        local function send(form,fields)
+          for _,f in ipairs(C.registered_on_player_receive_fields) do if f(player,form,fields) then return end end
+        end
+        local before=#M.instances()
+        send("brickcraft_models:menu",{["break"]="Break it apart"})
+        -- No warning, no resize: the model goes; what doesn't fit is sorted into stacks there.
+        assert(not M.instance(small.id),"the small bonsai is broken apart at once")
+        local filled=0
+        for i=1,inv:get_size("main") do if not inv:get_stack("main",i):is_empty() then filled=filled+1 end end
+        local rest=M.instances()[#M.instances()]
+        assert(filled==inv:get_size("main") and rest.custom and rest.custom.title:find("Parts of"),
+          "the inventory filled up and the rest are in stacks")
+        local taken=455-#rest.custom.parts
+        assert(taken>0 and #rest.custom.parts>0,"some parts went to the inventory: "..taken)
+        log("break apart a size-0.1 bonsai with a near-full inventory: "..taken.." parts taken, "..#rest.custom.parts.." sorted into stacks")
+      end
 
       player:set_pos(at(0,3,-14)); player:set_look_horizontal(0); player:set_look_vertical(.12)
       log("READY")
