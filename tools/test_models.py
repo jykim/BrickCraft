@@ -2,7 +2,7 @@
 the BrickWright samples stand life-size in a strict LEGO world, and a screenshot of the row
 is saved to the test folder. Uses a dedicated test world; never edits the user's workshop.
 """
-import os, subprocess, time, tempfile
+import json, os, subprocess, time, tempfile
 from pathlib import Path
 root=Path(__file__).resolve().parents[1]
 testroot=root/'tests'/'run'
@@ -34,6 +34,15 @@ try:
             out=subprocess.run(['python3',str(root/'tools'/'import_brickwright.py'),'--send','20261103-113209-e66a90db',
                 '--title','Chick','--world',str(world)],capture_output=True,text=True)
             print('sent: '+(out.stdout.strip() or out.stderr.strip()),flush=True)
+            # The same version again isn't converted again, and --status says it's there.
+            tool=['python3',str(root/'tools'/'import_brickwright.py')]
+            again=json.loads(subprocess.run(tool+['--send','20261103-113209-e66a90db','--world',str(world)],
+                capture_output=True,text=True,check=True).stdout)
+            assert again['already'] and again['slug']==json.loads(out.stdout)['slug'],again
+            state=json.loads(subprocess.run(tool+['--status','20261103-113209-e66a90db','--world',str(world)],
+                capture_output=True,text=True,check=True).stdout)
+            assert state['sent'] and state['current'] and state['title']=='Chick',state
+            print('sent again: same version, not converted again',flush=True)
         if 'BRICKCRAFT MODELS READY' in content and not shot.exists():
             time.sleep(4) # meshes load and the view settles
             # Luanti's own screenshot key (F12, key code 111), sent to the client; it saves

@@ -11,7 +11,8 @@ gallery and writes, per model:
 
 Samples go into the game (game/mods/brickcraft_models/models and data/). `--send` puts one
 into a world's inbox (<world>/brickwright_models/<slug>/) instead, where the running game
-picks it up without a restart.
+picks it up without a restart; the same version (the same mesh) isn't sent twice. `--status`
+says whether a build is there and whether it's the gallery's current version.
 
 One scale for both: a game cell is 2 x 2 studs (16 mm) wide and one brick (9.6 mm) tall,
 the way the game draws its own bricks. A model's parts use the same, so a real 2 x 2 brick
@@ -27,8 +28,9 @@ Python standard library only, like the other tools.
     python3 tools/import_brickwright.py                        # the samples below
     python3 tools/import_brickwright.py <slug>=<record id> ...  # others, into the game
     python3 tools/import_brickwright.py --send <record id> [--title T] [--world DIR] [--gallery DIR]
+    python3 tools/import_brickwright.py --status <record id> [--world DIR] [--gallery DIR]
 """
-import json, math, os, re, struct, sys, time, zlib
+import hashlib, json, math, os, re, struct, sys, time, zlib
 from array import array
 from pathlib import Path
 
@@ -493,36 +495,75 @@ def slug_for(title, record, taken):
     return slug
 
 
-def send(record, title=None, world=None, gallery=GALLERY):
-    """Puts one model in the world's inbox for the running game. Returns slug and title."""
-    world = Path(world or os.environ.get('BRICKCRAFT_WORLD') or ROOT / 'worlds' / 'workshop')
-    inbox = world / 'brickwright_models'
-    meta = gallery_meta(gallery).get(record, {})
-    title = title or ((meta.get('prompt') or '').strip().splitlines() or [record])[0]
-    title = title[:40].strip() or record
-    taken = {p.stem for p in (MOD / 'data').glob('*.json')}
+def world_dir(world=None):
+    return Path(world or os.environ.get('BRICKCRAFT_WORLD') or ROOT / 'worlds' / 'workshop')
+
+
+def version_of(record, gallery=GALLERY):
+    """Which version of a build: a hash of its mesh, so a rebuilt model counts as new."""
+    return hashlib.sha256((gallery / 'models' / f'{record}.glb').read_bytes()).hexdigest()[:16]
+
+
+def sent_entry(record, inbox):
+    """The inbox folder and model.json of a record sent before, if any."""
     for d in inbox.glob('*/model.json'):
         try:
-            if json.loads(d.read_text()).get('record') == record:  # sent before: replace it
-                slug = d.parent.name
-                break
+            data = json.loads(d.read_text())
         except ValueError:
-            pass
-        taken.add(d.parent.name)
+            continue
+        if data.get('record') == record:
+            return d.parent, data
+    return None, None
+
+
+def report(data, world, version):
+    return {'slug': data['slug'], 'title': data.get('title'), 'parts': len(data.get('parts') or []),
+            'world': str(world), 'version': data.get('version'), 'sent_at': data.get('sent_at'),
+            'current': data.get('version') == version}
+
+
+def status(record, world=None, gallery=GALLERY):
+    """Whether a record is in the world's inbox, and whether it's the gallery's current version."""
+    world = world_dir(world)
+    _, data = sent_entry(record, world / 'brickwright_models')
+    if not data:
+        return {'sent': False, 'world': str(world)}
+    return {'sent': True, **report(data, world, version_of(record, gallery))}
+
+
+def send(record, title=None, world=None, gallery=GALLERY):
+    """Puts one model in the world's inbox for the running game. Returns slug and title.
+
+    The same version sent again (and not renamed) isn't converted again: the report says
+    `already`."""
+    world = world_dir(world)
+    inbox = world / 'brickwright_models'
+    meta = gallery_meta(gallery).get(record, {})
+    version = version_of(record, gallery)
+    folder, before = sent_entry(record, inbox)
+    if before and before.get('version') == version and (not title or title[:40].strip() == before.get('title')):
+        return {'sent': True, 'already': True, **report(before, world, version)}
+    title = title or (before or {}).get('title') or ((meta.get('prompt') or '').strip().splitlines() or [record])[0]
+    title = title[:40].strip() or record
+    if folder:  # sent before: replace it
+        slug = folder.name
     else:
+        taken = {p.stem for p in (MOD / 'data').glob('*.json')} | {d.name for d in inbox.glob('*') if d.is_dir()}
         slug = slug_for(title, record, taken)
     model, meshes, icons = convert(slug, record, gallery)
     model['title'] = title
     model['pieces'] = meta.get('brick_count') or len(model['parts'])
     model['prompt'] = (meta.get('prompt') or '')[:160]
+    model['version'] = version
+    model['sent_at'] = time.strftime('%Y-%m-%dT%H:%M:%S%z')
     # A fresh name each time: the game can't swap media it has already sent under a name.
     stamp = format(int(time.time() * 10) % 36 ** 6, 'x')
     write_model(model, meshes, inbox / slug, inbox / slug / 'model.json', f'brickcraft_model_{slug}_{stamp}', icons)
-    return {'slug': slug, 'title': title, 'parts': len(model['parts']), 'world': str(world)}
+    return {'sent': True, 'already': False, **report(model, world, version)}
 
 
 def main(argv):
-    if argv and argv[0] == '--send':
+    if argv and argv[0] in ('--send', '--status'):
         args = {'record': None, 'title': None, 'world': None, 'gallery': GALLERY}
         rest = argv[1:]
         while rest:
@@ -531,8 +572,11 @@ def main(argv):
                 args[a[2:]] = rest.pop(0)
             else:
                 args['record'] = a
-        if not args['record']: sys.exit('--send needs a BrickWright record id')
-        print(json.dumps(send(args['record'], args['title'], args['world'], Path(args['gallery'])), ensure_ascii=False))
+        if not args['record']: sys.exit(f'{argv[0]} needs a BrickWright record id')
+        gallery = Path(args['gallery'])
+        result = (send(args['record'], args['title'], args['world'], gallery) if argv[0] == '--send'
+                  else status(args['record'], args['world'], gallery))
+        print(json.dumps(result, ensure_ascii=False))
         return
     import_samples(dict(a.split('=', 1) for a in argv) if argv else SAMPLES)
 
