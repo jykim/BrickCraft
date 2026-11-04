@@ -378,7 +378,8 @@ C.register_tool("brickcraft:separator", {
 
 -- The workshop's own pieces at x, z -24..24 and y -1..4, relative to its center:
 -- base is the baseplate's content id, ids the colors'. nil where it is air.
-local function workshop_node(x,y,z,base,ids)
+local function workshop_node(x,y,z,base,ids,decor)
+  decor=decor or ids
   local id=nil
   if y== -1 then id=base end
   -- Eight finite collection stacks behind the workshop.
@@ -388,15 +389,26 @@ local function workshop_node(x,y,z,base,ids)
   end
   -- A small open arch and a welcoming mosaic.
   if z== -7 and ((math.abs(x)==4 and y<=2 and y>=0) or (math.abs(x)<=4 and y==3)) then
-    id=ids[y==3 and 2 or 1]
+    id=decor[y==3 and 2 or 1]
   end
-  if z>= -8 and z<= -5 and math.abs(x)<=3 and y== -1 then id=ids[(x-z)%8+1] end
+  if z>= -8 and z<= -5 and math.abs(x)<=3 and y== -1 then id=decor[(x-z)%#decor+1] end
   return id
 end
-local function workshop_ids()
+local STYLE_COLORS={
+  classic={"coral","gold","mint","sky","violet","cream","navy","rose"},
+  castle={"navy","gold","cream","coral"},
+  technic={"navy","gold","sky","cream"},
+  nature={"green","brown","tan","mint"},
+  racing={"coral","cream","navy","gold"},
+}
+local function workshop_ids(style)
   local ids={}
   for i,color in ipairs(colors) do ids[i]=C.get_content_id("brickcraft:"..color) end
-  return C.get_content_id("brickcraft:baseplate"),ids
+  local decor={}
+  for i,color in ipairs(STYLE_COLORS[style or "classic"] or STYLE_COLORS.classic) do
+    decor[i]=C.get_content_id("brickcraft:"..color)
+  end
+  return C.get_content_id("brickcraft:baseplate"),ids,decor
 end
 
 -- Deterministic generation runs only for new mapblocks: saved construction wins.
@@ -407,11 +419,11 @@ C.register_on_generated(function(minp,maxp)
   local vm,emin,emax=C.get_mapgen_object("voxelmanip")
   local area=VoxelArea:new({MinEdge=emin,MaxEdge=emax})
   local data=vm:get_data()
-  local base,ids=workshop_ids()
+  local base,ids,decor=workshop_ids()
   for z=math.max(minp.z,-24),math.min(maxp.z,24) do
     for x=math.max(minp.x,-24),math.min(maxp.x,24) do
       for y=math.max(minp.y,-1),math.min(maxp.y,4) do
-        local id=workshop_node(x,y,z,base,ids)
+        local id=workshop_node(x,y,z,base,ids,decor)
         if id then data[area:index(x,y,z)]=id end
       end
     end
@@ -451,8 +463,10 @@ end
 -- LEGO world's arch gets a lintel real bricks could hold up: two courses of 2 x 4s, joints
 -- staggered, so each brick clicks onto one that reaches a pillar (single 2 x 2s would hang
 -- in the air over the opening).
-local function build_landscape(from,c,core,strict_world)
+local function build_landscape(from,c,core,strict_world,terrain,style)
   c=c or {x=0,z=0}
+  terrain=terrain or "hills"
+  if terrain~="hills" and terrain~="flat" and terrain~="baseplate" then terrain="hills" end
   local minp,maxp={x=c.x-EDGE,y=-2,z=c.z-EDGE},{x=c.x+EDGE,y=26,z=c.z+EDGE}
   local vm=C.get_voxel_manip()
   local emin,emax=vm:read_from_map(minp,maxp)
@@ -469,9 +483,9 @@ local function build_landscape(from,c,core,strict_world)
     if data[i]==air then data[i]=id end
   end
   if core then
-    local base,ids=workshop_ids()
+    local base,ids,decor=workshop_ids(style)
     for z=-24,24 do for x=-24,24 do for y=-1,4 do
-      local id=workshop_node(x,y,z,base,ids)
+      local id=workshop_node(x,y,z,base,ids,decor)
       if id then put(x,y,z,id) end
     end end end
     if strict_world then
@@ -488,28 +502,34 @@ local function build_landscape(from,c,core,strict_world)
   for z=-EDGE,EDGE do
     for x=-EDGE,EDGE do
       if math.max(math.abs(x),math.abs(z))>24 then
-        put(x,-2,z,floor)
-        if from<1 then
-          local top=hill_height(x,z)
+        if terrain=="baseplate" then
+          put(x,-1,z,floor)
+        else
+          put(x,-2,z,floor)
+        end
+        if from<1 and terrain~="baseplate" then
+          local top=terrain=="flat" and -1 or hill_height(x,z)
           for y=-1,top do put(x,y,z,y==top and grass or dirt) end
         end
       end
     end
   end
   if from>=1 then vm:set_data(data); vm:write_to_map(true); return end
-  -- Trees on a loose 3-node grid, kept off the baseplate and the steep outer ridge.
-  for z=-EDGE+3,EDGE-3,3 do
-    for x=-EDGE+3,EDGE-3,3 do
-      local r=noise(x,z)
-      if math.max(math.abs(x),math.abs(z))>=27 and r<.3 then
-        local base=hill_height(x,z)+1
-        local h=3+math.floor(noise(z,x)*2)
-        for y=base,base+h-1 do put(x,y,z,trunk) end
-        for dy=h-2,h do
-          local rad=dy==h and 1 or 2
-          for dz=-rad,rad do
-            for dx=-rad,rad do
-              if math.abs(dx)+math.abs(dz)<rad*2 or rad==1 then put(x+dx,base+dy,z+dz,leaves) end
+  if terrain=="hills" then
+    -- Trees on a loose 3-node grid, kept off the baseplate and the steep outer ridge.
+    for z=-EDGE+3,EDGE-3,3 do
+      for x=-EDGE+3,EDGE-3,3 do
+        local r=noise(x,z)
+        if math.max(math.abs(x),math.abs(z))>=27 and r<.3 then
+          local base=hill_height(x,z)+1
+          local h=3+math.floor(noise(z,x)*2)
+          for y=base,base+h-1 do put(x,y,z,trunk) end
+          for dy=h-2,h do
+            local rad=dy==h and 1 or 2
+            for dz=-rad,rad do
+              for dx=-rad,rad do
+                if math.abs(dx)+math.abs(dz)<rad*2 or rad==1 then put(x+dx,base+dy,z+dz,leaves) end
+              end
             end
           end
         end
@@ -565,20 +585,23 @@ local function build_world(w,done)
   local c={x=w.x,z=w.z}
   C.emerge_area({x=c.x-EDGE,y=-2,z=c.z-EDGE},{x=c.x+EDGE,y=26,z=c.z+EDGE},function(_,_,remaining)
     if remaining>0 then return end
-    build_landscape(0,c,true,w.strict)
+    build_landscape(0,c,true,w.strict,w.terrain,w.style)
     w.built=true; save_worlds()
     C.log("action","BrickCraft world "..w.id.." ("..w.name..") built at "..c.x..","..c.z)
     if done then done(w) end
   end)
 end
 -- Makes a world for owner; done(world) runs once it is built. nil when the map is full.
--- opts.strict makes a strict LEGO world (strict.lua): only builds real bricks could make.
+-- opts holds the new-world menu choices. Terrain and style affect generation; characters
+-- and events are saved as a design template available to feature mods and AI builders.
 local function make_world(name,owner,done,opts)
   local c=free_center()
   if not c then return nil end
   local id=1
   for _,w in ipairs(worlds) do id=math.max(id,w.id+1) end
-  local w={id=id,name=name,owner=owner,x=c.x,z=c.z,built=false,strict=opts and opts.strict or nil}
+  opts=opts or {}
+  local w={id=id,name=name,owner=owner,x=c.x,z=c.z,built=false,strict=opts.strict or nil,
+    terrain=opts.terrain,style=opts.style,characters=opts.characters,events=opts.events}
   worlds[#worlds+1]=w; save_worlds()
   build_world(w,done)
   return w
@@ -804,7 +827,44 @@ end
 -- "Which world?" comes right after "Who's playing?": go to the Workshop or any world
 -- someone made, or make a new one. Each player's last world is picked to start with.
 local picker_ids,picked,welcome_after={},{},{}
-local strict_pick={} -- player name -> true while "Strict LEGO" is ticked for a new world
+local WORLD_TERRAIN={
+  {id="hills",label="Hills & Trees"},{id="flat",label="Flat Grass"},{id="baseplate",label="Open Baseplate"},
+}
+local WORLD_STYLE={
+  {id="classic",label="Classic Workshop"},{id="castle",label="Castle"},{id="technic",label="Technic"},
+  {id="nature",label="Nature"},{id="racing",label="Racing"},
+}
+local WORLD_CHARACTERS={
+  {id="players",label="Players"},{id="villagers",label="Villagers"},{id="knights",label="Knights"},
+  {id="racers",label="Racers"},{id="none",label="None"},
+}
+local WORLD_EVENTS={
+  {id="free",label="Free Build"},{id="challenge",label="Build Challenge"},{id="explore",label="Exploration"},
+  {id="battle",label="Team Battle"},{id="race",label="Race"},
+}
+local function option_id(options,value)
+  for _,o in ipairs(options) do if value==o.id or value==o.label then return o.id end end
+  return options[1].id
+end
+local function option_label(options,value)
+  local id=option_id(options,value)
+  for _,o in ipairs(options) do if o.id==id then return o.label end end
+end
+local function option_index(options,value)
+  local id=option_id(options,value)
+  for i,o in ipairs(options) do if o.id==id then return i end end
+  return 1
+end
+local function option_items(options)
+  local out={}
+  for i,o in ipairs(options) do out[i]=C.formspec_escape(o.label) end
+  return table.concat(out,",")
+end
+local function world_template_text(w)
+  if not (w.terrain or w.style or w.characters or w.events) then return nil end
+  return table.concat({option_label(WORLD_TERRAIN,w.terrain),option_label(WORLD_STYLE,w.style),
+    option_label(WORLD_CHARACTERS,w.characters),option_label(WORLD_EVENTS,w.events)}," / ")
+end
 local function owner_label(w)
   if w.id==0 then return "everyone" end
   return style_by_id[w.owner] and style_by_id[w.owner].label or w.owner
@@ -834,6 +894,7 @@ local function show_world_picker(player)
       local n=counts[w.id] or 0
       items[#items+1]=(w.id==0 and "#f5872c" or "")..C.formspec_escape(w.name.."  ("..owner_label(w)..")"..
         (w.strict and "   [strict LEGO]" or "")..
+        (w.terrain and "   ["..option_label(WORLD_TERRAIN,w.terrain).." / "..option_label(WORLD_STYLE,w.style).."]" or "")..
         (n>0 and "   "..n.." here" or "")..(w==here and "   < you are here" or ""))
     end
   end
@@ -845,15 +906,33 @@ local function show_world_picker(player)
       "o to a world, or make a new one of your own.").."]"..
     "textlist[.6,1.5;9.8,3.6;world;"..table.concat(items,",")..";"..sel..";false]"..
     "style[go;bgcolor=#f5872c]button[.6,5.3;4.6,.7;go;Go to this world]"..
-    "field[.6,6.6;6.4,.7;name;New world;"..C.formspec_escape(new_world_name(player)).."]"..
-    "field_close_on_enter[name;false]button[7.2,6.6;3.2,.7;new;Make new world]"..
-    "checkbox[.6,7.6;strict;Strict LEGO: only builds real bricks could make;"..tostring(strict_pick[name]==true).."]"..
+    "style[new;bgcolor=#4b7588]button[5.8,5.3;4.6,.7;new;Make a new world...]"..
+    "textarea[.6,6.35;9.8,1.45;;;Choose its terrain, visual style, character theme, event theme, and building rules.]"..
     "label[.6,8.4;Switch later: I > Switch world, or /world]")
 end
-local function after_world(player)
+local function show_new_world(player,values)
+  local name=player:get_player_name()
+  values=values or {}
+  C.show_formspec(name,"brickcraft:new_world","formspec_version[6]size[11,9.4]bgcolor[#142936;true]"..
+    "label[.6,.55;BRICKCRAFT / MAKE NEW WORLD]"..
+    "field[.6,1.55;9.8,.7;name;World name;"..C.formspec_escape(values.name or new_world_name(player)).."]"..
+    "field_close_on_enter[name;false]"..
+    "label[.6,2.25;Terrain]dropdown[3.15,2.05;7.25,.65;terrain;"..option_items(WORLD_TERRAIN)..";"..
+      option_index(WORLD_TERRAIN,values.terrain).."]"..
+    "label[.6,3.2;Style]dropdown[3.15,3;7.25,.65;style;"..option_items(WORLD_STYLE)..";"..
+      option_index(WORLD_STYLE,values.style).."]"..
+    "label[.6,4.15;Characters (theme)]dropdown[3.15,3.95;7.25,.65;characters;"..option_items(WORLD_CHARACTERS)..";"..
+      option_index(WORLD_CHARACTERS,values.characters).."]"..
+    "label[.6,5.1;Event (theme)]dropdown[3.15,4.9;7.25,.65;events;"..option_items(WORLD_EVENTS)..";"..
+      option_index(WORLD_EVENTS,values.events).."]"..
+    "checkbox[.6,6.1;strict;Strict LEGO: only builds real bricks could make;"..tostring(values.strict==true).."]"..
+    "textarea[.6,6.65;9.8,1.25;;;Terrain and style shape the starter world. Character and event themes describe what you plan to build; the shared Train Yard, War, Tower Defense, and Kart worlds contain their full games.]"..
+    "button[.6,8.35;3.2,.65;cancel;Back]style[create;bgcolor=#f5872c]button[7.2,8.35;3.2,.65;create;Create world]")
+end
+local function after_world(player,formname)
   local name=player:get_player_name()
   if welcome_after[name] then welcome_after[name]=nil; welcome(player)
-  else C.close_formspec(name,"brickcraft:world") end
+  else C.close_formspec(name,formname or "brickcraft:world") end
 end
 -- Staying in the world you are already in keeps your place; another world starts at your spot.
 local function enter_world(player,w)
@@ -865,8 +944,9 @@ local function enter_world(player,w)
   if w.strict and get_shape(player).invented then set_shape(player,shapes[1])
   else player:set_inventory_formspec(inventory_formspec(player)) end
 end
-local function new_world(player,title,strict_world)
+local function new_world(player,title,opts)
   local name=player:get_player_name()
+  opts=opts or {}
   title=(title or ""):gsub("[%c,;#%[%]\\]",""):gsub("^%s+",""):gsub("%s+$",""):sub(1,30)
   if title=="" then title=new_world_name(player) end
   local w=make_world(title,playing_as(player) or name,function(w)
@@ -874,11 +954,13 @@ local function new_world(player,title,strict_world)
     if not p then return end
     enter_world(p,w)
     C.chat_send_player(name,"Welcome to "..w.name.."! Your own fresh workshop. /world goes back.")
+    local template=world_template_text(w)
+    if template then C.chat_send_player(name,"World template: "..template..".") end
     if w.strict then
       C.chat_send_player(name,"Strict LEGO: pieces click onto studs below or hang from a piece above, nothing goes on "..
         "plates or tiles, and nothing may come loose. /checkbuild finds loose pieces.")
     end
-  end,{strict=strict_world})
+  end,opts)
   if not w then C.chat_send_player(name,"There's no room for another world on this map."); return false end
   C.chat_send_player(name,"Making "..w.name.."...")
   return true
@@ -945,12 +1027,29 @@ C.register_on_player_receive_fields(function(player,formname,fields)
       local w=world_by_id(picked[name] or 0)
       if w then enter_world(player,w) end
       after_world(player)
-    elseif fields.strict then
-      strict_pick[name]=fields.strict=="true" or nil
-    elseif fields.new or fields.key_enter_field=="name" then
-      if new_world(player,fields.name,strict_pick[name]) then strict_pick[name]=nil; after_world(player) end
+    elseif fields.new then
+      show_new_world(player)
     elseif fields.quit then
       if welcome_after[name] then after_world(player) end
+    end
+    return true
+  end
+  if formname=="brickcraft:new_world" then
+    if fields.cancel or fields.quit then
+      show_world_picker(player)
+    elseif fields.create or fields.key_enter_field=="name" then
+      local opts={
+        terrain=option_id(WORLD_TERRAIN,fields.terrain),
+        style=option_id(WORLD_STYLE,fields.style),
+        characters=option_id(WORLD_CHARACTERS,fields.characters),
+        events=option_id(WORLD_EVENTS,fields.events),
+        strict=fields.strict=="true" or nil,
+      }
+      if new_world(player,fields.name,opts) then after_world(player,"brickcraft:new_world")
+      else
+        opts.name=fields.name
+        show_new_world(player,opts)
+      end
     end
     return true
   end
