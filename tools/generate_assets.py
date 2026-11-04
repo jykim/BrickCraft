@@ -23,7 +23,8 @@ png('brickcraft_dirt.png',32,32,lambda x,y:(150,104,70,255) if x!=31 and y!=31 e
 png('brickcraft_trunk.png',32,32,lambda x,y:(118,80,52,255) if x%8 else (98,66,44,255))
 png('brickcraft_trunk_top.png',32,32,lambda x,y:(150,108,70,255) if (x-15.5)**2+(y-15.5)**2<100 else (118,80,52,255))
 png('brickcraft_leaves.png',32,32,stud((58,148,82,255),(80,170,100,255)))
-# Block-person styles. Texture rows: skin, shirt, pants, eyes, hair (8 rows, room to grow).
+# Block-person styles. Texture rows: skin, shirt, pants, eyes, hair, bunny fur, inner ear
+# (8 rows, room to grow).
 ROWS=8
 styles=dict(
     builder=dict(shirt=(74,161,217),pants=(48,76,110),hair=None),
@@ -40,12 +41,12 @@ styles=dict(
     redboss=dict(shirt=(226,40,40),pants=(80,18,18),hair=(249,193,65)),
 )
 for name,st in styles.items():
-    rows=[(245,196,134),st['shirt'],st['pants'],(35,38,48),st['hair'] or (35,38,48)]
+    rows=[(245,196,134),st['shirt'],st['pants'],(35,38,48),st['hair'] or (35,38,48),(246,243,236),(240,160,182)]
     rows+= [rows[0]]*(ROWS-len(rows))
     fname='brickcraft_person.png' if name=='builder' else f'brickcraft_person_{name}.png'
     png(fname,16,16*ROWS,lambda x,y,r=rows:r[y//16]+(255,))
 # A deliberately generic original block person; no copied character mesh.
-def person(path,hair):
+def person(path,hair,bunny=False):
     vertices=[];uvs=[];faces=[]
     def box(x0,y0,z0,x1,y1,z1,color):
         offset=len(vertices)
@@ -66,10 +67,20 @@ def person(path,hair):
     if hair=='long':
         box(-.27,.95,.16,.27,1.4,.25,4)             # long back hair
         box(-.3,1.05,-.1,-.25,1.7,.24,4);box(.25,1.05,-.1,.3,1.7,.24,4)  # sides
+    if bunny:  # bunny worlds: tall ears (pink inside, facing front) and a round tail
+        for s in (-1,1):
+            x0,x1=sorted((s*.07,s*.2))
+            box(x0,1.7,-.05,x1,2.2,.05,5)
+            xi0,xi1=sorted((s*.1,s*.17))
+            box(xi0,1.8,-.058,xi1,2.13,-.05,6)
+        box(-.08,.4,.17,.08,.56,.29,5)
     (root/'models'/path).write_text('\n'.join(['# Original BrickCraft block person']+['v %g %g %g'%p for p in vertices]+['vt %g %g'%p for p in uvs]+faces)+'\n')
 person('brickcraft_person.obj',None)
 person('brickcraft_person_short.obj','short')
 person('brickcraft_person_long.obj','long')
+person('brickcraft_person_bunny.obj',None,True)
+person('brickcraft_person_short_bunny.obj','short',True)
+person('brickcraft_person_long_bunny.obj','long',True)
 # Brick meshes for shapes a node box cannot draw. Node units: the cell is -0.5..0.5,
 # the high/back side faces +z (away from the builder), studs rise 0.5..0.64 into the cell above.
 import math
@@ -366,4 +377,4 @@ def bunch(x,y):  # three ripe bananas on one green stem
             return (118,80,52,255) if y>=cy+12 and x<=cx-9 else (255,226,70,255) if ((x-cx)**2+(y-cy)**2)**.5<11.5 else (222,178,32,255)
     return (0,0,0,0)
 png('brickcraft_kart_bunch.png',24,24,bunch)
-print('Generated 43 textures, 3 block person meshes, 5 brick meshes, 5 train meshes, a cannon and a kart')
+print('Generated 43 textures, 6 block person meshes, 5 brick meshes, 5 train meshes, a cannon and a kart')

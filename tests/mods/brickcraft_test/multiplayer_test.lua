@@ -90,8 +90,33 @@ C.register_on_joinplayer(function()
       assert(who2:find("in Dad's Fort"),"/who shows the world")
       world_form(kid,{world="DCL:1"})
       assert(brickcraft.world_at(kid:get_pos()).id==0,"double click goes back to the Workshop")
-      C.log("action","BRICKCRAFT MULTIPLAYER PASS: two network clients, own spots and looks, shared building, new world, "..who)
-      C.request_shutdown("BrickCraft multiplayer check passed",false,1)
+      -- A Bunnies world: Dad makes one and wears bunny ears there, and so does his AI
+      -- builder when it follows him in; Leona, back in the Workshop, does not.
+      local dad_ai=brickcraft.ai and brickcraft.ai.workers and brickcraft.ai.workers.dad
+      local function dad_bot() return dad_ai and dad_ai.state().bot end
+      world_form(dad,{new="x"})
+      form(dad,"brickcraft:new_world",{create="x",name="Burrow",terrain="Flat Grass",style="Nature",
+        characters="Bunnies",events="Free Build"})
+      local btries=0
+      local function check_bunnies()
+        local bw=brickcraft.worlds()[2]
+        btries=btries+1
+        if not (bw and bw.built and brickcraft.world_at(dad:get_pos())==bw
+            and dad:get_properties().mesh=="brickcraft_person_short_bunny.obj"
+            and (not dad_ai or dad_bot() and brickcraft.world_at(dad_bot():get_pos())==bw
+              and dad_bot():get_properties().mesh=="brickcraft_person_short_bunny.obj")) then
+          assert(btries<60,"bunny world built and dad and his builder are bunnies there")
+          return C.after(.5,check_bunnies)
+        end
+        assert(bw.characters=="bunnies","the Bunnies theme is saved")
+        assert(brickcraft.bunny_world({name="Bunny Kingdom"}) and not brickcraft.bunny_world(brickcraft.worlds()[1]),
+          "a world named for bunnies is a bunny world; Dad's Fort is not")
+        assert(kid:get_properties().mesh=="brickcraft_person.obj","leona, in the Workshop, is no bunny")
+        C.log("action","BRICKCRAFT MULTIPLAYER PASS: two network clients, own spots and looks, shared building, new world, "..
+          "bunny world"..(dad_ai and " (Dad and Dad bot are bunnies)" or "")..", "..who)
+        C.request_shutdown("BrickCraft multiplayer check passed",false,1)
+      end
+      check_bunnies()
     end
     check_worlds()
   end)

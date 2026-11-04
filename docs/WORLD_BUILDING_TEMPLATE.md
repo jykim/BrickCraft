@@ -10,7 +10,9 @@ Delete prompts that do not apply. A small world does not need every system below
 
 The in-game **Make a new world** menu is the quick version of this template. Terrain and style
 change the generated starter landscape; character and event choices are saved as design themes
-for later building or feature-specific mechanics. The shared Train Yard, Technic Lab, War Lab,
+for later building or feature-specific mechanics. One character theme is coded: in a
+**Bunnies** world (or any world whose name mentions bunnies or rabbits), players and AI
+builders wear bunny ears and a tail (`brickcraft.bunny_world`, `brickcraft.look_mesh`). The shared Train Yard, Technic Lab, War Lab,
 Siege Castle, Tower Defense, and Kart Circuit worlds remain the places with their complete coded
 activities.
 

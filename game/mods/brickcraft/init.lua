@@ -752,9 +752,23 @@ local function taken_by(player,id)
     if p~=player and playing_as(p)==id then return p end
   end
 end
+-- Bunny worlds (the Bunnies character theme, or a world named for bunnies or rabbits, like
+-- "Bunny Kingdom"): everyone there, players and AI builders, wears bunny ears and a tail.
+local function bunny_world(w)
+  if not w then return false end
+  if w.characters=="bunnies" then return true end
+  local n=(w.name or ""):lower()
+  return n:find("bunn") ~= nil or n:find("rabbit") ~= nil
+end
+-- The block-person mesh for a look at pos: "brickcraft_person_short.obj" becomes
+-- "brickcraft_person_short_bunny.obj" in a bunny world.
+local function look_mesh(mesh,pos)
+  if pos and bunny_world(world_at(pos)) then return (mesh:gsub("%.obj$","_bunny.obj")) end
+  return mesh
+end
 local function apply_style(player)
   local st=get_style(player)
-  player:set_properties({visual="mesh",mesh=st.mesh,textures={st.tex},
+  player:set_properties({visual="mesh",mesh=look_mesh(st.mesh,player:get_pos()),textures={st.tex},
     visual_size={x=10,y=10},collisionbox={-.3,0,-.3,.3,1.75,.3},eye_height=1.5,zoom_fov=0})
   player:set_nametag_attributes({color=st.tag,bgcolor="#14293699",
     text=playing_as(player) and st.label or player:get_player_name()})
@@ -836,7 +850,7 @@ local WORLD_STYLE={
 }
 local WORLD_CHARACTERS={
   {id="players",label="Players"},{id="villagers",label="Villagers"},{id="knights",label="Knights"},
-  {id="racers",label="Racers"},{id="none",label="None"},
+  {id="racers",label="Racers"},{id="bunnies",label="Bunnies"},{id="none",label="None"},
 }
 local WORLD_EVENTS={
   {id="free",label="Free Build"},{id="challenge",label="Build Challenge"},{id="explore",label="Exploration"},
@@ -1269,13 +1283,16 @@ C.register_globalstep(function(dt)
   elapsed=elapsed+dt; if elapsed<1 then return end; elapsed=0
   for _,p in ipairs(C.get_connected_players()) do
     if p:get_pos().y< -8 then p:set_pos(home_pos(p)) end
+    -- Walking or switching into (or out of) a bunny world changes the look.
+    local mesh=look_mesh(get_style(p).mesh,p:get_pos())
+    if p:get_properties().mesh~=mesh then p:set_properties({mesh=mesh}) end
   end
 end)
 
 brickcraft={shapes=shape_by_id,shape_list=shapes,colors=colors,set_shape=set_shape,turn=turn_next,undo=undo_last,styles=style_by_id,
   remember=remember,forget=function(name) history[name]=nil end,
   refresh_inventory=function(p) p:set_inventory_formspec(inventory_formspec(p)) end,help=help_rows,get_shape=get_shape,
-  get_style=get_style,home_pos=home_pos,playing_as=playing_as,world_at=world_at,worlds=function() return worlds end,
+  get_style=get_style,bunny_world=bunny_world,look_mesh=look_mesh,home_pos=home_pos,playing_as=playing_as,world_at=world_at,worlds=function() return worlds end,
   make_world=make_world,save_worlds=save_worlds,testing=testing,
   -- Mod storage belongs to the mod that asks for it; the BrickCraft mods share this one so
   -- worlds saved before the split keep their data.
