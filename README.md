@@ -4,6 +4,8 @@ Jin과 Leona가 색 브릭을 모아 작은 건축물을 만드는 Luanti 기반
 
 ## 개발 문서
 
+- [World API and write permissions](docs/WORLD_API.md): supported operations, limits, setup, authentication, ownership, and examples.
+
 - [개발자 가이드](docs/DEVELOPMENT.md): 환경·구조·개발 반복·테스트·확장 지점.
 - [TODO](TODO.md): 완료된 MVP와 다음 우선순위, 승인 대기 사항.
 
