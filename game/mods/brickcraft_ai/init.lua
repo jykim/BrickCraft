@@ -1253,8 +1253,8 @@ local function new_worker(owner)
   -- Placing and collecting through the players' item callbacks.
   local function place(it,pointed,eye)
     local s=shapes[it.piece]
-    local item="brickcraft:"..it.color
-    wield=slot_for(item,s.cost)
+    local item=brickcraft.piece_item(it.color,s)
+    wield=slot_for(item,1)
     if not wield then return false end
     look=vector.direction(eye,pointed.above)
     -- Q-turns from the way the builder faces, exactly as a player picks a piece's turn.
@@ -1700,7 +1700,7 @@ local function new_worker(owner)
       return
     end
     local n=math.max(1,math.min(tonumber(low:match("%d+")) or 24,99))
-    local left=pl:get_inventory():add_item("main","brickcraft:"..color.." "..n):get_count()
+    local left=brickcraft.give(pl,"brickcraft:"..color.." "..n):get_count()
     local got=n-left
     local whom=pl:get_player_name()==name and "you" or display_name(pl:get_player_name())
     if got==0 then say((whom=="you" and "Your" or whom.."'s").." bricks are full, "..who..". Put some down first!") return end

@@ -9,8 +9,12 @@ C.register_on_joinplayer(function(player)
   C.after(2,function()
     local inv=player:get_inventory()
     local slot={}
+    -- Plenty of every piece in every color (not the starter kit); the chosen piece is on
+    -- each color's key.
+    inv:set_list("main",{}); inv:set_list("pieces",{})
     for i,color in ipairs(brickcraft.colors) do
-      slot[color]=i+1; inv:set_stack("main",i+1,"brickcraft:"..color.." 999")
+      slot[color]=i+1
+      for _,s in ipairs(brickcraft.shape_list) do brickcraft.give(player,brickcraft.piece_item(color,s).." 999") end
     end
     inv:set_stack("main",1,"brickcraft:separator")
     player:set_look_horizontal(0); player:set_look_vertical(0)
@@ -26,7 +30,7 @@ C.register_on_joinplayer(function(player)
       local before=stack:get_count()
       stack=stack:get_definition().on_place(stack,player,{type="node",under=pos,above=vector.offset(pos,0,1,0)})
       inv:set_stack("main",slot[color],stack)
-      return before-stack:get_count()==shape.cost -- spent only when it went in
+      return before-stack:get_count()==1 -- spent only when it went in
     end
     local function yes(what,...) assert(put(...),"strict world refused "..what) end
     local function no(what,...) assert(not put(...),"strict world allowed "..what) end

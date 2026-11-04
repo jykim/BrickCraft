@@ -566,7 +566,7 @@ local function nearest_color(hex)
 end
 local function item_for(p)
   local s=real_shapes[p.part:match("^%d+") or ""]
-  if s then return ItemStack("brickcraft:"..nearest_color(p.color).." "..s.cost),s end
+  if s then return ItemStack(brickcraft.piece_item(nearest_color(p.color),s)),s end
   local stack=ItemStack("brickcraft:real_part")
   local meta=stack:get_meta()
   -- Standing as in its own file, when the import has that: put down, it stands upright.
@@ -606,12 +606,11 @@ local function take_part(player,inst,i,quiet,all)
     return false
   end
   local stack=item_for(p)
-  local inv=player:get_inventory()
-  if not inv:room_for_item("main",stack) then
+  if not brickcraft.room_for(player,stack) then
     if not quiet then say(player,"No room in your inventory for that part.") end
     return false
   end
-  inv:add_item("main",stack)
+  brickcraft.give(player,stack)
   inst.gone=gone
   local obj=spawned[inst.id] and spawned[inst.id][i]
   if obj then obj:remove(); spawned[inst.id][i]=nil end
@@ -651,7 +650,7 @@ local function break_all(player,inst)
   for _,i in ipairs(idx) do
     if not by_id[inst.id] then break end
     local stack=item_for(def.parts[i])
-    if player:get_inventory():room_for_item("main",stack) then
+    if brickcraft.room_for(player,stack) then
       if take_part(player,inst,i,true,true) then n=n+1 end
     else left=left+1 end
   end
@@ -901,7 +900,7 @@ local function show_menu(player,inst,i)
     "button[.4,3.4;3.2,.8;turn;Turn it a quarter]"..
     "button[3.8,3.4;3.2,.8;away;Put it away]"..
     "tooltip[stack;Its parts, sorted into upright stacks of one kind and colour, where it stood]"..
-    "tooltip[break;Its parts into your inventory; what doesn't fit is sorted into stacks here]"..
+    "tooltip[break;Its parts into your inventory, and what doesn't fit sorted into stacks here]"..
     "tooltip[away;Gone, parts and all (/model brings it back)]"..
     "button_exit[.4,7.2;6.6,.8;close;Close]"
   C.show_formspec(name,"brickcraft_models:menu",fs)

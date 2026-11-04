@@ -170,7 +170,7 @@ Finder에서 실행 스크립트를 더블클릭해도 됩니다. 앱만 직접 
 - **인스턴스:** 모델은 모드 저장소 `model_instances`의 `{id, slug 또는 part, x,y,z(발), turn, scale, gone, support, modified}`입니다. 부품 엔티티(`brickcraft:model_part`, 저장 안 함)는 1초마다 96칸 안에 사람이 있을 때 만들고 없으면 지웁니다. 맵 블록당 객체 한도 때문에 엔티티를 맵에 저장하지 않습니다. 첫 버전의 한 덩어리 `brickcraft:display_model`은 깨어날 때 그 자리의 인스턴스로 바뀝니다.
 - **받침:** `brickcraft:model_support`(보이지 않음, `leveled` 노드 상자, 걸을 수 있음, 가리킬 수 없음, buildable_to)가 부품 상자가 가운데를 덮는 칸(얇으면 가장 가까운 칸)에 부품 윗면 높이만큼 들어갑니다. 공기 칸에만 쓰며, 엄격한 검사의 `ground`(부품이 아닌 단단한 것)라 위에 놓인 브릭은 돌기에 끼운 것으로 칩니다.
 - **변경:** 분해 두 가지(`organize`: 그 자리에 쌓기, `break_all`: 인벤토리로·남는 건 `organize`)는 모델이 사라지므로 확인·크기 맞춤 없이 바로 합니다. 떼기(`take_part`), 게임 브릭판(`convert`, 엄격하면 `strict.order`로 붙는 것만), 브릭·부품 올리기는 모두 `before_change`를 거칩니다. 처음이면 확인 창(`brickcraft_models:unify`)을 띄우고, 예를 누르면 `unify`가 크기 1로 바꾸고 `modified`를 세워 크기를 고정합니다. 돌리기·치우기·크기 바꾸기는 변경이 아닙니다.
-- **인벤토리:** 부품 번호 앞 숫자가 `shapes`의 실제 부품(`part`, invented·기차·테크닉 제외)과 같으면 가장 가까운 게임 색의 브릭 `cost`개, 아니면 `brickcraft:real_part`(메타: 메시·색·반크기·번호, 아이콘을 `color`로 칠함)입니다. LEGO part를 놓으면 부품 하나짜리 인스턴스(`part`, `modified`)가 됩니다.
+- **인벤토리:** 부품 번호 앞 숫자가 `shapes`의 실제 부품(`part`, invented·기차·테크닉 제외)과 같으면 가장 가까운 게임 색의 그 부품(`brickcraft.piece_item`), 아니면 `brickcraft:real_part`(메타: 메시·색·반크기·번호, 아이콘을 `color`로 칠함)입니다. LEGO part를 놓으면 부품 하나짜리 인스턴스(`part`, `modified`)가 됩니다.
 - **엄격(중력):** 떼면 새로 `hanging`(땅 부품에서 `links`로 닿지 않는)이 된 부품을 그 인스턴스에서 빼고, `links`로 이어진 덩어리마다(낮은 것부터) `floor_under`(노드 윗면, 받침 높이, 근처 모든 부품 상자)로 떨어질 거리를 구해 `custom` 인스턴스(`{title, parts, links, ground=내려앉은 부품}`, 원래 turn·scale)로 놓습니다. 화면의 엔티티는 가속도 20으로 떨어진 뒤 지우고 새 인스턴스는 그만큼(`hold`) 기다렸다 나타납니다. 그다음 `settle`이 근처 인스턴스 중 어느 부품도 아래에 닿지 않는 것을 통째로 떨어뜨립니다(최대 8번). 사라질 받침 칸 바로 위에 부품이 있으면(`bricks_on`) 거절합니다.
 - **부품 정리(`organize`):** 남은 부품을 (번호, 색)별로 모아 바로 선 메시(`umesh`)로 최대 8개씩 쌓고(브릭은 돌기만큼 겹침), 바닥 넓이가 큰 것부터 너비 8–24칸 줄로 놓은 `custom` 인스턴스로 바꿉니다.
 - **바로 선 부품과 그림:** 가져오기는 부품마다 원래 파일 방향(부모 회전만)의 메시도 쓰고(`parts`의 11–14번째: 메시, 반크기), 그 메시를 위·오른쪽 앞에서 본 32×32 회색 그림(`<메시>.png`, 2배로 그려 줄임)을 만듭니다. LEGO part 아이템은 바로 선 메시와 `inventory_image`=`그림^[multiply:#색]`을 갖습니다. 그림 없이 들어온 옛 아이템은 접속할 때 채웁니다.
@@ -218,7 +218,7 @@ python3 tools/test_integration.py
 
 색을 늘릴 때 배열만 추가하면 끝나지 않습니다. 맵 생성의 `for i=1,8`, 수집 더미 간격, 핫바 9칸, 처음 지급 슬롯, 안내 문구가 현재 8색에 맞춰져 있습니다. 먼저 색 선택 UX를 정한 뒤 함께 수정해야 합니다.
 
-형태는 `init.lua`의 `shapes` 표에 있습니다(`id`, 노드 이름 `suffix`, 실제 부품 `part`, 인벤토리 줄 `group`, `cost`, 2칸 부품 `long`, 노드박스 `boxes` 또는 메시 `mesh`, 충돌 상자). 경사·둥근 브릭은 노드박스로 그릴 수 없어 `generate_assets.py`의 `Mesh`가 OBJ를 만듭니다(바깥쪽 법선, 높은 쪽 +z). 새 부품은 실제 부품 번호와 돌기 배치를 확인해 표에 추가하고, `house_test.lua`에서 한 번 이상 쓰도록 하세요. 색마다 형태별 노드가 등록되지만 인벤토리 아이템은 `brickcraft:<color>` 하나이며, 그 `on_place`가 플레이어 메타 `brickcraft_shape`·`brickcraft_turn`을 읽어 해당 형태 노드를 놓습니다. 형태 노드의 `drop`은 색 아이템 × `cost`입니다.
+형태는 `init.lua`의 `shapes` 표에 있습니다(`id`, 노드 이름 `suffix`, 실제 부품 `part`, 인벤토리 줄 `group`, 2칸 부품 `long`, 노드박스 `boxes` 또는 메시 `mesh`, 충돌 상자). 경사·둥근 브릭은 노드박스로 그릴 수 없어 `generate_assets.py`의 `Mesh`가 OBJ를 만듭니다(바깥쪽 법선, 높은 쪽 +z). 새 부품은 실제 부품 번호와 돌기 배치를 확인해 표에 추가하고, `house_test.lua`에서 한 번 이상 쓰도록 하세요. 부품은 색 × 형태마다 따로인 아이템입니다(`piece_item(color, shape)` = `brickcraft:<color><item 또는 suffix>`, 2×2는 예전 이름 `brickcraft:<color>` 그대로라 저장된 브릭이 2×2가 됨). 노드 부품은 노드 자체가 아이템이고 회수하면 자기 자신이 나옵니다(`drop` 없음). 기차·테크닉 부품은 그 모드의 노드(선로, `_motor_node`, `_battery_node`, 기어·축)이고, 수레·객차는 인벤토리 그림용 메시 노드(`brickcraft_trains`, 놓이지 않음)이며 `register_on_mods_loaded`가 `on_place`를 `place_brick`으로 바꿉니다. `place_brick`은 든 아이템(`piece_of`)으로 형태와 색을 정하고 하나를 씁니다. **보관:** 핫바 2–12칸(색 키)에는 고른 부품(`brickcraft_shape` 메타)만 있고 나머지 부품은 숨은 `pieces` 목록(`PIECES_SIZE`)에 있습니다. `set_shape`(Tab·버튼)가 `normalize`로 맞바꿉니다. 부품을 넣고 빼는 곳은 모두 `brickcraft.give`·`take`·`room_for`·`count_of`를 쓰고(회수는 `core.handle_node_drops` 재정의), 전쟁 모드에서는 `pieces`로만 들어갑니다. 저장은 `bricks_<id>`(main)와 `pieces_<id>`. 시작 세트는 `KIT`·`KIT_EXTRA`(`give_kit`)이고, 부품 이전의 저장은 `piece_kit_<id>`(접속은 메타 `brickcraft_piece_kit`)로 한 번 더 받습니다.
 
 몸통은 칸(-0.5..0.5)을 꽉 채우고 돌기는 0.5..0.64로 위 칸에 솟습니다. 위에 놓인 노드의 몸통이 돌기를 덮어 가리므로 쌓인 브릭 사이에 돌기가 보이지 않습니다. 충돌 상자는 칸 크기 그대로입니다. 2×4는 주 노드의 노드박스가 로컬 +z 방향으로 1.5까지 뻗고, `facedir_to_dir(param2)` 칸에 보이지 않는 `_2x4_tail` 노드를 둡니다. 끝 칸은 충돌·선택만 담당하며 회수·회전은 `primary_of`로 주 노드를 찾아 처리합니다. 주 노드의 `on_destruct`가 끝 칸을 지웁니다. 노드박스는 ±1.5를 넘을 수 없으므로 더 긴 부품은 같은 방식으로 끝 칸을 여러 개 두어야 합니다.
 
@@ -236,7 +236,7 @@ python3 tools/test_integration.py
 
 ### 인벤토리와 플레이어
 
-`register_on_joinplayer`가 `main` 32칸, 핫바 12칸과 8×4 인벤토리 formspec을 설정합니다. 최초 지급은 1번 세퍼레이터, 2–9번 8색 브릭 각 24개(`STARTER_COLORS`)입니다. `colors`의 마지막 3색(green·brown·tan)은 지급하지 않고 경치 수확으로만 얻으며, 보통 10–12번 칸에 들어갑니다. 슬롯을 늘리거나 재배치할 때 formspec·핫바·초기 지급·기존 저장의 아이템 보존을 함께 확인하세요. 작은 크기로 줄이면 기존 슬롯의 아이템이 영향을 받을 수 있습니다.
+`register_on_joinplayer`가 `main` 32칸, 핫바 12칸과 8×4 인벤토리 formspec을 설정합니다. 최초 지급은 1번 세퍼레이터와 시작 세트(`give_kit`: `STARTER_COLORS` 8색의 `KIT` 부품, 남색 기차·테크닉 `KIT_EXTRA`)입니다. `colors`의 마지막 3색(green·brown·tan)은 지급하지 않고 경치 수확으로만 얻으며, 보통 10–12번 칸에 들어갑니다. 슬롯을 늘리거나 재배치할 때 formspec·핫바·초기 지급·기존 저장의 아이템 보존을 함께 확인하세요. 작은 크기로 줄이면 기존 슬롯의 아이템이 영향을 받을 수 있습니다.
 
 현재 캐릭터는 원본 OBJ 정적 메시입니다. `visual_size = {x=10,y=10}`, 충돌 상자와 `eye_height`를 함께 사용하므로 메시 단위와 실제 이동 충돌을 혼동하지 마세요.
 

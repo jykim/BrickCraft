@@ -106,8 +106,8 @@ for color in pairs(colors) do
       tiles={{name="brickcraft_"..color..".png",backface_culling=false},{name="brickcraft_track_rail.png",backface_culling=false}},
       paramtype="light",paramtype2="facedir",sunlight_propagates=true,
       collision_box=track_box,selection_box=track_box,
-      -- brick: the separator collects it (one brick back) and turns it like any brick.
-      groups={brick=1,track=1,not_in_creative_inventory=1},drop="brickcraft:"..color,
+      -- brick: the separator collects it (a track piece back) and turns it like any brick.
+      groups={brick=1,track=1,not_in_creative_inventory=1},drop=track_name(color),
       brickcraft_shape="track",brickcraft_track=kind,brickcraft_color=color,
     })
   end
@@ -124,7 +124,7 @@ for color in pairs(colors) do
         {name="brickcraft_cart_wheel.png",backface_culling=false}},
       paramtype="light",paramtype2="facedir",sunlight_propagates=true,
       collision_box=ramp_box,selection_box=ramp_box,
-      groups={brick=1,track=1,not_in_creative_inventory=1},drop="brickcraft:"..color,
+      groups={brick=1,track=1,not_in_creative_inventory=1},drop=track_name(color),
       brickcraft_shape="track",brickcraft_track="ramp",brickcraft_lift=kind=="lift" or nil,brickcraft_color=color,
     })
   end
@@ -142,7 +142,7 @@ for color in pairs(colors) do
         {name="brickcraft_track_rail.png^[colorize:"..(on and "#ffd34d:170" or "#d8402c:150"),backface_culling=false}},
       paramtype="light",paramtype2="facedir",sunlight_propagates=true,
       collision_box=track_box,selection_box=track_box,
-      groups={brick=1,track=1,not_in_creative_inventory=1},drop="brickcraft:"..color,
+      groups={brick=1,track=1,not_in_creative_inventory=1},drop=track_name(color),
       brickcraft_shape="track",brickcraft_track="straight",brickcraft_color=color,
       brickcraft_booster=on and "on" or "off",
     }
@@ -155,14 +155,27 @@ for color in pairs(colors) do
     C.register_node(":"..name,def)
   end
 end
+-- Carts and passenger cars run as objects; in the inventory each color is a piece item drawn
+-- like the car (it is never put down as a node: right click puts the car on the track).
+for color in pairs(colors) do
+  for _,k in ipairs({
+    {"cart","Train Cart\nPart 92339","brickcraft_cart.obj",{"brickcraft_cart_wheel.png","brickcraft_track_tie.png","brickcraft_"..color..".png"}},
+    {"coach","Passenger Car","brickcraft_coach.obj",{"brickcraft_"..color..".png","brickcraft_cream.png"}},
+  }) do
+    local tiles={}
+    for i,t in ipairs(k[4]) do tiles[i]={name=t,backface_culling=false} end
+    C.register_node(":brickcraft:"..color.."_"..k[1],{description=k[2],drawtype="mesh",mesh=k[3],tiles=tiles,
+      paramtype="light",groups={not_in_creative_inventory=1},node_placement_prediction=""})
+  end
+end
 -- Track and carts from before trains were pieces: old track is navy now, and the old train
--- items in inventories become bricks.
+-- items in inventories become those pieces.
 C.register_alias("brickcraft:track_straight","brickcraft:navy_track")
 C.register_alias("brickcraft:track_curve","brickcraft:navy_track_curve")
-C.register_alias("brickcraft:track","brickcraft:navy")
-C.register_alias("brickcraft:cart","brickcraft:coral")
-C.register_alias("brickcraft:train_motor","brickcraft:navy")
-C.register_alias("brickcraft:battery_box","brickcraft:navy")
+C.register_alias("brickcraft:track","brickcraft:navy_track")
+C.register_alias("brickcraft:cart","brickcraft:coral_cart")
+C.register_alias("brickcraft:train_motor","brickcraft:navy_motor_node")
+C.register_alias("brickcraft:battery_box","brickcraft:navy_battery_node")
 
 -- Where carts run. Each end of a piece is a direction d out of its cell and the height h
 -- of the joint there (0 at the cell's level; 1 at a ramp's top end, a level up). Pieces
@@ -393,8 +406,8 @@ local function fit_gear(self,player,s,color)
   if not self._motor then C.chat_send_player(name,"Put a Train Motor on first: the gears go between the motor and the wheels."); return end
   if geared(self) then C.chat_send_player(name,"This locomotive has both its gears. Collect it to change them."); return end
   local stack=player:get_wielded_item()
-  if stack:get_count()<s.cost then return end
-  stack:take_item(s.cost); player:set_wielded_item(stack)
+  if stack:is_empty() then return end
+  stack:take_item(1); player:set_wielded_item(stack)
   local gear={teeth=tonumber(s.technic:match("%d+")),color=color}
   if not self._gear_m then
     self._gear_m=gear
@@ -413,8 +426,8 @@ local function fit(self,player,s,color)
   local field=s.train=="motor" and "_motor" or "_battery"
   if self[field] then C.chat_send_player(name,"This cart has a "..s.label.." already."); return end
   local stack=player:get_wielded_item()
-  if stack:get_count()<s.cost then C.chat_send_player(name,"A "..s.label.." needs "..s.cost.." bricks of this color."); return end
-  stack:take_item(s.cost); player:set_wielded_item(stack)
+  if stack:is_empty() then return end
+  stack:take_item(1); player:set_wielded_item(stack)
   if field=="_motor" then self._leader=nil end -- a locomotive leads
   self[field]=color
   show_parts(self)
@@ -434,17 +447,16 @@ local function switch(self,player)
   end
 end
 
--- The separator collects a cart: its bricks back, and the motor's and battery box's.
+-- The separator collects a cart: the cart piece back, and its motor, battery box and gears.
 local function collect(self,player)
-  local inv=player:get_inventory()
-  local function give(color,n)
-    local left=inv:add_item("main","brickcraft:"..color.." "..n)
+  local function give(color,id)
+    local left=brickcraft.give(player,brickcraft.piece_item(color,brickcraft.shapes[id]))
     if not left:is_empty() then C.add_item(self.object:get_pos(),left) end
   end
-  give(color_of(self._color,"coral"),self._coach and brickcraft.shapes.coach.cost or brickcraft.shapes.cart.cost)
-  for _,g in ipairs({self._gear_m,self._gear_w}) do give(g.color,1) end
-  if self._motor then give(color_of(self._motor,"navy"),brickcraft.shapes.motor.cost) end
-  if self._battery then give(color_of(self._battery,"navy"),brickcraft.shapes.battery.cost) end
+  give(color_of(self._color,"coral"),self._coach and "coach" or "cart")
+  for _,g in ipairs({self._gear_m,self._gear_w}) do give(g.color,"gear"..g.teeth) end
+  if self._motor then give(color_of(self._motor,"navy"),"motor") end
+  if self._battery then give(color_of(self._battery,"navy"),"battery") end
   self.object:remove()
 end
 
@@ -557,9 +569,9 @@ C.register_entity(":"..CART,{
       elseif self._v==0 then self._flip=not self._flip; C.chat_send_player(name,"Turned the cart around.") end
       return
     end
-    local color=item:match("^brickcraft:(%a+)$")
-    local s=brickcraft.get_shape(clicker)
-    if color and colors[color] then
+    local piece=brickcraft.piece_of(item)
+    local color,s=piece and piece.color,piece and piece.shape
+    if color then
       if s.train=="motor" or s.train=="battery" then fit(self,clicker,s,color)
       elseif s.technic and s.technic:find("^gear") then fit_gear(self,clicker,s,color)
       elseif s.train=="cart" then C.chat_send_player(name,"Put the new cart on the track next to this one: it hooks on.")
@@ -706,8 +718,8 @@ local function place(s,stack,placer,pointed,item)
     if not (def and def.buildable_to) or pos.y<0 then return stack end
     if not brickcraft.strict_ok(placer,brickcraft.strict.can_place,pos,{name=track_name(color),param2=0}) then return stack end
     local node=lay(pos,placer:get_look_dir(),color)
-    stack:take_item(s.cost)
-    brickcraft.remember(placer,{kind="place",pos=vector.copy(pos),node=node,drop=item.." "..s.cost})
+    stack:take_item(1)
+    brickcraft.remember(placer,{kind="place",pos=vector.copy(pos),node=node,drop=track_name(color)})
     return stack
   end
   if s.train=="cart" or s.train=="coach" then
@@ -720,7 +732,7 @@ local function place(s,stack,placer,pointed,item)
     local ent=put_cart(pos,color,s.train=="coach")
     if not ent then return stack end
     if ent._leader then C.chat_send_player(name,"Hooked on!") end
-    stack:take_item(s.cost)
+    stack:take_item(1)
     return stack
   end
   -- A motor or battery box put on the ground drives machines (brickcraft_technic).

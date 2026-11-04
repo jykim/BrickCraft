@@ -34,23 +34,23 @@ C.register_on_joinplayer(function()
     stack=stack:get_definition().on_place(stack,dad,{type="node",under={x=10,y=-1,z=-2},above=pos})
     inv_dad:set_stack("main",2,stack)
     assert(C.get_node(pos).name=="brickcraft:coral","dad placed a brick")
-    assert(inv_dad:get_stack("main",2):get_count()==23,"dad spent one")
+    assert(inv_dad:get_stack("main",2):get_count()==7,"dad spent one of the kit's 8 coral 2 x 2s")
     C.registered_tools["brickcraft:separator"].on_use(inv_kid:get_stack("main",1),kid,
       {type="node",under=pos,above={x=10,y=1,z=-2}})
     assert(C.get_node(pos).name=="air","leona collected it")
-    assert(inv_kid:get_stack("main",2):get_count()==25,"leona received it")
+    assert(inv_kid:get_stack("main",2):get_count()==9,"leona received it")
     local ok,who=C.registered_chatcommands.who.func(KID,"")
     assert(ok and who:find(DAD) and who:find(KID) and who:find("Leona"),"/who lists both")
     -- Bricks belong to the player, not the computer: Dad's computer switches to
     -- Explorer (a fresh kit), Leona's computer gives up Leona, and Dad's computer then
     -- plays Leona with her collected brick, then Dad again with his spent one.
     choose_look(dad,"explorer")
-    assert(brickcraft.playing_as(dad)=="explorer" and inv_dad:get_stack("main",2):get_count()==24,"explorer starts fresh")
+    assert(brickcraft.playing_as(dad)=="explorer" and inv_dad:get_stack("main",2):get_count()==8 and brickcraft.count_of(dad,"brickcraft:sky_slope_2x1")==2,"explorer starts fresh, with the piece kit")
     choose_look(kid,"builder")
     choose_look(dad,"daughter")
-    assert(inv_dad:get_stack("main",2):get_count()==25,"leona's bricks follow her to another computer")
+    assert(inv_dad:get_stack("main",2):get_count()==9,"leona's bricks follow her to another computer")
     choose_look(dad,"dad")
-    assert(inv_dad:get_stack("main",2):get_count()==23,"dad's bricks come back")
+    assert(inv_dad:get_stack("main",2):get_count()==7,"dad's bricks come back")
     -- Worlds: Dad makes his own through the real "Which world?" form, Leona goes there,
     -- then back to the Workshop. Each world is a fresh workshop in its own square.
     local function world_form(player,fields)
