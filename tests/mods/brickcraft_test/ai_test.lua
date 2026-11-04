@@ -73,6 +73,21 @@ C.register_on_joinplayer(function(player)
     by,rest=ai.near_phrase("레오나 옆에 빨간 탑 만들어줘",fake)
     assert(by and by.label=="Leona" and ai.parse_request(rest)=="tower","korean near phrase")
     assert(ai.near_phrase("build a red tower",fake)==nil,"no player named")
+    -- "Where I'm standing" puts a build by the asker; "there" or "where's" don't.
+    assert(ai.at_asker("build a mountain fortress where i'm standing") and ai.at_asker("build a tree right here") and
+      ai.at_asker("여기 집 지어줘"),"builds at the asker")
+    assert(not ai.at_asker("build a red house") and not ai.at_asker("build a tower over there"),"builds ahead of the asker")
+    -- The reply says where the build really went, from the asker: here 4 blocks north of
+    -- someone standing 12 up.
+    local where_to=ai.plot_from({x=0,y=0,z=5},{x=3,y=2,z=3},{x=1,y=12,z=1})
+    assert(where_to=="4 blocks north of you, down on the ground","plot from the asker: "..where_to)
+    assert(ai.plot_from({x=0,y=0,z=2},{x=3,y=2,z=3},{x=1,y=0,z=1})=="right next to you","plot right by the asker")
+    assert(ai.system:find("don't promise a spot",1,true),"the designer doesn't promise where a build goes")
+    -- World names are places: "the workshop" is the Workshop world, and builders know it.
+    assert(ai.world_named("meet me at the workshop").name=="Workshop","the workshop is a world")
+    assert(ai.world_named("meet me by the tree")==nil,"no world named")
+    assert(ai.worlds_note("Leona",{x=0,y=0,z=0}):find("Leona is in the Workshop world",1,true),"builders hear the world")
+    assert(ai.chat_system():find("meet me at the workshop",1,true),"builders know worlds are places")
     -- Who's around: a connection that hasn't picked anyone isn't listed; once it plays Leona it is.
     assert(#ai.players()==0,"nobody picked yet")
     for _,handler in ipairs(C.registered_on_player_receive_fields) do
@@ -138,7 +153,12 @@ C.register_on_joinplayer(function(player)
           wait(function() return heard(hi) end,30,"jms says hi",function()
             C.log("action","BRICKCRAFT AI small talk: "..heard(hi))
             ai.set_small_talk(false)
-            done()
+            -- "Meet me at the workshop" in the Workshop: he comes to her.
+            chat(name,"jms, meet me at the workshop")
+            wait(function() return heard("Coming, Leona") or heard("can't find a way to you") end,5,"jms meets Leona",function()
+              assert(heard("Coming, Leona"),"jms comes to the workshop: "..tostring(heard("can't find a way")))
+              done()
+            end)
           end)
           end)
         end)
@@ -198,6 +218,9 @@ C.register_on_joinplayer(function(player)
       local j=jms.state().job
       local o=j.origin
       assert(live or j.title=="coral tower","the request without \"next to Leona\": "..j.title)
+      -- He says how big it came out and where it really went, from her.
+      local told=heard("%(%d+ pieces, [^)]*of you") or heard("%(%d+ pieces, right next to you")
+      assert(live or told,"jms says where the build went")
       C.log("action","BRICKCRAFT AI building "..j.title.." ("..#j.list.." pieces) at "..o.x..","..o.z)
       assert(jms.state().bot,"jms is in the world")
       assert(jms.state().bot:get_properties().nametag:find("jms"),"jms has a nametag")
