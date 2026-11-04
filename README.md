@@ -229,7 +229,7 @@ Admin으로 연 서버에서는 **플레이어마다 자기 AI 빌더**가 있�
 - 빌더끼리는 짓는 자리가 겹치지 않고(짓는 중이거나 기다리는 건물 자리를 피함), 다른 빌더가 선 칸에는 놓지 않고 기다립니다.
 - 플레이어 빌더는 혼자 짓지 않습니다. 주인이 `Lumi, auto on`이라고 하면 조용할 때 주인 앞에 작은 건물을 짓습니다(`brickcraft_ai_bot_auto = true`로 기본값 변경).
 - 설계는 jms Mac의 **Local AI API**(`http://127.0.0.1:8099`, Claude Code 로그인 사용)가 합니다. 무엇이든 부탁할 수 있고 보통 10–30초 생각한 뒤 짓습니다. 모든 빌더가 같은 API를 쓰므로 한 번에 2개까지만 보내고 나머지는 기다립니다(`brickcraft_ai_parallel`). API가 꺼져 있거나 실패하면 내장 설계도(house, tower, castle, wall, pyramid, tree, car, rocket, flower, heart, arch, stairs, 글자)로 짓습니다. Admin 시작 화면에 어느 쪽인지 표시됩니다.
-- 다른 사람 옆에도 짓습니다: `Lumi, build a tree next to Leona`, `Lumi, build a house for Dad`, `Lumi, 레오나 옆에 탑 만들어줘`. 그 사람 앞쪽에, 정면이 그 사람을 보도록 짓습니다.
+- 다른 사람 옆에도 짓습니다: `Lumi, build a tree next to Leona`, `Lumi, build a house for Dad`, `Lumi, 레오나 옆에 탑 만들어줘`. 그 사람 앞쪽에, 정면이 그 사람을 보도록 짓습니다. `build a tower where I'm standing`, `build a tree here`, `여기 집 지어줘`처럼 말하면 7칸 앞이 아니라 부탁한 사람 바로 옆 빈자리(바닥, 다른 건물·사람이 없는 곳)에 짓습니다. 짓기 시작할 때 실제로 놓을 조각 수와 자리(`(28 pieces, 3 blocks east of you)`, 높이 있으면 `down on the ground`)를 말하고, 설계 중 8칸 높이를 넘거나 떠 있어 빠진 조각이 있으면 몇 개가 빠졌는지도 말합니다.
 - 빌더는 누가 어디 있는지 압니다(화면의 이름표처럼). `Lumi, where is Leona?`/`Lumi, 레오나 어디 있어?`에 거리·방향(+z가 북쪽)·바라보는 쪽으로, `Lumi, who's here?`에 모두의 위치로 답합니다(다른 세계에 있으면 그 세계 이름). `where is Dad bot?`처럼 다른 빌더도 찾습니다. **Who's playing?**에서 아직 고르지 않은 접속은 목록에 없습니다.
 - 사람이 서 있는 칸(몸 너비 0.3, 키 1.75)에는 브릭을 놓지 않고 기다리며, 비켜 달라고 한 번 말합니다.
 - **이미 있는 것도 고칩니다.** 부탁한 사람 앞 16×16칸을 살펴봅니다.
@@ -237,7 +237,7 @@ Admin으로 연 서버에서는 **플레이어마다 자기 AI 빌더**가 있�
   - `Lumi, fix the roof here`, `Lumi, finish the house`, `Lumi, make the top of the wall gold`, `Lumi, 집 고쳐줘`처럼 고치기·완성·추가·바꾸기 부탁은 그 구역의 브릭 목록을 Claude에게 보여 주고 바꿀 것만 받아, 필요한 브릭을 세퍼레이터로 먼저 회수한 뒤 새 브릭을 놓습니다. 설계 API가 꺼져 있으면 구멍 메우기만 합니다.
   - 세계의 베이스플레이트와 둘레 바닥(중심에서 ±40칸) 밖에서는 거절합니다. 고친 것도 `undo`로 되돌립니다(새로 놓은 브릭을 회수).
 - 주인이 가까이 오면 이름을 불러 인사하고, 근처에 머물면 가끔 말을 겁니다(짓는 것 진행률, 주변 브릭 칭찬). 4분에 한 번, 채팅이 잠잠할 때만 말합니다. `brickcraft_ai_small_talk = false`로 끄고 `brickcraft_ai_chat_gap`(초)으로 간격을 바꿉니다.
-- 그 밖의 말: `help`, `status`, `stop`(짓던 것 중단), `undo`(마지막 건물 철거), `come here`, `auto off`/`auto on`(혼자 짓기), `maintenance on`/`off`(조용할 때 그 세계 바닥 구멍 메우기, 플레이어 빌더는 기본 꺼짐).
+- 그 밖의 말: `help`, `status`, `stop`(짓던 것 중단), `undo`(마지막 건물 철거), `come here`(`meet me at the workshop`처럼 지금 있는 세계 이름을 대도 옴, 다른 세계 이름이면 I > Switch world로 옮기라고 안내), `auto off`/`auto on`(혼자 짓기), `maintenance on`/`off`(조용할 때 그 세계 바닥 구멍 메우기, 플레이어 빌더는 기본 꺼짐).
 - 빌더는 플레이어와 같은 규칙으로 짓습니다: 걸어서 이동하고(벽을 통과하지 않고 돌아감), 손이 닿는 7칸 안에서 보이는 면에만, 이미 있는 브릭이나 바닥에 붙여서만 놓습니다. 높은 곳은 황갈색 브릭 기둥을 쌓아 올라가 짓고 내려오며 회수합니다. 철거(`undo`)도 세퍼레이터로 하나씩 회수합니다. 높이는 8단(y 0–7)까지입니다.
 - 빌더도 플레이어와 같은 인벤토리를 쓰며 놓으면 줄고 회수하면 늘어납니다. 다른 점은 브릭이 공짜라는 것뿐입니다(모자라면 채움). 지은 것은 보통 브릭이라 누구나 회수해 가져갈 수 있고, 빌더를 우클릭하면 인벤토리와 부탁하는 법이 보입니다.
 - 플레이어 빌더를 모두 끄려면 server.conf에 `brickcraft_ai_bots = false`.
