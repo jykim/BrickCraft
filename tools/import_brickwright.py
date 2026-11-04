@@ -186,45 +186,56 @@ def convert(slug, record, gallery=GALLERY):
 
     parts = []  # per part: key, colour, flat world positions, normals, triangles
     cache = {}
+    uprights = {}  # (mesh, rotation of the parent) -> the part standing as in its own file
+
+    def geom(mesh, m):
+        """A part's triangles under matrix m: positions in Luanti's axes, glTF normals."""
+        flip = (m[0] * (m[5] * m[10] - m[9] * m[6]) - m[4] * (m[1] * m[10] - m[9] * m[2])
+                + m[8] * (m[1] * m[6] - m[5] * m[2])) < 0
+        pos, nor, idx = array('f'), array('f'), array('I')
+        material = 0
+        for p in js['meshes'][mesh]['primitives']:
+            assert p.get('mode', 4) == 4
+            key = (p['attributes']['POSITION'], p['attributes'].get('NORMAL'), p['indices'])
+            if key not in cache:
+                cache[key] = (accessor(js, binary, key[0]),
+                              accessor(js, binary, key[1]) if key[1] is not None else None,
+                              accessor(js, binary, key[2]))
+            P, N, I = cache[key]
+            material = p.get('material', 0)
+            base = len(pos) // 3
+            for k in range(0, len(P), 3):
+                x, y, z = P[k], P[k + 1], P[k + 2]
+                # Luanti's axes: z turned round (the glTF loader does the same to meshes).
+                pos.extend((m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13],
+                            -(m[2] * x + m[6] * y + m[10] * z + m[14])))
+                if N is not None:
+                    a, b, c = N[k], N[k + 1], N[k + 2]
+                    nx, ny, nz = m[0] * a + m[4] * b + m[8] * c, m[1] * a + m[5] * b + m[9] * c, m[2] * a + m[6] * b + m[10] * c
+                    l = math.sqrt(nx * nx + ny * ny + nz * nz) or 1
+                    nor.extend((nx / l, ny / l, nz / l))  # glTF axes: for the mesh only
+                else:
+                    nor.extend((0, 1, 0))
+            for k in range(0, len(I), 3):
+                a, b, c = I[k] + base, I[k + 1] + base, I[k + 2] + base
+                idx.extend((a, c, b) if flip else (a, b, c))
+        return pos, nor, idx, material
+
+    def rot_of(m):
+        return tuple(round(v, 3) for v in (m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]))
 
     def walk(ni, parent):
         n = js['nodes'][ni]
         m = mat_mul(parent, node_matrix(n))
         if 'mesh' in n:
-            flip = (m[0] * (m[5] * m[10] - m[9] * m[6]) - m[4] * (m[1] * m[10] - m[9] * m[2])
-                    + m[8] * (m[1] * m[6] - m[5] * m[2])) < 0
-            pos, nor, idx = array('f'), array('f'), array('I')
-            material = 0
-            for p in js['meshes'][n['mesh']]['primitives']:
-                assert p.get('mode', 4) == 4
-                key = (p['attributes']['POSITION'], p['attributes'].get('NORMAL'), p['indices'])
-                if key not in cache:
-                    cache[key] = (accessor(js, binary, key[0]),
-                                  accessor(js, binary, key[1]) if key[1] is not None else None,
-                                  accessor(js, binary, key[2]))
-                P, N, I = cache[key]
-                material = p.get('material', 0)
-                base = len(pos) // 3
-                for k in range(0, len(P), 3):
-                    x, y, z = P[k], P[k + 1], P[k + 2]
-                    # Luanti's axes: z turned round (the glTF loader does the same to meshes).
-                    pos.extend((m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13],
-                                -(m[2] * x + m[6] * y + m[10] * z + m[14])))
-                    if N is not None:
-                        a, b, c = N[k], N[k + 1], N[k + 2]
-                        nx, ny, nz = m[0] * a + m[4] * b + m[8] * c, m[1] * a + m[5] * b + m[9] * c, m[2] * a + m[6] * b + m[10] * c
-                        l = math.sqrt(nx * nx + ny * ny + nz * nz) or 1
-                        nor.extend((nx / l, ny / l, nz / l))  # glTF axes: for the mesh only
-                    else:
-                        nor.extend((0, 1, 0))
-                for k in range(0, len(I), 3):
-                    a, b, c = I[k] + base, I[k + 1] + base, I[k + 2] + base
-                    idx.extend((a, c, b) if flip else (a, b, c))
-            rot = tuple(round(v, 3) for v in (m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]))
+            pos, nor, idx, material = geom(n['mesh'], m)
+            ukey = (n['mesh'], rot_of(parent))
+            if ukey not in uprights:  # unturned: the parent's turn only, no move
+                uprights[ukey] = geom(n['mesh'], parent[:12] + [0, 0, 0, 1])[:3]
             part = re.sub(r'\.dat$', '', js['meshes'][n['mesh']].get('name', '?'))
             cname = js['materials'][material].get('name', '').replace('_', ' ') if js.get('materials') else ''
-            parts.append({'key': (n['mesh'], rot), 'color': colors[material], 'pos': pos, 'nor': nor, 'idx': idx,
-                          'part': part, 'cname': cname})
+            parts.append({'key': (n['mesh'], rot_of(m)), 'ukey': ukey, 'color': colors[material], 'pos': pos,
+                          'nor': nor, 'idx': idx, 'part': part, 'cname': cname})
         for c in n.get('children', []):
             walk(c, m)
 
@@ -247,30 +258,44 @@ def convert(slug, record, gallery=GALLERY):
     origin = ((lo[0] + hi[0]) / 2, lo[1], (lo[2] + hi[2]) / 2)  # the middle of the model's foot
 
     # One mesh per distinct part and rotation, around the part's own middle, in mesh units.
-    meshes, mesh_of = [], {}
+    meshes, mesh_of, icons = [], {}, {}
     out_parts = []
-    for p in parts:
-        mid = [(p['lo'][a] + p['hi'][a]) / 2 for a in range(3)]
-        if p['key'] not in mesh_of:
-            P = array('f', p['pos'])
+
+    def add_mesh(key, pos, nor, idx, lo_, hi_):
+        mid = [(lo_[a] + hi_[a]) / 2 for a in range(3)]
+        if key not in mesh_of:
+            P = array('f', pos)
             # The mesh is written in glTF's axes (z back round); the loader turns it again.
             for k in range(0, len(P), 3):
                 P[k] = (P[k] - mid[0]) * UNITS
                 P[k + 1] = (P[k + 1] - mid[1]) * UNITS_Y
                 P[k + 2] = -(P[k + 2] - mid[2]) * UNITS
-            N = array('f', p['nor'])
+            N = array('f', nor)
             for k in range(0, len(N), 3):  # normals of a mesh stretched up by STRETCH
                 nx, ny, nz = N[k], N[k + 1] / STRETCH, N[k + 2]
                 l = math.sqrt(nx * nx + ny * ny + nz * nz) or 1
                 N[k], N[k + 1], N[k + 2] = nx / l, ny / l, nz / l
-            meshes.append(glb_bytes(f'{slug}_{len(meshes) + 1}', P, N, p['idx']))
-            mesh_of[p['key']] = len(meshes)
+            meshes.append(glb_bytes(f'{slug}_{len(meshes) + 1}', P, N, idx))
+            mesh_of[key] = len(meshes)
+        return mesh_of[key], mid
+
+    unit = (CELL_M, BRICK_M, CELL_M)
+    for p in parts:
+        k, mid = add_mesh(p['key'], p['pos'], p['nor'], p['idx'], p['lo'], p['hi'])
+        upos, unor, uidx = uprights[p['ukey']]
+        ulo, uhi = [math.inf] * 3, [-math.inf] * 3
+        for j in range(0, len(upos), 3):
+            for a in range(3):
+                ulo[a] = min(ulo[a], upos[j + a]); uhi[a] = max(uhi[a], upos[j + a])
+        uk, umid = add_mesh(p['ukey'], upos, unor, uidx, ulo, uhi)
+        if uk not in icons:  # its picture for the inventory: standing, from the front right
+            icons[uk] = part_picture(upos, uidx, umid)
         r, g, b, a = p['color']
-        unit = (CELL_M, BRICK_M, CELL_M)
-        out_parts.append([mesh_of[p['key']], f'#{r:02x}{g:02x}{b:02x}{a:02x}',
+        out_parts.append([k, f'#{r:02x}{g:02x}{b:02x}{a:02x}',
                           *(round((mid[i] - origin[i]) / unit[i], 4) for i in range(3)),
                           *(round((p['hi'][i] - p['lo'][i]) / 2 / unit[i], 4) for i in range(3)),
-                          p['part'], p['cname']])
+                          p['part'], p['cname'], uk,
+                          *(round((uhi[i] - ulo[i]) / 2 / unit[i], 4) for i in range(3))])
 
     # Touching parts (boxes within TOUCH_M), and the ones standing on the ground.
     links = []
@@ -315,10 +340,71 @@ def convert(slug, record, gallery=GALLERY):
         'w': round((hi[0] - lo[0]) / CELL_M, 2), 'h': round((hi[1] - lo[1]) / BRICK_M, 2), 'd': round((hi[2] - lo[2]) / CELL_M, 2),
         'alpha': any(c[3] < 255 for c in colors),
         'parts': out_parts, 'links': links, 'ground': ground, 'bricks': bricks,
-    }, meshes
+    }, meshes, icons
 
 
-def write_model(model, meshes, mesh_dir, data_path, prefix=None):
+ICON = 32
+
+
+def part_picture(pos, idx, mid):
+    """A light grey picture of a part (game proportions), lit from above, for its icon."""
+    S = ICON * 2  # drawn twice as big, then halved: smooth edges
+    cy, sy = math.cos(math.radians(35)), math.sin(math.radians(35))
+    cp, sp = math.cos(math.radians(28)), math.sin(math.radians(28))
+    pts = []
+    for k in range(0, len(pos), 3):
+        x, y, z = (pos[k] - mid[0]) / CELL_M, (pos[k + 1] - mid[1]) / BRICK_M, (pos[k + 2] - mid[2]) / CELL_M
+        x, z = x * cy - z * sy, x * sy + z * cy  # turned a little
+        y, z = y * cp - z * sp, y * sp + z * cp  # seen from a little above
+        pts.append((x, y, z))
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    span = max(max(xs) - min(xs), max(ys) - min(ys)) or 1
+    f = (S - 6) / span
+    ox, oy = (S - (max(xs) - min(xs)) * f) / 2 - min(xs) * f, (S - (max(ys) - min(ys)) * f) / 2 + max(ys) * f
+    scr = [(p[0] * f + ox, oy - p[1] * f, p[2]) for p in pts]
+    depth = [[-1e9] * S for _ in range(S)]
+    shade = [[None] * S for _ in range(S)]
+    L = (-.35, .8, .5)
+    ln = math.sqrt(sum(v * v for v in L)); L = tuple(v / ln for v in L)
+    for t in range(0, len(idx), 3):
+        A, B, C = pts[idx[t]], pts[idx[t + 1]], pts[idx[t + 2]]
+        u = [B[i] - A[i] for i in range(3)]; v = [C[i] - A[i] for i in range(3)]
+        n = (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
+        nl = math.sqrt(sum(c * c for c in n))
+        if nl == 0: continue
+        n = tuple(c / nl for c in n)
+        if n[2] < 0: n = tuple(-c for c in n)  # the side facing the viewer
+        light = .42 + .58 * max(0.0, sum(n[i] * L[i] for i in range(3)))
+        a, b, c = scr[idx[t]], scr[idx[t + 1]], scr[idx[t + 2]]
+        x0, x1 = max(0, int(min(a[0], b[0], c[0]))), min(S - 1, int(max(a[0], b[0], c[0])) + 1)
+        y0, y1 = max(0, int(min(a[1], b[1], c[1]))), min(S - 1, int(max(a[1], b[1], c[1])) + 1)
+        den = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1])
+        if abs(den) < 1e-9: continue
+        for py in range(y0, y1 + 1):
+            for px in range(x0, x1 + 1):
+                qx, qy = px + .5, py + .5
+                w1 = ((b[1] - c[1]) * (qx - c[0]) + (c[0] - b[0]) * (qy - c[1])) / den
+                w2 = ((c[1] - a[1]) * (qx - c[0]) + (a[0] - c[0]) * (qy - c[1])) / den
+                w3 = 1 - w1 - w2
+                if w1 < -1e-6 or w2 < -1e-6 or w3 < -1e-6: continue
+                z = w1 * a[2] + w2 * b[2] + w3 * c[2]
+                if z > depth[py][px]:
+                    depth[py][px] = z; shade[py][px] = light
+    rows = []
+    for y in range(ICON):
+        row = []
+        for x in range(ICON):
+            cells = [shade[2 * y + dy][2 * x + dx] for dy in (0, 1) for dx in (0, 1)]
+            hit = [c for c in cells if c is not None]
+            if not hit:
+                row.extend((0, 0, 0, 0)); continue
+            g = round(255 * sum(hit) / len(hit))
+            row.extend((g, g, g, round(255 * len(hit) / 4)))
+        rows.append(row)
+    return rows
+
+
+def write_model(model, meshes, mesh_dir, data_path, prefix=None, icons=None, icon_dir=None):
     mesh_dir.mkdir(parents=True, exist_ok=True)
     data_path.parent.mkdir(parents=True, exist_ok=True)
     slug = model['slug']
@@ -328,6 +414,12 @@ def write_model(model, meshes, mesh_dir, data_path, prefix=None):
     for k, blob in enumerate(meshes, 1):
         assert len(blob) < 16_000_000
         (mesh_dir / f'{prefix}_{k}.glb').write_bytes(blob)
+    icon_dir = icon_dir or mesh_dir
+    icon_dir.mkdir(parents=True, exist_ok=True)
+    for old in icon_dir.glob(f'brickcraft_model_{slug}_*.png'):
+        old.unlink()
+    for k, rows in (icons or {}).items():
+        png(icon_dir / f'{prefix}_{k}.png', ICON, ICON, rows)
     model['meshes'] = len(meshes)
     model['mesh_prefix'] = prefix
     # Written last, under a temporary name: a reader that sees the json sees every mesh.
@@ -376,18 +468,18 @@ def import_samples(picks):
     part_icon(MOD / 'textures' / 'brickcraft_real_part.png')
     meta = gallery_meta(GALLERY)
     for slug, record in picks.items():
-        model, meshes = convert(slug, record)
+        model, meshes, icons = convert(slug, record)
         m = meta.get(record, {})
         model['title'] = TITLES.get(slug, slug.replace('_', ' ').title())
         model['pieces'] = m.get('brick_count') or len(model['parts'])
         model['prompt'] = (m.get('prompt') or '')[:160]
-        write_model(model, meshes, MOD / 'models', MOD / 'data' / f'{slug}.json')
+        write_model(model, meshes, MOD / 'models', MOD / 'data' / f'{slug}.json', icons=icons, icon_dir=MOD / 'textures')
         print(describe(model, meshes), flush=True)
     # The merged meshes, palettes and catalog of the first version are gone.
     for old in list((MOD / 'models').glob('brickcraft_model_*.glb')):
         if not re.search(r'_\d+\.glb$', old.name): old.unlink()
     for old in (MOD / 'textures').glob('brickcraft_model_*.png'):
-        old.unlink()
+        if not re.search(r'_\d+\.png$', old.name): old.unlink()
     if (MOD / 'catalog.lua').exists(): (MOD / 'catalog.lua').unlink()
 
 
@@ -419,13 +511,13 @@ def send(record, title=None, world=None, gallery=GALLERY):
         taken.add(d.parent.name)
     else:
         slug = slug_for(title, record, taken)
-    model, meshes = convert(slug, record, gallery)
+    model, meshes, icons = convert(slug, record, gallery)
     model['title'] = title
     model['pieces'] = meta.get('brick_count') or len(model['parts'])
     model['prompt'] = (meta.get('prompt') or '')[:160]
     # A fresh name each time: the game can't swap media it has already sent under a name.
     stamp = format(int(time.time() * 10) % 36 ** 6, 'x')
-    write_model(model, meshes, inbox / slug, inbox / slug / 'model.json', f'brickcraft_model_{slug}_{stamp}')
+    write_model(model, meshes, inbox / slug, inbox / slug / 'model.json', f'brickcraft_model_{slug}_{stamp}', icons)
     return {'slug': slug, 'title': title, 'parts': len(model['parts']), 'world': str(world)}
 
 

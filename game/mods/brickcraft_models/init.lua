@@ -42,6 +42,10 @@ local function def_from(data)
   for i,p in ipairs(data.parts) do
     d.parts[i]={mesh=prefix.."_"..p[1]..".glb",color=p[2],x=p[3],y=p[4],z=p[5],hx=p[6],hy=p[7],hz=p[8],
       part=p[9] or "?",cname=p[10] or ""}
+    if p[11] then -- the same part standing as in its own file, for the inventory and parts stacks
+      d.parts[i].umesh=prefix.."_"..p[11]..".glb"
+      d.parts[i].uhx,d.parts[i].uhy,d.parts[i].uhz=p[12],p[13],p[14]
+    end
   end
   for _,l in ipairs(data.links or {}) do
     local a,b=l[1],l[2]
@@ -93,14 +97,37 @@ end
 local state=C.deserialize(storage:get_string("model_instances")) or {}
 state.next=state.next or 1
 state.list=state.list or {}
+-- A group of parts that fell off a model (strict worlds): its own model, parts placed as
+-- in the model it came from (same turn and scale), links between them, the ones it landed on.
+local function custom_def(c)
+  local d={title=c.title,pieces=#c.parts,custom=true,parts={},adj={},ground={}}
+  local lo,hi={x=1e9,y=1e9,z=1e9},{x=-1e9,y=-1e9,z=-1e9}
+  for i,p in ipairs(c.parts) do
+    d.parts[i]=p
+    for _,a in ipairs({"x","y","z"}) do
+      local h=p["h"..a]
+      lo[a]=math.min(lo[a],p[a]-h); hi[a]=math.max(hi[a],p[a]+h)
+    end
+  end
+  d.w,d.h,d.d=hi.x-lo.x,hi.y-lo.y,hi.z-lo.z
+  for _,l in ipairs(c.links or {}) do
+    local a,b=l[1],l[2]
+    d.adj[a]=d.adj[a] or {}; d.adj[b]=d.adj[b] or {}
+    table.insert(d.adj[a],b); table.insert(d.adj[b],a)
+  end
+  for _,i in ipairs(c.ground or {}) do d.ground[i]=true end
+  return d
+end
+
 local by_id={}
-for _,inst in ipairs(state.list) do by_id[inst.id]=inst end
+for _,inst in ipairs(state.list) do inst._def=nil; by_id[inst.id]=inst end
 local function save() storage:set_string("model_instances",C.serialize(state)) end
 
+local made={} -- instance id -> the def of a one-part or fallen-group instance
 local function def_of(inst)
-  if inst.part then
-    inst._def=inst._def or single_def(inst.part)
-    return inst._def
+  if inst.part or inst.custom then
+    made[inst.id]=made[inst.id] or (inst.part and single_def(inst.part) or custom_def(inst.custom))
+    return made[inst.id]
   end
   return models[inst.slug]
 end
@@ -180,7 +207,7 @@ local function bricks_on(inst,cells)
   end
 end
 
--- Parts (not gone) no ground part holds up through touching parts.
+-- Parts (not gone) no ground part holds up through touching parts: how many, and which.
 local function hanging(def,gone)
   local seen,queue={},{}
   for i in pairs(def.ground) do if not gone[i] then seen[i]=true; queue[#queue+1]=i end end
@@ -190,9 +217,9 @@ local function hanging(def,gone)
       if not gone[j] and not seen[j] then seen[j]=true; queue[#queue+1]=j end
     end
   end
-  local n=0
-  for i=1,#def.parts do if not gone[i] and not seen[i] then n=n+1 end end
-  return n
+  local n,set=0,{}
+  for i=1,#def.parts do if not gone[i] and not seen[i] then n=n+1; set[i]=true end end
+  return n,set
 end
 
 -- Part entities ----------------------------------------------------------------------------
@@ -213,9 +240,11 @@ local function spawn_part(inst,i,p)
   spawned[inst.id][i]=obj
 end
 
+local hold={} -- instance id -> until when its parts wait (they're still falling)
 local function spawn(inst)
   local def=def_of(inst)
   if not def or spawned[inst.id] or (def.ready_at and C.get_us_time()<def.ready_at) then return end
+  if hold[inst.id] and C.get_us_time()<hold[inst.id] then return end
   spawned[inst.id]={}
   for i,p in ipairs(def.parts) do
     if not (inst.gone or {})[i] then spawn_part(inst,i,p) end
@@ -239,9 +268,165 @@ end
 local function drop_instance(inst)
   despawn(inst)
   apply_support(inst,{})
-  by_id[inst.id]=nil
+  by_id[inst.id]=nil; made[inst.id]=nil
   for i,o in ipairs(state.list) do if o==inst then table.remove(state.list,i); break end end
   save()
+end
+
+-- Gravity (strict LEGO worlds) --------------------------------------------------------------
+-- What a part loses its hold on falls straight down as one group, each group of parts still
+-- joined to one another, until a part lands on something: a node, a model's support, or
+-- another model's part. A fallen group is a model of its own (custom), joined at the parts
+-- it landed on, so taking those off drops it again. A model whose parts all lose what was
+-- under them falls the same way.
+local EPS,G=.02,20
+local function box_of(inst,p)
+  local c,hx,hy,hz=part_box(inst,p)
+  return {x0=c.x-hx,x1=c.x+hx,z0=c.z-hz,z1=c.z+hz,yb=c.y-hy,top=c.y+hy}
+end
+-- The top of what a node holds up, or nil (air, or not solid).
+local function node_top(pos,node)
+  if node.name=="air" then return end
+  if node.name=="ignore" then return pos.y+.5 end -- not loaded: don't fall into it
+  if node.name==SUPPORT then return pos.y-.5+node.param2/64 end
+  local def=C.registered_nodes[node.name]
+  if not def or not def.walkable then return end
+  local cb=def.collision_box or (def.drawtype=="nodebox" and def.node_box)
+  if cb and cb.type=="fixed" and cb.fixed then
+    local boxes=type(cb.fixed[1])=="table" and cb.fixed or {cb.fixed}
+    local top=-.5
+    for _,b in ipairs(boxes) do top=math.max(top,b[5]) end
+    return pos.y+top
+  end
+  return pos.y+.5
+end
+-- The highest thing under box b: nodes (but not the cells in skip) and the boxes in others.
+local function floor_under(b,skip,others)
+  local best=-2.5
+  local x0,x1=math.floor(b.x0+.5+EPS),math.floor(b.x1+.5-EPS)
+  local z0,z1=math.floor(b.z0+.5+EPS),math.floor(b.z1+.5-EPS)
+  if x0>x1 then x0=math.floor((b.x0+b.x1)/2+.5); x1=x0 end
+  if z0>z1 then z0=math.floor((b.z0+b.z1)/2+.5); z1=z0 end
+  for cx=x0,x1 do for cz=z0,z1 do
+    for cy=math.floor(b.yb+.5-EPS),-3,-1 do
+      if not skip[key(cx,cy,cz)] then
+        local pos={x=cx,y=cy,z=cz}
+        local top=node_top(pos,C.get_node(pos))
+        if top then best=math.max(best,math.min(top,b.yb)); break end
+      end
+    end
+  end end
+  for _,o in ipairs(others) do
+    if o.x0<b.x1-EPS and o.x1>b.x0+EPS and o.z0<b.z1-EPS and o.z1>b.z0+EPS and o.top<=b.yb+EPS then
+      best=math.max(best,o.top)
+    end
+  end
+  return best
+end
+-- Boxes of every part near (x, z) but those of `but` (an instance, left out whole).
+local function boxes_near(x,z,but)
+  local out={}
+  for _,o in ipairs(state.list) do
+    if o~=but and math.abs(o.x-x)<64 and math.abs(o.z-z)<64 then
+      local d=def_of(o)
+      if d then for i,p in ipairs(d.parts) do if not o.gone[i] then out[#out+1]=box_of(o,p) end end end
+    end
+  end
+  return out
+end
+
+-- Parts already on screen drop with gravity and go when they land; the instance that
+-- takes them waits as long, then shows its own.
+local function drop_entities(objs,d)
+  local t=math.sqrt(2*math.max(d,0)/G)
+  for _,obj in ipairs(objs) do
+    if obj:get_pos() then
+      if t>.05 then obj:set_acceleration({x=0,y=-G,z=0}) end
+      C.after(t,function() if obj:get_pos() then obj:remove() end end)
+    end
+  end
+  return t
+end
+
+-- Parts `set` of inst (taken out of it already: gone, support updated) fall in groups.
+local function drop_groups(inst,def,set,objs)
+  local groups,seen={},{}
+  for i in pairs(set) do
+    if not seen[i] then
+      local g,queue={},{i}; seen[i]=true
+      while #queue>0 do
+        local a=table.remove(queue); g[#g+1]=a
+        for _,b in ipairs(def.adj[a] or {}) do if set[b] and not seen[b] then seen[b]=true; queue[#queue+1]=b end end
+      end
+      local low=1e9
+      for _,a in ipairs(g) do low=math.min(low,box_of(inst,def.parts[a]).yb) end
+      groups[#groups+1]={parts=g,low=low}
+    end
+  end
+  table.sort(groups,function(a,b) return a.low<b.low end) -- the lowest land first
+  local made_now={}
+  for _,g in ipairs(groups) do
+    local others=boxes_near(inst.x,inst.z,nil)
+    local d,floors=1e9,{}
+    for _,a in ipairs(g.parts) do
+      local b=box_of(inst,def.parts[a])
+      floors[a]=floor_under(b,{},others)
+      d=math.min(d,b.yb-floors[a])
+    end
+    d=math.max(0,d)
+    local parts,index,links,ground={},{},{},{}
+    for n,a in ipairs(g.parts) do
+      local p=def.parts[a]
+      parts[n]=table.copy(p)
+      index[a]=n
+      if box_of(inst,p).yb-d-floors[a]<EPS*2 then ground[#ground+1]=n end
+    end
+    for _,a in ipairs(g.parts) do
+      for _,b in ipairs(def.adj[a] or {}) do if index[b] and a<b then links[#links+1]={index[a],index[b]} end end
+    end
+    local title=(def.custom and def.title) or ("Part of "..(def.title or "a model"))
+    local frag=new_instance({custom={title=title,parts=parts,links=links,ground=ground},
+      x=inst.x,y=inst.y-d,z=inst.z,turn=inst.turn,scale=inst.scale,modified=true})
+    local mine={}
+    for _,a in ipairs(g.parts) do if objs[a] then mine[#mine+1]=objs[a] end end
+    hold[frag.id]=C.get_us_time()+drop_entities(mine,d)*1e6
+    made_now[#made_now+1]=frag
+  end
+  return made_now
+end
+
+-- Models near (x, z) whose parts all lost what was under them fall, until none does.
+local function settle(x,z)
+  for _=1,8 do
+    local moved=false
+    for _,inst in ipairs(state.list) do
+      if math.abs(inst.x-x)<48 and math.abs(inst.z-z)<48 and S.on(inst) then
+        local def=def_of(inst)
+        if def then
+          local others=boxes_near(inst.x,inst.z,inst)
+          local idx={}
+          for i in ipairs(def.parts) do if not inst.gone[i] then idx[#idx+1]=box_of(inst,def.parts[i]) end end
+          table.sort(idx,function(a,b) return a.yb<b.yb end)
+          local d=1e9
+          for _,b in ipairs(idx) do
+            d=math.min(d,b.yb-floor_under(b,inst.support or {},others))
+            if d<EPS then break end
+          end
+          if #idx>0 and d>=EPS then
+            local objs={}
+            for _,obj in pairs(spawned[inst.id] or {}) do objs[#objs+1]=obj end
+            spawned[inst.id]=nil
+            inst.y=inst.y-d
+            apply_support(inst,support_cells(inst,inst.gone))
+            hold[inst.id]=C.get_us_time()+drop_entities(objs,d)*1e6
+            moved=true
+          end
+        end
+      end
+    end
+    if not moved then break end
+    save()
+  end
 end
 
 local timer=0
@@ -284,9 +469,15 @@ local function item_for(p)
   if s then return ItemStack("brickcraft:"..nearest_color(p.color).." "..s.cost),s end
   local stack=ItemStack("brickcraft:real_part")
   local meta=stack:get_meta()
-  for _,f in ipairs({"mesh","color","part","cname"}) do meta:set_string(f,p[f]) end
-  for _,f in ipairs({"hx","hy","hz"}) do meta:set_float(f,p[f]) end
-  meta:set_string("color",p.color:sub(1,7)) -- tints the icon
+  -- Standing as in its own file, when the import has that: put down, it stands upright.
+  local up=p.umesh and {mesh=p.umesh,hx=p.uhx,hy=p.uhy,hz=p.uhz} or p
+  meta:set_string("mesh",up.mesh)
+  for _,f in ipairs({"color","part","cname"}) do meta:set_string(f,p[f]) end
+  for _,f in ipairs({"hx","hy","hz"}) do meta:set_float(f,up[f]) end
+  -- Its own picture (rendered at import, light grey) in its colour.
+  local icon=up.mesh:gsub("%.glb$",".png").."^[multiply:"..p.color:sub(1,7)
+  meta:set_string("inventory_image",icon)
+  meta:set_string("wield_image",icon)
   meta:set_string("bc_color",p.color)
   meta:set_string("description","LEGO part "..p.part..(p.cname~="" and " ("..p.cname..")" or "").."\nPut it down with a right click")
   return stack
@@ -301,12 +492,12 @@ local function take_part(player,inst,i,quiet,all)
   if not p or inst.gone[i] then return false end
   local gone=table.copy(inst.gone); gone[i]=true
   local strict=S.on(inst)
+  -- Strict: what this part held up (and nothing else does) falls.
+  local falling={}
   if strict and not all then
-    local more=hanging(def,gone)-hanging(def,inst.gone)
-    if more>0 then
-      if not quiet then say(player,"Strict LEGO: that part holds up "..more.." other part"..(more>1 and "s" or "")..". Take those off first.") end
-      return false
-    end
+    local _,before=hanging(def,inst.gone)
+    local _,after=hanging(def,gone)
+    for j in pairs(after) do if not before[j] then falling[j]=true; gone[j]=true end end
   end
   local cells=support_cells(inst,gone)
   if strict and not all and bricks_on(inst,cells) then
@@ -323,10 +514,22 @@ local function take_part(player,inst,i,quiet,all)
   inst.gone=gone
   local obj=spawned[inst.id] and spawned[inst.id][i]
   if obj then obj:remove(); spawned[inst.id][i]=nil end
+  local objs={}
+  for j in pairs(falling) do
+    local o=spawned[inst.id] and spawned[inst.id][j]
+    if o then objs[j]=o; spawned[inst.id][j]=nil end
+  end
   apply_support(inst,cells)
   local left=0
   for j=1,#def.parts do if not gone[j] then left=left+1 end end
   if left==0 then drop_instance(inst) else save() end
+  local x,z=inst.x,inst.z
+  if next(falling) then
+    local n=0; for _ in pairs(falling) do n=n+1 end
+    drop_groups(inst,def,falling,objs)
+    if not quiet then say(player,n.." part"..(n>1 and "s" or "").." it held up fell.") end
+  end
+  if strict and not all then settle(x,z) end
   return true
 end
 
@@ -394,6 +597,70 @@ local function convert(player,inst)
   say(player,"Rebuilt "..def.title.." in "..#order.." game bricks"..
     (#stuck>0 and " ("..#stuck.." left out: nothing real could hold them)" or "")..".")
   return #order,#stuck
+end
+
+-- Its parts sorted into neat stacks where it stood, like a parts list: one kind of part
+-- in one colour a stack (up to 8 high, standing upright), the biggest first, in rows.
+-- The stacks are a model of their own (custom), each stack joined from the bottom up.
+local STACK=8
+local function organize(player,inst)
+  local def=def_of(inst)
+  if S.on(inst) and bricks_on(inst,{}) then
+    return say(player,"Strict LEGO: game bricks stand on this model. Take them off first.")
+  end
+  local kinds,order={},{}
+  for i,p in ipairs(def.parts) do
+    if not inst.gone[i] then
+      local k=p.part.."|"..p.color
+      if not kinds[k] then
+        local up=p.umesh and {mesh=p.umesh,hx=p.uhx,hy=p.uhy,hz=p.uhz} or {mesh=p.mesh,hx=p.hx,hy=p.hy,hz=p.hz}
+        kinds[k]={up=up,p=p,n=0}; order[#order+1]=k
+      end
+      kinds[k].n=kinds[k].n+1
+    end
+  end
+  table.sort(order,function(a,b)
+    local A,B=kinds[a],kinds[b]
+    local fa,fb=A.up.hx*A.up.hz,B.up.hx*B.up.hz
+    if math.abs(fa-fb)>1e-3 then return fa>fb end
+    if A.p.part~=B.p.part then return A.p.part<B.p.part end
+    return A.p.color<B.p.color
+  end)
+  local width=math.max(8,math.min(24,math.ceil(math.sqrt(#order)*2.2)))
+  local parts,links,ground={},{},{}
+  local x,z,row=0,0,0
+  local placed={}
+  for _,k in ipairs(order) do
+    local kind=kinds[k]
+    local up=kind.up
+    local w,dz=up.hx*2,up.hz*2
+    local left=kind.n
+    while left>0 do
+      if x>0 and x+w>width then x=0; z=z+row+.5; row=0 end
+      local high=math.min(STACK,left)
+      -- Bricks nest on the studs below; thin or odd parts just sit on one another.
+      local pitch=up.hy*2>.5 and up.hy*2-.18 or up.hy*2
+      for n=1,high do
+        parts[#parts+1]={mesh=up.mesh,umesh=up.mesh,color=kind.p.color,part=kind.p.part,cname=kind.p.cname,
+          x=x+w/2,y=up.hy+(n-1)*pitch,z=z+dz/2,hx=up.hx,hy=up.hy,hz=up.hz,uhx=up.hx,uhy=up.hy,uhz=up.hz}
+        if n==1 then ground[#ground+1]=#parts else links[#links+1]={#parts-1,#parts} end
+      end
+      placed[#placed+1]=true
+      x=x+w+.25; row=math.max(row,dz); left=left-high
+    end
+  end
+  -- Centred on where the model stood, facing the same way as the model did not matter: no turn.
+  local wx,wz=0,z+row
+  for _,p in ipairs(parts) do wx=math.max(wx,p.x+p.hx) end
+  for _,p in ipairs(parts) do p.x=p.x-wx/2; p.z=p.z-wz/2 end
+  local foot={x=inst.x,y=inst.y,z=inst.z}
+  local title=(def.custom and def.title or def.title or "a model")
+  drop_instance(inst)
+  local stacks=new_instance({custom={title="Parts of "..title:gsub("^Parts of ",""),parts=parts,links=links,ground=ground},
+    x=foot.x,y=foot.y,z=foot.z,turn=0,scale=1,modified=true})
+  spawn(stacks)
+  say(player,"Sorted "..#parts.." parts into "..#placed.." stacks.")
+  return stacks
 end
 
 -- Where a player points on an object: the point and the face's normal.
@@ -506,7 +773,8 @@ local function show_menu(player,inst,i)
       (p.cname~="" and " ("..p.cname..")" or "")).."]"..
     "button[3.8,1.6;3.2,.8;take;Take this part]"..
     "button[.4,1.6;3.2,.8;break;Break it apart]"..
-    (def.bricks and "button[.4,2.5;6.6,.8;convert;Rebuild it in game bricks]" or "")..
+    (def.bricks and "button[.4,2.5;3.2,.8;convert;Rebuild in game bricks]" or "")..
+    "button[3.8,2.5;3.2,.8;stack;Stack its parts]"..
     "button[.4,3.4;6.6,.8;turn;Turn it a quarter]"..
     "button[.4,4.3;6.6,.8;away;Put it away (parts don't go to the inventory)]"..
     "button_exit[.4,7.2;6.6,.8;close;Close]"
@@ -521,6 +789,7 @@ C.register_on_player_receive_fields(function(player,formname,fields)
   if fields.take then before_change(player,inst,function() take_part(player,inst,ctx.i) end)
   elseif fields["break"] then before_change(player,inst,function() break_all(player,inst) end)
   elseif fields.convert then before_change(player,inst,function() convert(player,inst) end)
+  elseif fields.stack then before_change(player,inst,function() organize(player,inst) end)
   elseif fields.turn then turn_model(player,inst); close=false
   elseif fields.away then put_away(player,inst)
   elseif fields.resize then
@@ -555,6 +824,51 @@ local function part_on_part(player,obj,stack)
   player:set_wielded_item(put_part(player,stack,foot))
 end
 
+-- The menu also opens from the right button seen by the server: pointing at a part with the
+-- separator or an empty hand (not every right click on a part reaches on_rightclick).
+local last_place,menu_at={},{}
+local function part_pointed(player)
+  local eye=vector.offset(player:get_pos(),0,player:get_properties().eye_height or 1.5,0)
+  local to=vector.add(eye,vector.multiply(player:get_look_dir(),7))
+  for pt in C.raycast(eye,to,true,false) do
+    if pt.type=="object" then
+      local e=pt.ref:get_luaentity()
+      if e and e.name=="brickcraft:model_part" then return e end
+      if not e or e.name~="brickcraft:model_part" then
+        if pt.ref:is_player() and pt.ref==player then -- the ray starts in the player
+        else return end
+      end
+    elseif pt.type=="node" then
+      local n=C.get_node(pt.under).name
+      if n~=SUPPORT and n~="air" then return end
+    end
+  end
+end
+local function open_menu(player,e)
+  local name=player:get_player_name()
+  local now=C.get_us_time()
+  if menu_at[name] and now-menu_at[name]<4e5 then return end
+  local inst=by_id[e._inst]
+  if not inst then return end
+  menu_at[name]=now
+  show_menu(player,inst,e._i)
+end
+C.register_globalstep(function()
+  for _,player in ipairs(C.get_connected_players()) do
+    local name=player:get_player_name()
+    local place=player:get_player_control().place
+    if place and not last_place[name] then
+      local w=player:get_wielded_item():get_name()
+      if w=="brickcraft:separator" or w=="" then
+        local e=part_pointed(player)
+        if e then open_menu(player,e) end
+      end
+    end
+    last_place[name]=place
+  end
+end)
+C.register_on_leaveplayer(function(player) last_place[player:get_player_name()]=nil; menu_at[player:get_player_name()]=nil end)
+
 C.register_entity(":brickcraft:model_part",{
   initial_properties={visual="mesh",mesh="brickcraft_model_cat_1.glb",textures={"[fill:1x1:#888888"},
     physical=false,pointable=true,backface_culling=false,static_save=false,
@@ -571,7 +885,7 @@ C.register_entity(":brickcraft:model_part",{
     local stack=clicker:get_wielded_item()
     local name=stack:get_name()
     local obj=self.object
-    if name=="brickcraft:separator" then show_menu(clicker,inst,self._i)
+    if name=="brickcraft:separator" or name=="" then open_menu(clicker,self)
     elseif name=="brickcraft:real_part" then
       before_change(clicker,inst,function() part_on_part(clicker,obj,clicker:get_wielded_item()) end)
     elseif C.registered_nodes[name] and stack:get_definition().on_place and name:match("^brickcraft:") then
@@ -599,6 +913,19 @@ C.register_entity(":brickcraft:display_model",{
     self.object:remove()
   end,
 })
+
+C.register_on_joinplayer(function(player)
+  local inv=player:get_inventory()
+  for i=1,inv:get_size("main") do
+    local stack=inv:get_stack("main",i)
+    local meta=stack:get_meta()
+    if stack:get_name()=="brickcraft:real_part" and meta:get_string("inventory_image")=="" and meta:get_string("mesh")~="" then
+      local icon=meta:get_string("mesh"):gsub("%.glb$",".png").."^[multiply:"..meta:get_string("bc_color"):sub(1,7)
+      meta:set_string("inventory_image",icon); meta:set_string("wield_image",icon); meta:set_string("color","")
+      inv:set_stack("main",i,stack)
+    end
+  end
+end)
 
 C.register_node(":brickcraft:model_support",{
   description="Model support (invisible)",drawtype="nodebox",tiles={"blank.png"},use_texture_alpha="clip",
@@ -677,7 +1004,7 @@ C.register_chatcommand("models",{description="List the models",func=function() r
 for _,row in ipairs({
   {"/model","List the models (real LEGO builds from BrickWright)"},
   {"/model bonsai [size]","Put one in front of you (size 1 = game bricks, change it in its menu)"},
-  {"Separator on a model","Left click: take a part into the inventory. Right click: menu (break apart, game bricks, turn, put away)"},
+  {"Separator on a model","Left click: take a part into the inventory. Right click or F: menu (break apart, stack parts, game bricks, turn, size, put away)"},
   {"Brick on a model","Right click a part with a brick to build on it"},
 }) do brickcraft.help[#brickcraft.help+1]=row end
 
@@ -765,8 +1092,12 @@ local function check_inbox(announce)
       local prefix=data.mesh_prefix or ("brickcraft_model_"..slug)
       local ok=true
       for k=1,data.meshes or 0 do
-        local file=prefix.."_"..k..".glb"
-        if not C.dynamic_add_media({filename=file,filepath=dir.."/"..file,ephemeral=false},function() end) then ok=false end
+        for _,ext in ipairs({".glb",".png"}) do
+          local file=prefix.."_"..k..ext
+          if ext==".glb" or io.open(dir.."/"..file) then
+            if not C.dynamic_add_media({filename=file,filepath=dir.."/"..file,ephemeral=false},function() end) then ok=false end
+          end
+        end
       end
       if ok then
         local was=models[slug]
@@ -796,5 +1127,5 @@ end)
 brickcraft.models={catalog=catalog,models=models,place=place,gallery=gallery_world,GALLERY=GALLERY,
   instances=function() return state.list end,instance=function(id) return by_id[id] end,
   spawned=function(id) return spawned[id] end,take_part=take_part,break_all=break_all,convert=convert,
-  turn=turn_model,put_away=put_away,resize=resize,unify=unify,before_change=before_change,hanging=hanging,support_cells=support_cells,def_of=def_of,
-  item_for=item_for,put_part=put_part,check_inbox=check_inbox,SUPPORT=SUPPORT}
+  turn=turn_model,put_away=put_away,organize=organize,resize=resize,unify=unify,before_change=before_change,hanging=hanging,support_cells=support_cells,def_of=def_of,
+  item_for=item_for,put_part=put_part,settle=settle,box_of=box_of,floor_under=floor_under,check_inbox=check_inbox,SUPPORT=SUPPORT}

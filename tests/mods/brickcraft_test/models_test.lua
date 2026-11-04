@@ -5,7 +5,9 @@
 --   * /model puts one down facing the player, at any size; the menu's size changes it.
 --   * The first change asks, then resizes to the game's scale for good.
 --   * Parts come off into the inventory: the game's pieces as game bricks, others as LEGO
---     part items; strict refuses a part that holds others up or carries a game brick.
+--     part items with their own picture, standing upright; strict refuses a part that
+--     carries a game brick, and what a part held up falls when it comes off (gravity).
+--   * Stack its parts; F / right button opens the menu (not tested: needs a real click).
 --   * Break apart, rebuild in game bricks, and a LEGO part put down again.
 local C=core
 local function log(msg) C.log("action","BRICKCRAFT MODELS "..msg) end
@@ -110,11 +112,33 @@ C.register_on_joinplayer(function(player)
           if M.hanging(d,g)>M.hanging(d,inst.gone) then return i end
         end
       end
-      local holds=holder(tr)
-      local held_by=tr
-      if not holds then held_by=insts.bonsai; assert(M.unify(player,held_by)); holds=holder(held_by) end
-      assert(holds and not M.take_part(player,held_by,holds),"strict: a part holding others stays")
       assert(M.take_part(player,tr,high) and tr.gone[high],"a top part comes off")
+      -- Gravity: the bonsai's baseplate holds the whole tree; taken off, the tree falls onto
+      -- the world's baseplate, a model of its own.
+      local bon=insts.bonsai
+      assert(M.unify(player,bon))
+      local holds=next(M.def_of(bon).ground)
+      local bdef=M.def_of(bon)
+      local g=table.copy(bon.gone); g[holds]=true
+      local nfall=M.hanging(bdef,g)
+      local high_before=-1e9
+      for i,p in ipairs(bdef.parts) do if i~=holds then high_before=math.max(high_before,M.box_of(bon,p).top) end end
+      assert(nfall>100 and M.take_part(player,bon,holds),"the baseplate comes off: "..nfall.." parts lose their hold")
+      local fell
+      for _,o in ipairs(M.instances()) do if o.custom and #o.custom.parts==nfall then fell=o end end
+      assert(fell,"what it held is a model of its own")
+      local low,high_after=1e9,-1e9
+      for _,p in ipairs(M.def_of(fell).parts) do
+        local b=M.box_of(fell,p); low=math.min(low,b.yb); high_after=math.max(high_after,b.top)
+      end
+      assert(math.abs(low+.5)<.05,"it landed on the baseplate: "..low)
+      assert(high_after<high_before-.1,"it came down: "..high_before.." -> "..high_after)
+      assert(not M.instance(bon.id) or #M.def_of(bon).parts>0,"the bonsai's own instance is gone or keeps the rest")
+      log("gravity: the bonsai's baseplate off, "..nfall.." parts fell "..string.format("%.2f",high_before-high_after).." cells onto the world's baseplate")
+      -- A LEGO part's item has its own picture.
+      local lp
+      for i=1,inv:get_size("main") do if inv:get_stack("main",i):get_name()=="brickcraft:real_part" then lp=inv:get_stack("main",i) end end
+      assert(lp and lp:get_meta():get_string("inventory_image"):find("%.png%^%[multiply:#"),"a LEGO part shows its own picture")
       local got=0
       for i=2,inv:get_size("main") do got=got+inv:get_stack("main",i):get_count() end
       assert(got>0,"it went into the inventory")
@@ -139,7 +163,23 @@ C.register_on_joinplayer(function(player)
       assert(C.get_node(brick).name:match("^brickcraft:coral"),"a game brick goes on the model: "..C.get_node(brick).name)
       assert(not M.take_part(player,cat,top),"strict: the part under a game brick stays")
       C.remove_node(brick)
-      log("parts come off into the inventory (3003 -> a game 2 x 2 brick), strict keeps parts that hold others or a brick")
+      log("parts come off into the inventory (3003 -> a game 2 x 2 brick), strict keeps a part with a brick on it")
+
+      -- Stack its parts: the mech into neat stacks, one kind and colour each, upright.
+      local mech=insts.mech
+      local mdef=M.def_of(mech)
+      assert(M.unify(player,mech))
+      local stacks=M.organize(player,mech)
+      assert(stacks and not M.instance(mech.id),"the mech is sorted into stacks")
+      local sdef=M.def_of(stacks)
+      assert(#sdef.parts==#mdef.parts,"every part is in a stack: "..#sdef.parts)
+      local kinds={}
+      for _,q in ipairs(sdef.parts) do kinds[q.part..q.color]=true; assert(q.mesh==q.umesh,"stacked parts stand upright") end
+      local nk=0; for _ in pairs(kinds) do nk=nk+1 end
+      local lowest=1e9
+      for i in pairs(sdef.ground) do lowest=math.min(lowest,M.box_of(stacks,sdef.parts[i]).yb) end
+      assert(math.abs(lowest+.5)<.01,"the stacks stand on the baseplate")
+      log("stack its parts: the mech's "..#sdef.parts.." parts in stacks of "..nk.." kinds")
 
       -- Break apart (all parts into the inventory) and rebuild in game bricks.
       for i=1,inv:get_size("main") do inv:set_stack("main",i,"") end
