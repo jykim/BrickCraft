@@ -37,7 +37,7 @@
 | `game/mods/mesecons/` | 원본 그대로의 Mesecons 일부(모드팩). 고치지 않고, 바꿀 때는 원본 커밋을 통째로 교체 |
 | [game/mods/brickcraft_war/](../game/mods/brickcraft_war/init.lua) | 전쟁 모드, War Lab |
 | [game/mods/brickcraft_kart/](../game/mods/brickcraft_kart/init.lua) | 카트 레이싱, Kart Circuit |
-| [game/mods/brickcraft_models/](../game/mods/brickcraft_models/init.lua) | BrickWright 실물 모델 진열(`/model`). 메시·팔레트·`catalog.lua`는 [tools/import_brickwright.py](../tools/import_brickwright.py)가 생성 |
+| [game/mods/brickcraft_models/](../game/mods/brickcraft_models/init.lua) | BrickWright 실제 레고 모델(부품 단위, `/model`, Model Gallery, 보내기 받기). 메시·`data/*.json`은 [tools/import_brickwright.py](../tools/import_brickwright.py)가 생성 |
 | [game/mods/brickcraft_ai/](../game/mods/brickcraft_ai/init.lua) | AI 빌더(`brickcraft_ai_builder = true`일 때만 동작) |
 | [tests/mods/brickcraft_test/](../tests/mods/brickcraft_test/init.lua) | 엔진 검사 모드. 게임에 포함되지 않고 `tools/test_*.py`가 검사 세계의 `worldmods/`에 링크 |
 | [tools/generate_assets.py](../tools/generate_assets.py) | 원본 PNG 12개와 블록 사람 OBJ 생성 |
@@ -161,15 +161,19 @@ Finder에서 실행 스크립트를 더블클릭해도 됩니다. 앱만 직접 
 
 키 바인딩은 [brickcraft.conf](../brickcraft.conf)의 `keymap_*`에 있습니다. 방향키는 WASD와 `|`로 함께 묶었고, 서버가 볼 수 있는 키 신호는 aux1·zoom·drop·sneak뿐이라 이렇게 나눴습니다: Tab(43)만 `keymap_aux1`(다음 부품, 카트 리셋), E(8)는 `keymap_zoom`(`zoom_fov = 0`이라 확대 없음)으로 오른쪽 45°, Q(20)는 `keymap_drop`이고 모든 아이템의 `on_drop`(`register_on_mods_loaded`)이 버리지 않고 왼쪽 45°로 돌립니다(빈손이면 Q가 신호를 보내지 않음). U(24)와 Shift(225, 229)는 sneak: 건축 중엔 되돌리기, 카트에서는 바나나 던지기(`brickcraft_kart`가 읽고 되돌리기는 건너뜀), 전쟁 모드에서는 `brickcraft.war.fire_from`. 돌기는 0.3초에 한 번까지입니다(누르고 있으면 Q가 초당 8번쯤 반복됨). 카트에서는 시점 대신 조향: E는 누르고 있는 zoom을 `controls`가 읽고, Q는 이벤트로만 오므로 `brickcraft.kart.steer_left`가 0.35초 동안 왼쪽 조향을 켭니다(반복으로 이어짐). `/clicks`는 Q와 E도 보여 주고, 카트 타기·내리기는 서버 로그에 `BrickCraft kart:`로 남습니다. 다음 브릭 돌리기는 인벤토리 *Turn next brick*(`fields.turn`)과 세퍼레이터 우클릭(놓은 브릭)입니다. 도움말 키는 없고 I > *Help: all keys*·`/keys`로 엽니다. 명령 채팅 키는 쓰지 않는 F13으로 옮겼습니다(빈 값은 쓰지 마세요). F 키도 배치(`keymap_place`)에 묶었습니다. 실행기가 시작 전 빠진 `keymap_*` 줄을 다시 추가하고, `SDL_MAC_CTRL_CLICK_EMULATE_RIGHT_CLICK=1`로 Control+클릭을 우클릭으로 바꿉니다(Luanti 5.17 내장 SDL 2.32). Cmd+클릭은 Luanti 키 설정이 수정키+마우스 조합을 지원하지 않아 넣지 않았습니다. **게임이 켜진 동안 이 파일을 고치지 마세요.** 클라이언트가 종료하며 시작 시점 설정으로 파일을 다시 써서 수정이 사라집니다. 조작 전체 목록은 게임 안 `?`·`/keys` 화면이며 `init.lua`의 `help_rows` 표 하나가 내용을 정합니다. 키를 바꾸면 이 표도 함께 고치세요. 조작: WASD 이동, 마우스 시점, Space 점프(`game/minetest.conf`의 `movement_speed_jump = 9.3`, 높이 = 점프²/(4×중력) ≈ 2.2칸이라 2칸 벽에 오름), 1 세퍼레이터/좌클릭 회수, 2–9 색 선택/우클릭 배치, U 되돌리기, I 인벤토리, C 카메라 전환. `/guide` 안내, `/home` 시작점 복귀. Esc만 눌러서는 세계가 닫히지 않으며, Exit to Menu 또는 Exit to OS로 저장 종료합니다.
 
-## 4g. 진열 모델(brickcraft_models)
+## 4g. 실제 레고 모델(brickcraft_models)
 
-- [tools/import_brickwright.py](../tools/import_brickwright.py)가 BrickWright 갤러리(`brickwright/site/models/<id>.glb`, LDraw 실부품·미터 단위)의 노드 트리를 펼쳐 한 메시로 합칩니다. 색은 재질별 8×8 팔레트 칸(선형→sRGB, 알파 유지)이고 정점 UV가 그 칸 가운데를 가리킵니다. Luanti는 glTF 내장 이미지를 쓰지 않으므로 텍스처 칸만 두고 엔티티 `textures`로 팔레트 PNG를 줍니다.
-- 축척: 1칸 = 2돌기 = 16mm를 세 축 모두에 적용(실물 비율, 메시 단위 10/칸). x·z 가운데, 바닥 y=0. Luanti glTF 로더는 프리미티브마다 정점·인덱스가 65535를 넘으면 "too many vertices"로 거절하므로 그 안으로 나눕니다(분재 309k 삼각형 → 15개, 11.7MB; 엔진 한도 16MB, 접속 때 클라이언트로 전송).
-- 엔티티 `brickcraft:display_model`(staticdata: slug·scale·turn, 저장됨, 물리·충돌 없음, 선택 상자 = 모델 크기). 세퍼레이터 우클릭은 엔티티 `on_rightclick`으로 90° 돌리고, 좌클릭은 `brickcraft:separator`의 `on_use`가 `_brickcraft_collect`가 있는 객체에 넘겨 치웁니다.
-- 엄격한 세계에서는 가운데 아래 칸이 바닥이거나 위에 돌기가 있는 부품이어야 합니다(`strict.describe`의 `top`). 모델은 부품이 아니므로 지지·`/checkbuild`·Undo에 들어가지 않습니다.
-- Model Gallery: Kart Circuit처럼 첫 실행 때 `make_world("Model Gallery","BrickCraft",…,{strict=true})`로 한 번 만들고 `w.gallery`로 찾습니다. 더미(z 10..12)·아치(z -7)를 비우고 `GALLERY` 표의 자리(가운데 기준, 도착 자리 x -6..6·z 1..4를 피함)에 모델을 놓으며, 놓은 slug를 `w.gallery_models`에 남겨 새 샘플만 다음 실행 때 추가합니다. 엔티티는 주변에 아무도 없을 때 생겨 맵에 저장되고 도착하면 깨어납니다.
-- 모델 앞(LDraw -z)은 glb에서 +z, Luanti 로더가 z를 뒤집어 세계 -z가 되므로 turn 0이 -z에 선 사람을 봅니다.
-- 검사: `python3 tools/test_models.py`(포트 30019): Model Gallery가 엄격한 세계로 목록에 생기고 샘플 6개가 제자리에 실물 크기로 서며, `/model`이 앞에 놓아 사람을 보게 하고, 플레이트 위 거절, 0.5배 고양이, 범위 밖 배율 거절, 돌리기·저장값·치우기. 화면은 F12를 System Events로 보내 남기며, 권한이 없으면 빈 파일입니다.
+- [tools/import_brickwright.py](../tools/import_brickwright.py)가 BrickWright 갤러리(`site/models/<id>.glb`, LDraw 부품마다 노드 하나, 미터)를 읽어 **부품과 회전마다 메시 하나**(`brickcraft_model_<slug>_<k>.glb`, 부품 가운데 기준)와 `data/<slug>.json`을 씁니다. JSON의 `parts`는 `[메시 k, "#rrggbbaa", 가운데 x,y,z, 반크기 x,y,z, 부품 번호, 색 이름]`, `links`는 상자가 0.5mm 안으로 닿는 부품 쌍, `ground`는 바닥에 닿는 부품, `bricks`는 같은 모델의 게임 브릭판(표면을 4mm마다 표본, 칸마다 면적이 가장 큰 게임 색, 투명 부품 제외)입니다.
+- **스케일:** 한 칸 = 가로 16mm(2돌기)·세로 9.6mm(브릭 1개). 게임이 자기 브릭을 그리는 방식과 같아 실제 부품이 게임 부품과 크기가 같고, `bricks`가 모델이 차지한 칸을 그대로 채웁니다. 메시는 y로 16/9.6배 늘어나고 법선도 그에 맞춰 바뀝니다.
+- **좌표:** 부품 위치는 Luanti 좌표(z 반전)로 쓰고, 메시는 glTF 좌표로 둡니다(로더가 z를 뒤집음). 앞(LDraw -z)은 세계 -z를 봅니다. 로더 한도(프리미티브당 정점·인덱스 65535)는 메시마다 지킵니다. 색은 엔티티 텍스처 `[fill:1x1:#rrggbbaa]`이고 UV는 모두 가운데입니다.
+- **인스턴스:** 모델은 모드 저장소 `model_instances`의 `{id, slug 또는 part, x,y,z(발), turn, scale, gone, support, modified}`입니다. 부품 엔티티(`brickcraft:model_part`, 저장 안 함)는 1초마다 96칸 안에 사람이 있을 때 만들고 없으면 지웁니다. 맵 블록당 객체 한도 때문에 엔티티를 맵에 저장하지 않습니다. 첫 버전의 한 덩어리 `brickcraft:display_model`은 깨어날 때 그 자리의 인스턴스로 바뀝니다.
+- **받침:** `brickcraft:model_support`(보이지 않음, `leveled` 노드 상자, 걸을 수 있음, 가리킬 수 없음, buildable_to)가 부품 상자가 가운데를 덮는 칸(얇으면 가장 가까운 칸)에 부품 윗면 높이만큼 들어갑니다. 공기 칸에만 쓰며, 엄격한 검사의 `ground`(부품이 아닌 단단한 것)라 위에 놓인 브릭은 돌기에 끼운 것으로 칩니다.
+- **변경:** 떼기(`take_part`), 분해(`break_all`, 위부터, 인벤토리가 차면 멈춤), 게임 브릭판(`convert`, 엄격하면 `strict.order`로 붙는 것만), 브릭·부품 올리기는 모두 `before_change`를 거칩니다. 처음이면 확인 창(`brickcraft_models:unify`)을 띄우고, 예를 누르면 `unify`가 크기 1로 바꾸고 `modified`를 세워 크기를 고정합니다. 돌리기·치우기·크기 바꾸기는 변경이 아닙니다.
+- **인벤토리:** 부품 번호 앞 숫자가 `shapes`의 실제 부품(`part`, invented·기차·테크닉 제외)과 같으면 가장 가까운 게임 색의 브릭 `cost`개, 아니면 `brickcraft:real_part`(메타: 메시·색·반크기·번호, 아이콘을 `color`로 칠함)입니다. LEGO part를 놓으면 부품 하나짜리 인스턴스(`part`, `modified`)가 됩니다.
+- **엄격:** 떼면 `hanging`(땅 부품에서 `links`로 닿지 않는 부품 수)이 늘거나, 사라질 받침 칸 바로 위에 부품이 있으면(`bricks_on`) 거절합니다.
+- **보내기:** `import_brickwright.py --send <id> [--title] [--world] [--gallery]`가 `<world>/brickwright_models/<slug>/`에 메시와 `model.json`(마지막, 임시 이름에서 바꿈)을 씁니다. 메시 이름에 매번 새 표시(`mesh_prefix`)를 붙여 이미 보낸 미디어와 겹치지 않게 합니다. 게임은 3초마다 받은 편지함을 보고 `core.dynamic_add_media`로 메시를 보낸 뒤(2초 뒤부터 부품을 만듦) 카탈로그에 넣고, 알리고, Model Gallery 앞줄(`EXTRA`)의 빈 자리에 놓습니다. BrickWright 갤러리 서버의 `POST /api/brickcraft`가 이 명령을 부릅니다(`$BRICKCRAFT_DIR`, 기본 `~/dev/BrickCraft`).
+- **Model Gallery:** Kart Circuit처럼 첫 실행 때 `make_world(...,{strict=true})`로 한 번 만들고(`w.gallery`), 더미·아치를 비운 뒤 `GALLERY`의 자리에 인스턴스를 놓습니다(`w.gallery_models`).
+- 검사: `python3 tools/test_models.py`(포트 30019): 갤러리·부품 수·27칸 분재·3003 크기·받침, `/model` 크기와 돌아보기, 첫 변경 확인과 크기 고정, 부품 → 인벤토리(3003 → 2×2 브릭, 그 밖은 LEGO part), 엄격 거절(받치는 부품, 위에 브릭), 분해, 게임 브릭판, LEGO part 놓기·떼기, 실행 중 `--send`로 들어온 병아리(198부품)가 갤러리에 서기.
 
 ## 5. 검사 방법과 확인된 범위
 

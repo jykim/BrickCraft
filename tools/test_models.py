@@ -26,8 +26,14 @@ proc=subprocess.Popen([str(root/'runtime/luanti.app/Contents/MacOS/luanti'),'--g
     env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 try:
     deadline=time.time()+120
+    sent=False
     while True:
         content=log.read_text() if log.exists() else ''
+        if 'BRICKCRAFT MODELS SEND' in content and not sent:
+            sent=True  # "Send to BrickCraft": into this world's inbox while the game runs
+            out=subprocess.run(['python3',str(root/'tools'/'import_brickwright.py'),'--send','20261103-113209-e66a90db',
+                '--title','Chick','--world',str(world)],capture_output=True,text=True)
+            print('sent: '+(out.stdout.strip() or out.stderr.strip()),flush=True)
         if 'BRICKCRAFT MODELS READY' in content and not shot.exists():
             time.sleep(4) # meshes load and the view settles
             # Luanti's own screenshot key (F12, key code 111), sent to the client; it saves
