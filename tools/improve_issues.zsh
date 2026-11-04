@@ -54,6 +54,12 @@ trap cleanup EXIT INT TERM
 
 git -C "$ROOT" fetch origin "$DEFAULT_BRANCH" --quiet
 git -C "$ROOT" worktree add -b "$BRANCH" "$WORKTREE" "origin/$DEFAULT_BRANCH" --quiet
+# Tests need the untracked engine before Claude runs them. Keep runtime a directory so
+# the repository's runtime/ ignore rule also excludes it from the eventual commit.
+if [[ -d "$ROOT/runtime/luanti.app" ]]; then
+  mkdir -p "$WORKTREE/runtime"
+  ln -s "$ROOT/runtime/luanti.app" "$WORKTREE/runtime/luanti.app"
+fi
 ISSUE_FILE="$WORKTREE/.brickcraft-report.json"
 gh issue view "$NUMBER" -R "$REPO" --json number,title,body,url,labels > "$ISSUE_FILE"
 
@@ -90,7 +96,7 @@ CHANGES="$(git -C "$WORKTREE" diff --numstat | awk '{if ($1=="-" || $2=="-") {n+
 PROTECTED='^(Admin BrickCraft\.command|tools/|tests/|server\.conf|brickcraft\.conf|\.github/)'
 VERIFIED=0
 typeset -a VERIFY_TESTS=()
-if [[ "$DECISION" == trivial ]]; then
+if [[ "$DECISION" == trivial ]] && jq -e '.tests_passed == true' <<<"$ASSESSMENT" >/dev/null; then
   VERIFIED=1
   while IFS= read -r file; do
     case "$file" in
@@ -107,7 +113,6 @@ if [[ "$DECISION" == trivial ]]; then
   done <<< "$FILES"
   VERIFY_TESTS=("${(u)VERIFY_TESTS[@]}")
   if [[ $VERIFIED == 1 && ${#VERIFY_TESTS} -gt 0 ]]; then
-    ln -s "$ROOT/runtime" "$WORKTREE/runtime"
     for test_command in "${VERIFY_TESTS[@]}"; do
       print "$(date '+%F %T') Verifying #$NUMBER with $test_command"
       if ! (cd "$WORKTREE" && python3 "$test_command") >> "$TMP/verification.log" 2>&1; then
@@ -115,7 +120,6 @@ if [[ "$DECISION" == trivial ]]; then
         break
       fi
     done
-    rm -f "$WORKTREE/runtime"
   fi
 fi
 SAFE=0
@@ -156,6 +160,7 @@ if [[ $SAFE == 1 ]] && gh pr merge "$PR_URL" -R "$REPO" --squash --delete-branch
   print -r -- "$PR_URL" > "$WORLD/issues/restart-request"
   print "$(date '+%F %T') Auto-merged $PR_URL; the server will restart when idle."
 else
+  gh pr edit "$PR_URL" -R "$REPO" --add-label needs-review >/dev/null
   gh issue edit "$NUMBER" -R "$REPO" --remove-label player-report --add-label needs-review >/dev/null
   gh issue comment "$NUMBER" -R "$REPO" --body "Claude Code prepared $PR_URL for you to review. It was not auto-merged because the change is non-trivial or did not pass every safety gate." >/dev/null
   print "$(date '+%F %T') Review needed: $PR_URL"

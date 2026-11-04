@@ -74,7 +74,7 @@ fi
 # tested change is merged automatically. A merged change leaves restart-request for the
 # headless supervisor below. Set BRICKCRAFT_IMPROVE=0 to turn this off.
 if [[ -n "$SERVER_PID" && "${BRICKCRAFT_IMPROVE:-1}" != 0 ]] && \
-    command -v claude >/dev/null && command -v gh >/dev/null && gh auth status -h github.com >/dev/null 2>&1; then
+    command -v claude >/dev/null && command -v jq >/dev/null && command -v gh >/dev/null && gh auth status -h github.com >/dev/null 2>&1; then
   (
     sleep "${BRICKCRAFT_IMPROVE_FIRST:-60}"
     while kill -0 $ADMIN_PID 2>/dev/null; do
@@ -93,17 +93,18 @@ if [[ $HEADLESS == 1 ]]; then
   # Who comes and goes, from the server log.
   tail -n 0 -f "$LOG" | grep --line-buffered -E "joins game|leaves game|timed out" | sed -u 's/^.*ACTION\[Server\]: //' &
   TAIL_PID=$!
-  # A fresh heartbeat is written by brickcraft_ai every two seconds. Check it twice so a
-  # player joining at the edge of an idle interval is not disconnected for a deployment.
+  # Require a recent heartbeat and an advancing timestamp across the idle interval.
+  # A stalled server or stale file must never be treated as evidence that it is empty.
+  source "$ROOT/tools/server_idle.zsh"
   RESTART_RETRY_AT=0
   while kill -0 $SERVER_PID 2>/dev/null; do
     REQUEST="$WORLD/issues/restart-request"
     STATUS="$WORLD/server-status.json"
     NOW=$(date +%s)
     if [[ $NOW -ge $RESTART_RETRY_AT && -f "$REQUEST" && -f "$STATUS" ]] && \
-        jq -e '.running == true and .players == 0' "$STATUS" >/dev/null 2>&1; then
+        FIRST_IDLE=$(idle_heartbeat "$STATUS"); then
       sleep 3
-      if jq -e '.running == true and .players == 0' "$STATUS" >/dev/null 2>&1; then
+      if SECOND_IDLE=$(idle_heartbeat "$STATUS") && [[ $SECOND_IDLE -gt $FIRST_IDLE ]]; then
         print "No players are connected. Installing the merged improvement and restarting..."
         kill $SERVER_PID 2>/dev/null; wait $SERVER_PID 2>/dev/null || true
         if git -C "$ROOT" pull --ff-only --quiet; then
