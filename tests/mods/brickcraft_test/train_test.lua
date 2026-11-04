@@ -46,14 +46,14 @@ C.register_on_joinplayer(function(player)
     local function count(color) return 99-(full[color]-total(color)) end
     -- A right click with a color and the chosen piece, through the color's own on_place.
     local function place(piece,color,under,above)
-      brickcraft.set_shape(player,brickcraft.shapes[piece])
+      brickcraft.fill_hotbar(player,brickcraft.shapes[piece])
       local stack=inv:get_stack("main",slot[color])
       stack=stack:get_definition().on_place(stack,player,{type="node",under=under,above=above})
       inv:set_stack("main",slot[color],stack)
     end
     -- A right click on a cart, holding a color with the chosen piece (or the separator).
     local function click(ent,piece,color)
-      if piece then brickcraft.set_shape(player,brickcraft.shapes[piece]) end
+      if piece then brickcraft.fill_hotbar(player,brickcraft.shapes[piece]) end
       local held=inv:get_stack("main",1)
       if color then inv:set_stack("main",1,inv:get_stack("main",slot[color])) end
       ent.on_rightclick(ent,player)

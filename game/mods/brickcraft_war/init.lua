@@ -1526,7 +1526,6 @@ local function unstash(player)
   if inv:get_size("war_stash")==0 then return end
   inv:set_list("main",inv:get_list("war_stash"))
   inv:set_size("war_stash",0)
-  brickcraft.normalize(player) -- pieces collected in the war join the hotbar's
 end
 
 local function start(player)

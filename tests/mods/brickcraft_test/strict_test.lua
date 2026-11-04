@@ -23,7 +23,7 @@ C.register_on_joinplayer(function(player)
     local function at(x,y,z) return {x=o.x+x,y=y,z=o.z+z} end
     local function put(piece,color,x,y,z,turn)
       local shape=brickcraft.shapes[piece]
-      brickcraft.set_shape(player,shape)
+      brickcraft.fill_hotbar(player,shape)
       player:get_meta():set_int("brickcraft_turn",turn or 0)
       local pos=at(x,y,z)
       local stack=inv:get_stack("main",slot[color])

@@ -21,7 +21,7 @@ C.register_on_joinplayer(function(player)
     for n,step in ipairs(plan) do
       local piece,color,x,y,z,turn=unpack(step)
       local shape=brickcraft.shapes[piece]
-      brickcraft.set_shape(player,shape)
+      brickcraft.fill_hotbar(player,shape)
       player:get_meta():set_int("brickcraft_turn",turn)
       local pos={x=x,y=y,z=z}
       local stack=inv:get_stack("main",slot[color])
@@ -51,7 +51,7 @@ C.register_on_joinplayer(function(player)
     table.sort(list)
     C.log("action","BRICKCRAFT HOUSE PARTS: "..table.concat(list,"; "))
     -- Leave the builder facing the front door for a look around.
-    brickcraft.set_shape(player,brickcraft.shapes["2x2"]); player:get_meta():set_int("brickcraft_turn",0)
+    brickcraft.fill_hotbar(player,brickcraft.shapes["2x2"]); player:get_meta():set_int("brickcraft_turn",0)
     player:set_pos({x=13.5,y=0,z=-11}); player:set_look_horizontal(0); player:set_look_vertical(.25)
     C.log("action",("BRICKCRAFT HOUSE PASS: %d pieces, %d brick cells, all placed through on_place"):format(#plan,cells))
     C.request_shutdown("BrickCraft house built",false,2)

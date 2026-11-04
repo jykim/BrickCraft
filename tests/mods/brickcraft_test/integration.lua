@@ -26,40 +26,58 @@ C.register_on_joinplayer(function(player)
       -- A new player's kit is pieces: some of every brick, plate, tile, round and slope.
       assert(have("brickcraft:coral")==8 and have("brickcraft:navy_plate_1x2")==4 and have("brickcraft:gold_slope_2x1")==2 and
         have("brickcraft:navy_track")==12,"the starter kit is pieces")
+      assert(inv:get_stack("main",2):get_name()=="brickcraft:coral","the kit's 2 x 2s start on the color keys")
       inv:set_list("main",{}); inv:set_list("pieces",{}); inv:set_stack("main",1,"brickcraft:separator")
-      brickcraft.set_shape(player,brickcraft.shapes["2x2"])
+      local function click(fields) for _,f in ipairs(C.registered_on_player_receive_fields) do if f(player,"",fields) then break end end end
+      -- A piece with no stack in the hotbar or bag waits put away until it's brought out.
       brickcraft.give(player,"brickcraft:coral 24")
-      assert(inv:get_stack("main",2):get_name()=="brickcraft:coral","a coral 2 x 2 goes to coral's key (2)")
+      assert(inv:get_stack("main",2):is_empty() and have("brickcraft:coral")==24,"new pieces wait put away")
+      assert(brickcraft.to_hotbar(player,"brickcraft:coral",2),"to the hotbar")
+      assert(inv:get_stack("main",2):get_name()=="brickcraft:coral" and inv:get_stack("main",2):get_count()==24,"all 24 on slot 2")
       assert(place(player,2,{x=1,y=-1,z=2},p)==23,"placement uses one piece")
       assert(C.get_node(p).name=="brickcraft:coral","placement callback")
-      -- Pieces: each its own item. The hotbar holds the chosen piece on each color's key.
+      -- Free hotbar: different pieces side by side. I > a piece > a color puts it in the first
+      -- empty hotbar slot.
       for _,id in ipairs({"_1x2","_2x4","_plate"}) do brickcraft.give(player,"brickcraft:gold"..id.." 24") end
       player:set_look_horizontal(0); player:set_look_vertical(0)
-      brickcraft.set_shape(player,brickcraft.shapes["1x2"])
-      assert(inv:get_stack("main",3):get_name()=="brickcraft:gold_1x2" and inv:get_stack("main",3):get_count()==24,
-        "choosing the 1 x 2 puts gold 1 x 2s on gold's key")
-      assert(inv:get_stack("main",2):is_empty() and have("brickcraft:coral")==23,"no coral 1 x 2s: coral's key is empty, its 2 x 2s kept")
+      for i,id in ipairs({"1x2","2x4","plate"}) do
+        brickcraft.set_shape(player,brickcraft.shapes[id]); click({take_gold="x"})
+        assert(inv:get_stack("main",2+i):get_name()==brickcraft.piece_item("gold",brickcraft.shapes[id]),"gold "..id.." in slot "..(2+i))
+      end
+      assert(inv:get_stack("main",2):get_name()=="brickcraft:coral","the coral 2 x 2s stay beside them")
       assert(place(player,3,{x=4,y=-1,z=2},{x=4,y=0,z=2})==23,"a 1 x 2 is one piece")
       assert(C.get_node({x=4,y=0,z=2}).name=="brickcraft:gold_1x2","1 x 2 placed")
-      brickcraft.set_shape(player,brickcraft.shapes["2x4"])
       -- Looking +z with no turn gives facedir 0, so a 2 x 4 extends to +z.
-      assert(place(player,3,{x=6,y=-1,z=2},{x=6,y=0,z=2})==23,"a 2 x 4 is one piece too")
+      assert(place(player,4,{x=6,y=-1,z=2},{x=6,y=0,z=2})==23,"a 2 x 4 is one piece too")
       assert(C.get_node({x=6,y=0,z=2}).name=="brickcraft:gold_2x4","2 x 4 placed")
       assert(C.get_node({x=6,y=0,z=3}).name=="brickcraft:gold_2x4_tail","2 x 4 end cell")
       -- A 2 x 4 that would overlap a brick is refused without spending it.
-      assert(place(player,3,{x=6,y=-1,z=1},{x=6,y=0,z=1})==23,"blocked 2 x 4 refused")
+      assert(place(player,4,{x=6,y=-1,z=1},{x=6,y=0,z=1})==23,"blocked 2 x 4 refused")
       assert(C.get_node({x=6,y=0,z=1}).name=="air","blocked 2 x 4 leaves no node")
-      brickcraft.set_shape(player,brickcraft.shapes.plate)
       -- Q (drop) turns the view 45° left and throws nothing away; I > Turn turns the brick.
       local look=player:get_look_horizontal()
-      local had=inv:get_stack("main",3):get_count()
-      local kept=inv:get_stack("main",3):get_definition().on_drop(inv:get_stack("main",3),player,player:get_pos())
+      local had=inv:get_stack("main",5):get_count()
+      local kept=inv:get_stack("main",5):get_definition().on_drop(inv:get_stack("main",5),player,player:get_pos())
       assert(kept:get_count()==had and math.abs((player:get_look_horizontal()-look)%(2*math.pi)-math.pi/4)<.01,"Q turns left instead of dropping")
-      for _,f in ipairs(C.registered_on_player_receive_fields) do if f(player,"",{turn="x"}) then break end end
+      click({turn="x"})
       assert(player:get_meta():get_int("brickcraft_turn")==1,"I > Turn turns the next brick")
-      assert(place(player,3,{x=8,y=-1,z=2},{x=8,y=0,z=2})==23,"a plate is one piece")
+      assert(place(player,5,{x=8,y=-1,z=2},{x=8,y=0,z=2})==23,"a plate is one piece")
       local plate=C.get_node({x=8,y=0,z=2})
       assert(plate.name=="brickcraft:gold_plate" and plate.param2==1,"plate placed with turn")
+      -- A collected piece joins its stack in the hotbar.
+      separator(player,"on_use",{x=8,y=0,z=2})
+      assert(inv:get_stack("main",5):get_count()==24,"the plate came back to its slot")
+      assert(place(player,5,{x=8,y=-1,z=2},{x=8,y=0,z=2})==23,"and goes down again")
+      -- "All colors to hotbar": the chosen piece on every color key it has.
+      brickcraft.give(player,"brickcraft:sky_plate 3")
+      brickcraft.set_shape(player,brickcraft.shapes.plate); click({fill="x"})
+      assert(inv:get_stack("main",3):get_name()=="brickcraft:gold_plate" and inv:get_stack("main",3):get_count()==23 and
+        inv:get_stack("main",5):get_name()=="brickcraft:sky_plate","all colors: gold plates on 3, sky on 5")
+      assert(inv:get_stack("main",2):get_name()=="brickcraft:coral" and have("brickcraft:gold_1x2")==23,
+        "colors with no plates keep their slot; the 1 x 2s are put away, not lost")
+      -- Put the slots back for the rest: coral 2 x 2s on 2, the gold pieces as they were.
+      brickcraft.to_hotbar(player,"brickcraft:gold_1x2",3); brickcraft.to_hotbar(player,"brickcraft:gold_2x4",4)
+      brickcraft.to_hotbar(player,"brickcraft:gold_plate",5)
       brickcraft.set_shape(player,brickcraft.shapes["2x2"])
       -- Undo placement refunds the exact cost; undo collection restores the
       -- exact node and consumes the refund again.
@@ -76,8 +94,8 @@ C.register_on_joinplayer(function(player)
       assert(C.get_node(undo_pos).name=="brickcraft:coral" and inv:get_stack("main",2):get_count()==22,
         "undo collection restores node and removes refund")
       C.remove_node(undo_pos); brickcraft.give(player,"brickcraft:coral")
-      -- Sort: the chosen piece back on its keys (merged), other pieces put away, LEGO parts in
-      -- the bag by part then color, a row per part.
+      -- Sort: the hotbar stays as it is, pieces in the bag are put away, LEGO parts in the bag
+      -- line up by part then color, a row per part.
       do
         local keep,keep_pieces=inv:get_list("main"),inv:get_list("pieces")
         local function part(id,name,color)
@@ -95,9 +113,9 @@ C.register_on_joinplayer(function(player)
         for _,f in ipairs(C.registered_on_player_receive_fields) do if f(player,"",{sort="x"}) then break end end
         local function at(i) return inv:get_stack("main",i) end
         assert(at(1):get_name()=="brickcraft:separator","sort: separator in slot 1")
-        assert(at(8):get_name()=="brickcraft:navy" and at(8):get_count()==75,"sort: navy 2 x 2s merged on navy's key (8)")
-        assert(at(12):get_name()=="brickcraft:tan","sort: tan on key =")
-        assert(at(5):is_empty() and at(9):is_empty() and have("brickcraft:gold_1x2")==3,"sort: the other pieces put away, not lost")
+        assert(at(5):get_count()==27 and at(9):get_name()=="brickcraft:gold_1x2","sort: the hotbar stays as it is")
+        assert(at(20):is_empty() and at(30):is_empty() and have("brickcraft:navy")==75 and have("brickcraft:tan")==2,
+          "sort: pieces in the bag put away, not lost")
         assert(at(13):get_meta():get_string("bc_color")=="#C91A09" and at(14):get_count()==2 and at(15):is_empty(),
           "sort: round 1 x 1 red then two blue merged")
         assert(at(23):get_meta():get_string("part")=="3040","sort: the slope starts the next row")
@@ -167,8 +185,8 @@ C.register_on_joinplayer(function(player)
       C.node_dig(floor,C.get_node(floor),player)
       assert(C.get_node(floor).name=="brickcraft:baseplate","gray floor protected")
       brickcraft.give(player,"brickcraft:brown")
-      local slot=11 -- brown's key (-)
-      assert(inv:get_stack("main",slot):get_name()=="brickcraft:brown","a harvested brown 2 x 2 is on brown's key")
+      local slot=11
+      assert(brickcraft.to_hotbar(player,"brickcraft:brown",slot),"a harvested brown 2 x 2 comes out to the hotbar")
       assert(place(player,slot,{x=2,y=-1,z=6},{x=2,y=0,z=6})>=0 and C.get_node({x=2,y=0,z=6}).name=="brickcraft:brown",
         "harvested brown brick places as a real brick")
       C.log("action","BRICKCRAFT TEST PHASE 2 PASS: restart persistence, separator recovery, inventory credit, 2x4 turn and whole-brick refund, base protection, landscape harvest")

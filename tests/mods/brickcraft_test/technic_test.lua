@@ -39,14 +39,14 @@ C.register_on_joinplayer(function(player)
     local function count(color) return 99-(full[color]-total(color)) end
     local function place(piece,color,pos,yaw)
       player:set_look_horizontal(yaw or 0); player:set_look_vertical(0)
-      brickcraft.set_shape(player,brickcraft.shapes[piece])
+      brickcraft.fill_hotbar(player,brickcraft.shapes[piece])
       local stack=inv:get_stack("main",slot[color])
       stack=stack:get_definition().on_place(stack,player,{type="node",under=vector.offset(pos,0,-1,0),above=pos})
       inv:set_stack("main",slot[color],stack)
     end
     -- A right click on a cart, holding a color with the chosen piece (or the separator).
     local function click(ent,piece,color)
-      if piece then brickcraft.set_shape(player,brickcraft.shapes[piece]) end
+      if piece then brickcraft.fill_hotbar(player,brickcraft.shapes[piece]) end
       local held=inv:get_stack("main",1)
       if color then inv:set_stack("main",1,inv:get_stack("main",slot[color])) end
       ent.on_rightclick(ent,player)
@@ -137,7 +137,7 @@ C.register_on_joinplayer(function(player)
                   -- pulling a passenger car.
                   for x=-23,-11 do for y=0,2 do for z=-5,5 do C.set_node({x=x,y=y,z=z},{name="air"}) end end end
                   local cells=brickcraft.trains.lay_loop({x=-22,y=0,z=-4},{x=-12,y=0,z=4},"navy")
-                  local function put(piece,color,pos) brickcraft.set_shape(player,brickcraft.shapes[piece])
+                  local function put(piece,color,pos) brickcraft.fill_hotbar(player,brickcraft.shapes[piece])
                     local st=inv:get_stack("main",slot[color])
                     st=st:get_definition().on_place(st,player,{type="node",under=pos,above=vector.offset(pos,0,1,0)})
                     inv:set_stack("main",slot[color],st) end
