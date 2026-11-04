@@ -634,13 +634,53 @@ local function where(p,asker)
   return s..", facing "..p.facing.."."
 end
 
-local function front_of(name)
+-- The spot a build goes by: `ahead` blocks (7 unless given) in front of the player.
+local function front_of(name,ahead)
   local pl=C.get_player_by_name(name)
   if not pl then return {x=0,z=0},0 end
   local pos,dir=pl:get_pos(),pl:get_look_dir()
   local h=vector.normalize({x=dir.x,y=0,z=dir.z})
   if h.x~=h.x then h={x=0,y=0,z=1} end
-  return {x=pos.x+h.x*7,z=pos.z+h.z*7},pos
+  ahead=ahead or 7
+  return {x=pos.x+h.x*ahead,z=pos.z+h.z*ahead},pos
+end
+-- "where I'm standing", "right here", "여기": the build goes right by the asker instead of
+-- out in front of them.
+local HERE_WORDS={"where i'm standing","where i am standing","where i stand","where i am","where i'm",
+  "right here","here","my spot","under me","여기","내 자리","내가 서"}
+local function at_asker(low)
+  for _,w in ipairs(HERE_WORDS) do if find_name(low,w) then return true end end
+end
+-- Where a build really went, seen from the asker at `pos`: "right next to you",
+-- "5 blocks north-east of you", and "down on the ground" when they're up high.
+local function plot_from(plot,size,pos)
+  local x2,z2=plot.x+size.x,plot.z+size.z
+  local nx,nz=math.max(plot.x,math.min(pos.x,x2)),math.max(plot.z,math.min(pos.z,z2))
+  local d=math.sqrt((nx-pos.x)^2+(nz-pos.z)^2)
+  local s=d<1.5 and "right next to you" or
+    blocks(d).." "..compass((plot.x+x2)/2-pos.x,(plot.z+z2)/2-pos.z).." of you"
+  if pos.y>plot.y+2.5 then s=s..", down on the ground" end
+  return s
+end
+-- The world a text names ("meet me at the workshop"), longest name first.
+local function world_named(low)
+  local best
+  local all={brickcraft.world_at({x=0,y=0,z=0})}
+  for _,wd in ipairs(brickcraft.worlds()) do if wd.built and wd.name then all[#all+1]=wd end end
+  for _,wd in ipairs(all) do
+    local n=wd.name:lower()
+    if find_name(low,n) and (not best or #n>#best.name) then best=wd end
+  end
+  return best
+end
+-- The worlds there are, and which one the asker and the builder are in, for talking.
+local function worlds_note(who,asker_pos,me)
+  local names={brickcraft.world_at({x=0,y=0,z=0}).name}
+  for _,wd in ipairs(brickcraft.worlds()) do if wd.built and wd.name then names[#names+1]=wd.name end end
+  local s="The worlds (separate places; I > Switch world): "..table.concat(names,", ")..".\n"
+  if asker_pos then s=s..who.." is in the "..brickcraft.world_at(asker_pos).name.." world.\n" end
+  if me then s=s.."You are in the "..brickcraft.world_at(me).name.." world.\n" end
+  return s
 end
 -- Turns that make the build's front (-z) face a point.
 local function turns_toward(from,to)
@@ -869,7 +909,7 @@ local function asks_for_work(low)
 end
 -- Plainly a build or a fix ("help me find Leona" isn't): goes to the designer without talking first.
 local function clear_work(low)
-  if is_edit(low) or low:find("^come") or low:find("이리") then return true end
+  if is_edit(low) or low:find("^come") or low:find("^meet") or low:find("이리") then return true end
   for _,w in ipairs(BUILD_WORDS) do if w~="help" and find_name(low,w) then return true end end
 end
 -- A question or remark rather than a request ("what doesn't look like a building?",
@@ -889,7 +929,7 @@ local SYSTEM=[[You design brick builds for BrickCraft, a toy-brick sandbox a fam
 The world is a grid of cells and one cell holds one piece. Axes: x goes right, y goes up, z goes away from the viewer. The front of the build faces -z (the person who asked stands at -z, looking toward +z). The ground is y = 0. Use x and z from 0 to 15 and y from 0 to 7: you build like the players do, from the ground and short scaffolds, so nothing goes higher than y = 7.
 
 Answer with one JSON object and nothing else (no prose, no code fence):
-- "say": one short, friendly sentence to the person who asked, in their language.
+- "say": one short, friendly sentence to the person who asked, in their language. Talk about the build itself, not where it goes: the game puts it on the ground at the nearest free spot by them (never on other builds or where someone stands) and tells them where it went, so don't promise a spot such as "right where you're standing".
 - "title": two or three words naming the build, in English.
 - "lines": the build, one instruction per string:
   "<piece> <color> x y z [turn]" places one piece.
@@ -949,7 +989,9 @@ Answer with one JSON object and nothing else (no prose, no code fence):
 - "do": a list of steps for you to carry out, in order, each one plain words from what you can do (at most 4; leave it out when there's nothing to do):
   "build <anything>" (a house, a tree, a word sign, anything they imagine), "build <it> next to <name>", "fill the holes here", "fix|finish|change|decorate|paint|tidy <what> here" or "take away <what> here" (on what is already built in front of them), "undo" (take down your last build), "stop", "come here", "give me <number> <color> bricks" or "give <name> <number> <color> bricks" (up to 99 of coral, gold, mint, sky, violet, cream, navy or rose; red, blue, yellow, purple, white, black and pink are fine too; green, brown and tan come from harvesting the landscape with the separator), "where is <name>", "who's here", "status", "report <what's wrong in the game>", "maintenance on|off", "auto on|off", "your name is <name>".
 
-Your owner is the one you work for: help them with anything they want. Do what they ask even when they only hint at it ("I'm out of red bricks": give them red bricks; "this place is a mess": tidy it; "make it bigger": change what you built last), and when it would clearly help what they're doing, just do it. Use the chat so far to tell what "it", "that" or "again" means. When what they want isn't on the list, do the steps that come closest and say what you can't do, or tell them how to do it themselves with the controls below. Ask back only when you really can't tell what they mean. Help everyone else too, but don't do anything they didn't ask for; offer it in "say" instead.]]
+Your owner is the one you work for: help them with anything they want. Do what they ask even when they only hint at it ("I'm out of red bricks": give them red bricks; "this place is a mess": tidy it; "make it bigger": change what you built last), and when it would clearly help what they're doing, just do it. Use the chat so far to tell what "it", "that" or "again" means. When what they want isn't on the list, do the steps that come closest and say what you can't do, or tell them how to do it themselves with the controls below. Ask back only when you really can't tell what they mean. Help everyone else too, but don't do anything they didn't ask for; offer it in "say" instead.
+
+The game has several worlds, separate places with names (you hear which ones there are and who is in which). A place they name can be a world: "meet me at the workshop" in the Workshop world means "come here". You can't take anyone to another world; they switch worlds themselves with I > Switch world.]]
 
 -- How-to questions ("how do I move the cart?") are answered from the game's own help screen.
 do
@@ -1142,7 +1184,8 @@ local lib={
   shapes=shapes,standable=standable,storage=storage,stored_name=stored_name,survey=survey,
   takedown=takedown,turns_toward=turns_toward,use_claude=use_claude,walkable=walkable,where=where,
   worker_named=worker_named,workers=workers,SYSTEM_CHAT=SYSTEM_CHAT,is_talk=is_talk,
-  parse_request=parse_request,describe=describe,color_words=color_words,clear_work=clear_work}
+  parse_request=parse_request,describe=describe,color_words=color_words,clear_work=clear_work,
+  at_asker=at_asker,plot_from=plot_from,world_named=world_named,worlds_note=worlds_note,plan_lines=plan_lines}
 -- One builder per owner: jms (owner "jms", the host's, in the Workshop) or a player's.
 -- Each has its own body, bricks, jobs and saved state.
 -- Everything a builder can do beyond its own steps, read once the game is loaded: the
@@ -1196,7 +1239,7 @@ local function new_worker(owner)
     lib.seen_from,lib.shapes,lib.standable,lib.storage,lib.stored_name,lib.survey,lib.takedown,
     lib.turns_toward,lib.use_claude,lib.walkable,lib.where,lib.worker_named,lib.workers,
     lib.SYSTEM_CHAT,lib.is_talk,lib.parse_request,lib.describe
-  local w={owner=owner,jms=owner=="jms",name=stored_name(owner)}
+  local w={owner=owner,jms=owner=="jms",name=stored_name(owner),lib=lib}
   local style=not w.jms and brickcraft.styles[owner]
   local TAG=style and style.tag or "#f5872c"
   local sk=w.jms and "" or "_"..owner -- storage keys (jms keeps the ones from before there were more)
@@ -1764,6 +1807,7 @@ local function new_worker(owner)
       local held=pl:get_wielded_item():get_short_description()
       seen=seen..who.." is holding "..(held~="" and held or "nothing")..(pl:get_attach() and " and riding a cart" or "")..".\n"
     end
+    seen=seen..lib.worlds_note(who,pl and pl:get_pos(),bot_ok() and bot:get_pos())
     local doing=job and "You are "..(job.kind=="build" and "building a " or "taking down the ")..job.title..
       " ("..(job.i-1).." of "..#job.list.." pieces).\n" or "You aren't building anything right now.\n"
     local whose=w.jms and "You work for everyone in the workshop.\n" or is_owner(name) and who.." is your owner.\n" or
@@ -1949,7 +1993,16 @@ local function new_worker(owner)
         or "I'm with "..style.label.." in "..brickcraft.world_at(base()).name..", "..who..". Ask me there, or ask your own builder: \"bot, ...\".")
       return
     end
-    if low:find("^come") or low:find("이리") then
+    if low:find("^come") or low:find("^meet") or low:find("이리") then
+      -- "Meet me at the workshop": a world name is a place too. The one they're in means
+      -- here; another one is somewhere only they can switch to.
+      local there=asker and w.lib.world_named(low)
+      local here_w=asker and brickcraft.world_at(asker:get_pos())
+      if there and there.name~=here_w.name then
+        say(w.jms and "I stay in the Workshop, "..who..". Come find me here!"
+          or "I go wherever "..style.label.." goes, "..who..": switch to "..there.name.." (I > Switch world) and I'll be there.")
+        return
+      end
       if job then say("I'm busy with the "..job.title..". Say \""..w.name..", stop\" first.")
       elseif come_to(name) then say("Coming, "..who.."!")
       else say("I can't find a way to you, "..who..".") end
@@ -1989,8 +2042,18 @@ local function new_worker(owner)
     -- By default the build goes in front of the asker; "next to Leona" puts it in front of
     -- Leona instead. Either way its front faces that player.
     local by,rest=near_phrase(text,around())
-    local near,from=front_of(by and by.name or name)
+    -- "Where I'm standing", "here": as close by them as there's room, not 7 blocks ahead.
+    local near,from=front_of(by and by.name or name,not by and w.lib.at_asker(low) and 1 or nil)
     local by_note=by and by.name~=name and " next to "..by.label or ""
+    -- Where it really went and how big it came out, so the reply matches the world.
+    local function placed(j,planned)
+      local s=#j.list.." pieces"
+      if asker then s=s..", "..w.lib.plot_from(j.origin,j.size,asker:get_pos()) end
+      if planned and planned>#j.list then
+        s=s.."; "..(planned-#j.list).." of the "..planned.." planned didn't fit (I build up to 8 high and every piece has to touch another)"
+      end
+      return " ("..s..")"
+    end
     local function fallback(reason)
       local list,title=plan_for(rest or text,name,near,from)
       if not list then
@@ -1999,8 +2062,8 @@ local function new_worker(owner)
       end
       local ok,j=start_job(list,title,name,near)
       if not ok then say("There's no room left on the baseplate for a "..title..". Take something down first.") return end
-      say(j==job and ("Sure, "..who.."! Building a "..title..by_note.." ("..#list.." pieces).")
-        or ("Got it, "..who..". The "..title.." is next in line."))
+      say(j==job and ("Sure, "..who.."! Building a "..title..by_note..placed(j)..".")
+        or ("Got it, "..who..". The "..title.." is next in line"..placed(j).."."))
     end
     if not use_claude then return fallback() end
     say("Hmm, let me think about that, "..who.."...",true)
@@ -2009,10 +2072,12 @@ local function new_worker(owner)
       local turns=from and turns_toward(near,from) or 0
       local list=reply and parse_plan(reply.lines,turns)
       if not list or #list==0 then return fallback(" (my design didn't work out)") end
+      local planned=0
+      for _,it in ipairs(w.lib.plan_lines(reply.lines).pieces) do if it then planned=planned+1 end end
       local title=tostring(reply.title or "build"):sub(1,40)
       local ok,j=start_job(list,title,name,near)
       if not ok then say("There's no room left on the baseplate for that. Take something down first.") return end
-      say(tostring(reply.say or ("Building a "..title..by_note.."!")):sub(1,200)..
+      say(tostring(reply.say or ("Building a "..title..by_note.."!")):sub(1,200)..placed(j,planned)..
         (j==job and "" or " (It's next in line.)"))
     end)
   end
@@ -2501,8 +2566,27 @@ C.register_on_shutdown(function()
   for _,wk in pairs(workers) do wk.save() end
 end)
 
+-- The Admin launcher uses this heartbeat to deploy a merged improvement only when the
+-- server has no players. Atomic safe_file_write prevents a half-written status read.
+local server_status_file=C.get_worldpath().."/server-status.json"
+local server_status_timer=0
+local function write_server_status(running)
+  C.safe_file_write(server_status_file,C.write_json({
+    running=running,players=#C.get_connected_players(),updated=os.time()
+  }))
+end
+C.register_globalstep(function(dt)
+  server_status_timer=server_status_timer+dt
+  if server_status_timer>=2 then server_status_timer=0; write_server_status(true) end
+end)
+C.register_on_joinplayer(function() C.after(0,write_server_status,true) end)
+C.register_on_leaveplayer(function() C.after(0,write_server_status,true) end)
+C.register_on_shutdown(function() write_server_status(false) end)
+write_server_status(true)
+
 brickcraft.ai={name=NAME,parse_request=parse_request,parse_plan=parse_plan,blueprint=blueprint,
-  describe=describe,chat_system=chat_system,
+  describe=describe,chat_system=chat_system,system=SYSTEM,
+  at_asker=at_asker,plot_from=plot_from,world_named=world_named,worlds_note=worlds_note,
   blueprints=blueprints,order=blueprint_order,find_plot=find_plot,cells_of=cells_of,
   players=players,where=where,near_phrase=near_phrase,player_in=player_in,survey=survey,is_edit=is_edit,
   edit_jobs=edit_jobs,name_problem=name_problem,addressed=addressed,talking=talking,workers=workers,get=worker_of,

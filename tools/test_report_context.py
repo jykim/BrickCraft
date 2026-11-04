@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
+(root/'tests/run').mkdir(parents=True, exist_ok=True)
 test = Path(tempfile.mkdtemp(prefix='report-context-', dir=root/'tests/run'))
 world, user = test/'world', test/'user'
 mod = world/'worldmods/report_check'

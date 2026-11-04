@@ -53,13 +53,16 @@ C.register_on_joinplayer(function()
     assert(inv_dad:get_stack("main",2):get_count()==7,"dad's bricks come back")
     -- Worlds: Dad makes his own through the real "Which world?" form, Leona goes there,
     -- then back to the Workshop. Each world is a fresh workshop in its own square.
-    local function world_form(player,fields)
+    local function form(player,formname,fields)
       for _,handler in ipairs(C.registered_on_player_receive_fields) do
-        if handler(player,"brickcraft:world",fields) then return end
+        if handler(player,formname,fields) then return end
       end
     end
+    local function world_form(player,fields) return form(player,"brickcraft:world",fields) end
     assert(brickcraft.world_at(dad:get_pos()).id==0,"everyone starts in the Workshop")
-    world_form(dad,{new="x",name="Dad's Fort"})
+    world_form(dad,{new="x"})
+    form(dad,"brickcraft:new_world",{create="x",name="Dad's Fort",terrain="Flat Grass",style="Castle",
+      characters="Knights",events="Team Battle",strict="true"})
     local tries=0
     local function check_worlds()
       local w=brickcraft.worlds()[1]
@@ -69,9 +72,15 @@ C.register_on_joinplayer(function()
         return C.after(.5,check_worlds)
       end
       assert(w.name=="Dad's Fort" and w.owner=="dad" and (w.x~=0 or w.z~=0),"world saved with its owner")
+      assert(w.write_owner==DAD and brickcraft.permissions.can_write(dad,w) and
+        not brickcraft.permissions.can_write(kid,w),"new-world template preserves account-based write ownership")
+      assert(w.terrain=="flat" and w.style=="castle" and w.characters=="knights" and w.events=="battle" and w.strict,
+        "new-world menu settings are saved")
       assert(C.get_node({x=w.x+1,y=-1,z=w.z+2}).name=="brickcraft:baseplate","new world has its baseplate")
       assert(C.get_node({x=w.x-18,y=1,z=w.z+11}).name=="brickcraft:coral","new world has full stacks")
-      assert(C.get_node({x=w.x+26,y=-1,z=w.z}).name=="brickcraft:grass","new world has its hills")
+      assert(C.get_node({x=w.x+26,y=-1,z=w.z}).name=="brickcraft:grass","new world has its selected grass terrain")
+      assert(C.get_node({x=w.x+40,y=0,z=w.z}).name=="air","flat terrain has no hills")
+      assert(C.get_node({x=w.x-4,y=0,z=w.z-7}).name=="brickcraft:navy","castle style colors the welcome arch")
       assert(C.get_node({x=w.x+10,y=0,z=w.z-2}).name=="air","new world starts empty")
       local home=brickcraft.home_pos(dad)
       assert(home.x-w.x==a.x and home.z-w.z==a.z,"/home is Dad's spot in his world")

@@ -12,6 +12,12 @@ mkdir -p "$QUEUE/sent"
 ORIGIN="$(git -C "$ROOT" remote get-url origin 2>/dev/null)"
 REPO="${${ORIGIN#*github.com[:/]}%.git}"
 COMMIT="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || print unknown)"
+if [[ "${BRICKCRAFT_ISSUES_DRY:-0}" != 1 ]]; then
+  # This label is the hand-off to improve_issues.zsh. --force also repairs its description
+  # or color if it was created manually with different values.
+  gh label create player-report -R "$REPO" --color 5319E7 \
+    --description "Reported from inside BrickCraft; ready for the improvement worker" --force >/dev/null || exit 1
+fi
 for title_file in "$QUEUE"/*.title(N); do
   id="${title_file:t:r}"
   title="$(<"$title_file")"
@@ -28,10 +34,6 @@ for title_file in "$QUEUE"/*.title(N); do
   if [[ "${BRICKCRAFT_ISSUES_DRY:-0}" == 1 ]]; then
     print -r -- "Would post to $REPO [$label]: $title"
     url="dry-run:$id"
-  elif ! gh label create player-report -R "$REPO" --color 5319E7 \
-    --description "Reported from inside BrickCraft; ready for the improvement worker" --force >/dev/null; then
-    rm -f "$body"
-    continue
   elif ! url="$(gh issue create -R "$REPO" --title "$title" --label "$label" --label player-report --body-file "$body" 2>&1)"; then
     print -r -- "$(date '+%F %T') Could not post $id: $url"
     rm -f "$body"
