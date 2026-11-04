@@ -211,3 +211,6 @@ def clover(x,y):
     return (0,0,0,0)
 png('brickcraft_habitat_clover.png',32,32,clover)
 png('brickcraft_habitat_clover_eaten.png',32,32,lambda x,y:(120,150,80,255) if (x*7+y*3)%11==0 else (0,0,0,0))
+
+# --- A tuft of fur (bite effect).
+png('brickcraft_habitat_fur.png',6,6,lambda x,y:(246,240,232,max(0,int(255-((x-2.5)**2+(y-2.5)**2)*40))))

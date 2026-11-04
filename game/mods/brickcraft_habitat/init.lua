@@ -458,7 +458,7 @@ local function nearest_hunter(p,r)
   return best,bd
 end
 function H.creature_step(self,def,dtime,moveresult)
-  if self._dead then return end
+  if self._dead or self._carried then return end
   local p=self.object:get_pos()
   -- Needs run down; empty, they hurt.
   self._food=math.max(0,self._food-dtime*100/(def.hunger or 360))
@@ -620,6 +620,16 @@ function H.register_predator(id,def)
     _brickcraft_collect=function(self,player) self:_hit(player,{dmg=1}) end,
     _hit=function(self,attacker,m,v,dir)
       if self._gone then return false end
+      if self._carrying then -- it lets go: the creature drops, saved
+        local c=self._carrying
+        self._carrying=nil
+        if c.object:get_pos() and not c._dead then
+          c.object:set_detach(); c._carried=nil
+          c.object:set_velocity({x=0,y=0,z=0})
+          local w=brickcraft.world_at(c.object:get_pos())
+          H.tell(w,"The "..def.label:lower().." dropped the "..((H.creatures[c._kind] or {}).label or "animal"):lower().."!","#9be59b")
+        end
+      end
       local n=m and m.dmg or 1
       if n<=0 then n=1 end
       self._hp=self._hp-n
@@ -655,6 +665,21 @@ local function nearest_prey(p,r,ok)
   end
   return best,bd
 end
+-- Bite effects: a tuft of fur flies, the creature is knocked away squealing (it flashes).
+function H.bite_fx(prey,dir)
+  local q=prey.object:get_pos()
+  if not q then return end
+  C.add_particlespawner({amount=12,time=.15,minpos=vector.offset(q,-.15,.2,-.15),maxpos=vector.offset(q,.15,.5,.15),
+    minvel={x=-1.5,y=1,z=-1.5},maxvel={x=1.5,y=3,z=1.5},minacc={x=0,y=-6,z=0},maxacc={x=0,y=-6,z=0},
+    minexptime=.4,maxexptime=.9,minsize=1,maxsize=2,texture="brickcraft_habitat_fur.png"})
+  if not prey._carried then prey.object:add_velocity({x=(dir.x or 0)*3,y=3,z=(dir.z or 0)*3}) end
+end
+-- Leans the body (pitch) for a moment: a head-down lunge, a crouch-and-leap.
+local function pose(self,pitch,secs)
+  local r=self.object:get_rotation()
+  self.object:set_rotation({x=pitch,y=r.y,z=0})
+  C.after(secs,function() if self.object:get_pos() then local r2=self.object:get_rotation(); self.object:set_rotation({x=0,y=r2.y,z=0}) end end)
+end
 -- Full, tired or chased off: it heads out of the world and is gone.
 local function leaving(self,def)
   return self._caught>=(def.appetite or 2) or now()-self._born>(def.stay or 150)
@@ -674,8 +699,8 @@ function H.walker_step(self,def,dtime,moveresult)
     stuck_jump(self,moveresult,def.jump or 6.6,def.leaps)
     if H.blocked(moveresult) then
       self._blocked=(self._blocked or 0)+dtime
-      self._pressed=(self._pressed or 0)+dtime -- all the time spent against something
-    end
+      self._pressed=(self._pressed or 0)+dtime -- time spent against something...
+    else self._pressed=math.max(0,(self._pressed or 0)-dtime*.5) end -- ...lately
   end
   self._think=self._think-dtime
   if self._think>0 then return end
@@ -714,13 +739,30 @@ function H.walker_step(self,def,dtime,moveresult)
     H.tell(w,"The "..def.label:lower().." couldn't get to the "..(H.variant_of(w) and H.variant_of(w).plural or "animals").." and gave up.","#9be59b")
     return
   end
-  if d<(def.reach or 1.1) and math.abs(q.y-p.y)<1.2 then
-    steer(self,nil); face(self.object,vector.subtract(q,p))
+  local dir={x=q.x-p.x,y=0,z=q.z-p.z}
+  dir=vector.length(dir)>0 and vector.normalize(dir) or {x=0,y=0,z=1}
+  local on_ground=math.abs(self.object:get_velocity().y)<.2
+  -- In the middle of a pounce: let it fly.
+  if self._leaping and now()<self._leaping then return end
+  -- A pouncer (the lion) crouches and leaps from a few blocks out.
+  if def.pounce and d<def.pounce and d>(def.reach or 1.3)+.3 and on_ground and now()>=(self._next_pounce or 0) then
+    self._next_pounce,self._leaping=now()+3.5,now()+.7
+    face(self.object,dir)
+    self.object:set_velocity({x=dir.x*def.pounce*2.2,y=4.5,z=dir.z*def.pounce*2.2})
+    pose(self,-.3,.5)
+    return
+  end
+  if d<(def.reach or 1.3) and math.abs(q.y-p.y)<1.2 then
+    face(self.object,dir)
     if now()>=self._next_bite then
+      -- The bite: a lunge, head down.
       self._next_bite=now()+(def.bite or 1.2)
+      self.object:set_velocity({x=dir.x*5,y=self.object:get_velocity().y,z=dir.z*5})
+      pose(self,.35,.25)
+      H.bite_fx(prey,dir)
       H.hurt(prey,def.damage or 4,"was caught by a "..def.label:lower())
       if prey._dead then self._caught=self._caught+1 end
-    end
+    else steer(self,nil) end
     return
   end
   steer(self,q,speed)
@@ -739,6 +781,20 @@ function H.flyer_step(self,def,dtime)
     if l<.2 then self.object:set_velocity({x=0,y=0,z=0}); return end
     self.object:set_velocity(vector.multiply(d,speed/l))
     face(self.object,d)
+  end
+  -- Carrying one off: up and away; then it's gone.
+  if self._carrying then
+    local c=self._carrying
+    if c._dead or not c.object:get_pos() then self._carrying=nil
+    elseif now()>=self._carry_until then
+      self._carrying=nil; self._caught=self._caught+1
+      H.lose(c,"was carried off by an "..def.label:lower())
+    else
+      local out={x=p.x-(w and w.x or p.x),y=0,z=p.z-(w and w.z or p.z)}
+      out=vector.length(out)>.1 and vector.normalize(out) or {x=1,y=0,z=0}
+      fly(vector.add(p,{x=out.x*4,y=3,z=out.z*4}),5)
+      return
+    end
   end
   if (self._scared or 0)>now() then self._prey=nil; fly(vector.offset(p,0,6,0),6); return end
   if leaving(self,def) then
@@ -765,12 +821,14 @@ function H.flyer_step(self,def,dtime)
   if d>4 then fly({x=q.x,y=q.y+alt*.7,z=q.z},def.speed or 7)  -- get above it
   elseif vector.distance(p,q)>(def.reach or 1) then fly(vector.offset(q,0,.2,0),def.dive or 10) -- dive
   else
-    if now()>=self._next_bite then
-      self._next_bite=now()+(def.bite or 1)
-      H.hurt(prey,def.damage or 10,"was snatched by an "..def.label:lower())
-      if prey._dead then self._caught=self._caught+1; self._prey=nil end
+    -- It grabs the creature and carries it off; a hit before it's gone makes it let go.
+    if not self._carrying then
+      self._carrying=prey; prey._carried=true; self._prey=nil
+      prey.object:set_velocity({x=0,y=0,z=0})
+      prey.object:set_attach(self.object,"",{x=0,y=-3.5,z=-1},{x=0,y=0,z=0})
+      H.bite_fx(prey,{x=0,y=1,z=0})
+      self._carry_until=now()+(def.carry or 4)
     end
-    fly(vector.offset(p,0,4,0),6)
   end
 end
 -- How many come together: bigger colonies draw bigger packs (variant pack_per: one more

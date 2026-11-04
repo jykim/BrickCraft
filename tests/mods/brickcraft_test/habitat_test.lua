@@ -118,7 +118,8 @@ local function run(dad)
     if q and (C.get_us_time()-t0)/1e6>#trace*3 then trace[#trace+1]=C.pos_to_string(vector.subtract(q,{x=w.x,y=0,z=w.z}),1) end
     return lb._dead or lb._hp<10
   end,function() return "the lion never reached the bunny: "..table.concat(trace," ") end)
-  log("a lion from the north hills reached a bunny: "..table.concat(trace," "))
+  assert(lion._next_pounce,"the lion pounced")
+  log("a lion from the north hills pounced on a bunny: "..table.concat(trace," "))
   kill_hunters()
 
   -- Behind a fence two bricks high it can't.
@@ -158,8 +159,15 @@ local function run(dad)
   local eagle_ent=H.spawn_predator(w,"eagle")
   assert(eagle_ent,"an eagle")
   eagle_ent.object:set_pos({x=yard.x,y=16,z=yard.z+6})
-  wait(40,function() return fenced._dead end,function() return "the eagle never caught it" end)
-  log("an eagle snatched a bunny in the open")
+  wait(40,function() return fenced._carried or fenced._dead end,function() return "the eagle never caught it" end)
+  -- Hit while it carries the bunny off, it lets go.
+  assert(fenced._carried and eagle_ent._carrying==fenced,"carried off")
+  eagle_ent:_hit(dad,{dmg=1})
+  assert(not fenced._carried and not fenced._dead,"dropped")
+  sleep(2)
+  -- Caught again, it's carried away for good.
+  wait(40,function() return fenced._dead end,function() return "the eagle never carried it off" end)
+  log("an eagle carried a bunny off (a hit made it drop it once)")
   kill_hunters()
   -- ...but one under a roof isn't.
   local roofed=list[3]
