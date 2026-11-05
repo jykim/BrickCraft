@@ -424,6 +424,12 @@ local function run(dad)
   -- Everyone else waits out of the way, inside a big pen on the far side.
   local pen={x=w.x+16,y=0,z=w.z-17}
   clear(pen,4,4)
+  -- Two put down in the very same spot step apart instead of standing inside each other.
+  local b2,b3=list[2],list[3]
+  park(b2,{x=pen.x,y=.5,z=pen.z}); park(b3,{x=pen.x,y=.5,z=pen.z})
+  local function gap() return H.flat(b2.object:get_pos(),b3.object:get_pos()) end
+  wait(10,function() return gap()>=.44 end,function() return "still overlapping: "..string.format("%.2f",gap()) end)
+  log(string.format("two bunnies in one spot stepped apart (%.2f)",gap()))
   for i=2,#list do park(list[i],{x=pen.x+(i%3)-1,y=.5,z=pen.z+math.floor(i/3)-1}) end
   ring(pen,3,2,true)
 
