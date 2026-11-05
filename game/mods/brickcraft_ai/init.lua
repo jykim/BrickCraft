@@ -1018,13 +1018,14 @@ end
 -- (tools/post_issues.zsh), leaving issues/sent/<id>.url for the builder to tell the player.
 local REPORTS=C.get_worldpath().."/issues"
 local reports={} -- id -> tell(url), for the builder that took it
-local function queue_report(title,body,label,tell)
+local function queue_report(title,body,label,tell,view,recipient)
   C.mkdir(REPORTS)
-  local id=os.date("%Y%m%d-%H%M%S").."-"..math.random(1000,9999)
+  local id=view and view.id or (os.date("%Y%m%d-%H%M%S").."-"..math.random(1000,9999))
   C.safe_file_write(REPORTS.."/"..id..".md",body)
   C.safe_file_write(REPORTS.."/"..id..".label",label)
   C.safe_file_write(REPORTS.."/"..id..".title",title)
-  reports[id]=tell
+  if recipient then brickcraft.reports.notifications.track(id,title,recipient)
+  else reports[id]=tell end
   return id
 end
 local report_timer=0
@@ -1041,7 +1042,21 @@ C.register_globalstep(function(dt)
     end
   end
 end)
-brickcraft.reports={queue=queue_report,dir=REPORTS,system=[[You write GitHub issues for BrickCraft, a toy-brick sandbox game a family (kids included) plays together. A player told their AI builder about something wrong in the game, or an idea for it. Turn their words into an issue the game's developer can act on later.
+brickcraft.reports={queue=queue_report,dir=REPORTS,
+  -- Capture now, before the asynchronous write-up: the player may move or switch worlds.
+  location=function(player)
+    local p=player:get_pos()
+    local world=brickcraft.world_at(p)
+    local function rounded(n) return math.floor(n*100+.5)/100 end
+    return {
+      save=C.get_worldpath():match("([^/]+)$"),
+      world_id=world.id,world_name=world.name,
+      position={x=rounded(p.x),y=rounded(p.y),z=rounded(p.z)},
+      look={yaw=rounded(player:get_look_horizontal()),pitch=rounded(player:get_look_vertical())},
+      captured_at=os.date("!%Y-%m-%dT%H:%M:%SZ"),
+    }
+  end,
+  system=[[You write GitHub issues for BrickCraft, a toy-brick sandbox game a family (kids included) plays together. A player told their AI builder about something wrong in the game, or an idea for it. Turn their words into an issue the game's developer can act on later.
 
 You get what was said in chat lately (it can explain what "that" means, but don't copy anyone's chat into the issue), their exact words, where they were and what they held, and the area in front of them as a list (x and z 0-15, y -1 ground to 8; "<piece> <color> x y z turn", "track straight|curve x y z turn", "cart x y z moving|stopped", "player <name> ...").
 
@@ -1049,6 +1064,9 @@ Answer with one JSON object and nothing else:
 - "title": a short, specific issue title in English (under 70 characters).
 - "kind": "bug" if something doesn't work as it should, "idea" for a wish or new feature.
 - "body": Markdown in English: what happened or what they want, steps to see it if you can tell, and what in the area list looks related. Don't guess at causes in the code. Don't add personal details beyond the in-game name.]]}
+
+brickcraft.reports.capture_view=dofile(C.get_modpath("brickcraft_ai").."/report_view.lua")
+brickcraft.reports.notifications=dofile(C.get_modpath("brickcraft_ai").."/report_notifications.lua")(REPORTS,storage)
 
 -- One Local AI API serves every builder: at most CLAUDE_MAX requests at once, the rest wait.
 local CLAUDE_MAX=tonumber(S:get("brickcraft_ai_parallel")) or 2
@@ -1179,6 +1197,37 @@ local lib={
   at_asker=at_asker,plot_from=plot_from,world_named=world_named,worlds_note=worlds_note,plan_lines=plan_lines}
 -- One builder per owner: jms (owner "jms", the host's, in the Workshop) or a player's.
 -- Each has its own body, bricks, jobs and saved state.
+-- Everything a builder can do beyond its own steps, read once the game is loaded: the
+-- helpers mods registered (brickcraft.assist) and every chat command, which it can run
+-- for whoever asks, with their own privileges.
+local full_chat
+local function chat_system()
+  if full_chat then return full_chat end
+  local extra={}
+  for _,h in ipairs(brickcraft.assist and brickcraft.assist.helpers or {}) do if h.prompt then extra[#extra+1]=h.prompt end end
+  local cmds={}
+  for name,def in pairs(C.registered_chatcommands) do
+    local privs=def.privs or {}
+    local plain=true
+    for priv in pairs(privs) do if priv~="interact" and priv~="shout" then plain=false end end
+    if plain then cmds[#cmds+1]="- /"..name..(def.params and def.params~="" and " "..def.params or "")..": "..(def.description or "") end
+  end
+  table.sort(cmds)
+  full_chat=SYSTEM_CHAT..table.concat(extra,"")..[[
+
+
+Game commands: you can also run any of these for whoever asks, as them (they could type it themselves): a step that is the command itself, "/<command> <params>". Use one whenever it does what they want and none of your own steps does. Commands:
+]]..table.concat(cmds,"\n")
+  return full_chat
+end
+local function assist_context(name)
+  local out={}
+  for _,h in ipairs(brickcraft.assist and brickcraft.assist.helpers or {}) do
+    if h.context then local ok,t=pcall(h.context,name); if ok and t and t~="" then out[#out+1]=t end end
+  end
+  return #out>0 and table.concat(out,"\n").."\n" or ""
+end
+
 local function new_worker(owner)
   local AUTO_MAX,C,EYE,GROUND,JUMP,NEARBY,PATCH_AFTER,QUIET,REACH,S,STEP,SYSTEM,SYSTEM_EDIT,WALK,
     about_holes,asks_for_work,is_hello,aim_collect,aim_place,area_box,area_of,ask_claude,beside,
@@ -1199,7 +1248,7 @@ local function new_worker(owner)
     lib.seen_from,lib.shapes,lib.standable,lib.storage,lib.stored_name,lib.survey,lib.takedown,
     lib.turns_toward,lib.use_claude,lib.walkable,lib.where,lib.worker_named,lib.workers,
     lib.SYSTEM_CHAT,lib.is_talk,lib.parse_request,lib.describe
-  local w={owner=owner,jms=owner=="jms",name=stored_name(owner)}
+  local w={owner=owner,jms=owner=="jms",name=stored_name(owner),lib=lib}
   local style=not w.jms and brickcraft.styles[owner]
   local TAG=style and style.tag or "#f5872c"
   local sk=w.jms and "" or "_"..owner -- storage keys (jms keeps the ones from before there were more)
@@ -1278,6 +1327,16 @@ local function new_worker(owner)
   local hands_meta={get_string=function(_,k) return meta_data[k] or "" end,set_string=function(_,k,v) meta_data[k]=v end,
     get_int=function(_,k) return tonumber(meta_data[k]) or 0 end,set_int=function(_,k,v) meta_data[k]=v end}
   local hands={
+    _brickcraft_principal=function()
+      local function resolve()
+        for _,p in ipairs(C.get_connected_players()) do
+          if brickcraft.playing_as(p)==owner then return p:get_player_name() end
+        end
+        return owner=="jms" and id() or ""
+      end
+      brickcraft.permissions.delegates[id()]=resolve
+      return resolve()
+    end,
     is_player=function() return true end, get_player_name=function() return id() end,
     get_inventory=function() return inv end, get_wield_list=function() return "main" end,
     get_wield_index=function() return wield end,
@@ -1305,8 +1364,8 @@ local function new_worker(owner)
   -- Placing and collecting through the players' item callbacks.
   local function place(it,pointed,eye)
     local s=shapes[it.piece]
-    local item="brickcraft:"..it.color
-    wield=slot_for(item,s.cost)
+    local item=brickcraft.piece_item(it.color,s)
+    wield=slot_for(item,1)
     if not wield then return false end
     look=vector.direction(eye,pointed.above)
     -- Q-turns from the way the builder faces, exactly as a player picks a piece's turn.
@@ -1620,10 +1679,13 @@ local function new_worker(owner)
     local pl=C.get_player_by_name(name)
     local facts="Reported by "..who.." to "..w.name.." (AI builder), "..os.date("!%Y-%m-%d %H:%M UTC")
     local area=""
+    local location=pl and brickcraft.reports.location(pl)
+    local view=pl and brickcraft.reports.capture_view(pl,location,REPORTS)
+    local recipient={style=pl and brickcraft.playing_as(pl),name=name}
     if pl then
-      local pos=vector.round(pl:get_pos())
+      local pos=location.position
       local held=pl:get_wielded_item():get_short_description()
-      facts=facts.."\nWorld: "..brickcraft.world_at(pos).name..", at "..pos.x..","..pos.y..","..pos.z..
+      facts=facts.."\nWorld: "..location.world_name.." (#"..location.world_id.."), at "..pos.x..","..pos.y..","..pos.z..
         "; holding "..(held~="" and held or "nothing")..(pl:get_attach() and "; riding a cart" or "")
       if same_world(pl:get_pos(),base()) then area=describe(area_of(name)) end
     end
@@ -1631,12 +1693,12 @@ local function new_worker(owner)
     local function post(title,body,kind)
       title=title:gsub("[%c]"," "):sub(1,80)
       local full=body.."\n\n---\n**In the game:**\n\n"..quote.."\n\n"..facts:gsub("\n","  \n")..
-        (area~="" and "\n\n<details><summary>Area in front of them</summary>\n\n```\n"..area.."\n```\n</details>" or "")
+        (location and "\n\n**World location** (position in nodes; yaw/pitch in radians):\n\n```json\n"..
+          C.write_json(location).."\n```\nUse `/world` to select this world. This points to the live world, not a frozen snapshot." or
+          "\n\nWorld location unavailable: the reporting player was no longer connected.")
       brickcraft.reports.queue(title,full,kind=="idea" and "enhancement" or "bug",function(url)
         say("Your report is on GitHub now, "..who..": "..url)
-      end)
-      -- Talking already said it was written down.
-      if not via_chat then say("Thanks "..who.."! I wrote it down for the game's makers: \""..title.."\". It goes on GitHub soon.") end
+      end,view,recipient)
     end
     if not use_claude then post(words:sub(1,70),"A player reported this from inside the game.",idea and "idea" or "bug") return end
     if not via_chat then say("Okay "..who..", I'm writing that down...",true) end
@@ -1659,6 +1721,47 @@ local function new_worker(owner)
       end
     end
   end
+  -- Walks to stand next to pos (helpers' api.go).
+  local function go_near(pos)
+    if not bot_ok() then return false end
+    local f=feet_of(pos)
+    for _,d in ipairs({{0,0},{1,0},{-1,0},{0,1},{0,-1},{1,1},{-1,-1},{1,-1},{-1,1}}) do
+      local to={x=f.x+d[1],y=f.y,z=f.z+d[2]}
+      if standable(to) then
+        local p=find_path(to)
+        if p then set_path(p); return true end
+      end
+    end
+    return false
+  end
+  -- Beyond its own steps (from handle): a game command, run for the asker with their own
+  -- privileges, or a step a mod taught builders (brickcraft.assist). True when done.
+  local function extras(name,text,who)
+    -- A game command, run for the asker with their own privileges.
+    if text:sub(1,1)=="/" then
+      local cmd,param=text:match("^/(%S+)%s*(.-)%s*$")
+      local def=cmd and C.registered_chatcommands[cmd]
+      if not def then say("I don't know the command /"..tostring(cmd)..".") return true end
+      local ok_privs,missing=C.check_player_privs(name,def.privs or {})
+      if not ok_privs then say("You'd need the "..table.concat(missing,", ").." privilege for that, "..who..".") return true end
+      local ok,res,msg=pcall(def.func,name,param or "")
+      if not ok then say("That didn't work: "..tostring(res):sub(1,120)) return true end
+      if type(msg)=="string" and msg~="" then C.chat_send_player(name,msg) end
+      C.log("action","[ai] "..w.name.." ran /"..cmd.." "..(param or "").." for "..name)
+      return true
+    end
+    -- What mods taught builders to do (brickcraft.assist), e.g. herding bunnies.
+    for _,helper in ipairs(brickcraft.assist and brickcraft.assist.helpers or {}) do
+      if helper.step then
+        local ok,done=pcall(helper.step,name,text,say,{bot=bot_ok() and bot or nil,owner=owner,
+          is_owner=w.jms or is_owner(name),owner_label=w.jms and "everyone" or style.label,go=go_near})
+        if not ok then C.log("warning","[ai] helper "..tostring(helper.name).." failed: "..tostring(done))
+        elseif done then return true end
+      end
+    end
+    return false
+  end
+
   -- Claude's answer to a request about what's already there, at the area's corner `o`.
   local function apply_edit(reply,o,name)
     local who=display_name(name)
@@ -1718,7 +1821,8 @@ local function new_worker(owner)
       " ("..(job.i-1).." of "..#job.list.." pieces).\n" or "You aren't building anything right now.\n"
     local whose=w.jms and "You work for everyone in the workshop.\n" or is_owner(name) and who.." is your owner.\n" or
       style.label.." is your owner, not "..who..": only "..style.label.." can have you stop, undo, give bricks away, rename you or change your modes.\n"
-    think(SYSTEM_CHAT,seen..doing..whose..who.." says: "..text,function(reply)
+    seen=seen..assist_context(name)
+    think(chat_system(),seen..doing..whose..who.." says: "..text,function(reply)
       if not reply then say("Sorry "..who..", I didn't catch that. Ask me to build or fix something!") return end
       say(tostring(reply.say):sub(1,240))
       local steps=reply["do"]
@@ -1753,7 +1857,7 @@ local function new_worker(owner)
       return
     end
     local n=math.max(1,math.min(tonumber(low:match("%d+")) or 24,99))
-    local left=pl:get_inventory():add_item("main","brickcraft:"..color.." "..n):get_count()
+    local left=brickcraft.give(pl,"brickcraft:"..color.." "..n):get_count()
     local got=n-left
     local whom=pl:get_player_name()==name and "you" or display_name(pl:get_player_name())
     if got==0 then say((whom=="you" and "Your" or whom.."'s").." bricks are full, "..who..". Put some down first!") return end
@@ -1801,6 +1905,7 @@ local function new_worker(owner)
       report(name,text,how=="do")
       return
     end
+    if extras(name,text,who) then return end
     local new=text:match("^[Yy]our name is%s+(.+)$") or text:match("^[Cc]all yourself%s+(.+)$") or
       text:match("이름은%s*(.+)$")
     if new then
@@ -1900,7 +2005,7 @@ local function new_worker(owner)
     if low:find("^come") or low:find("^meet") or low:find("이리") then
       -- "Meet me at the workshop": a world name is a place too. The one they're in means
       -- here; another one is somewhere only they can switch to.
-      local there=asker and lib.world_named(low)
+      local there=asker and w.lib.world_named(low)
       local here_w=asker and brickcraft.world_at(asker:get_pos())
       if there and there.name~=here_w.name then
         say(w.jms and "I stay in the Workshop, "..who..". Come find me here!"
@@ -1947,12 +2052,12 @@ local function new_worker(owner)
     -- Leona instead. Either way its front faces that player.
     local by,rest=near_phrase(text,around())
     -- "Where I'm standing", "here": as close by them as there's room, not 7 blocks ahead.
-    local near,from=front_of(by and by.name or name,not by and lib.at_asker(low) and 1 or nil)
+    local near,from=front_of(by and by.name or name,not by and w.lib.at_asker(low) and 1 or nil)
     local by_note=by and by.name~=name and " next to "..by.label or ""
     -- Where it really went and how big it came out, so the reply matches the world.
     local function placed(j,planned)
       local s=#j.list.." pieces"
-      if asker then s=s..", "..lib.plot_from(j.origin,j.size,asker:get_pos()) end
+      if asker then s=s..", "..w.lib.plot_from(j.origin,j.size,asker:get_pos()) end
       if planned and planned>#j.list then
         s=s.."; "..(planned-#j.list).." of the "..planned.." planned didn't fit (I build up to 8 high and every piece has to touch another)"
       end
@@ -1977,7 +2082,7 @@ local function new_worker(owner)
       local list=reply and parse_plan(reply.lines,turns)
       if not list or #list==0 then return fallback(" (my design didn't work out)") end
       local planned=0
-      for _,it in ipairs(lib.plan_lines(reply.lines).pieces) do if it then planned=planned+1 end end
+      for _,it in ipairs(w.lib.plan_lines(reply.lines).pieces) do if it then planned=planned+1 end end
       local title=tostring(reply.title or "build"):sub(1,40)
       local ok,j=start_job(list,title,name,near)
       if not ok then say("There's no room left on the baseplate for that. Take something down first.") return end
@@ -2489,7 +2594,7 @@ C.register_on_shutdown(function() write_server_status(false) end)
 write_server_status(true)
 
 brickcraft.ai={name=NAME,parse_request=parse_request,parse_plan=parse_plan,blueprint=blueprint,
-  describe=describe,chat_system=function() return SYSTEM_CHAT end,system=SYSTEM,
+  describe=describe,chat_system=chat_system,system=SYSTEM,
   at_asker=at_asker,plot_from=plot_from,world_named=world_named,worlds_note=worlds_note,
   blueprints=blueprints,order=blueprint_order,find_plot=find_plot,cells_of=cells_of,
   players=players,where=where,near_phrase=near_phrase,player_in=player_in,survey=survey,is_edit=is_edit,

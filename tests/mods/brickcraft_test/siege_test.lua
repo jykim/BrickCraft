@@ -227,6 +227,14 @@ local function run(dad)
   -- The flag: with the keep's archers gone, three red knights by it take the castle.
   local army2,id2
   wait(25,function() for i,a in pairs(W.armies) do if a.lab==w then army2,id2=a,i end end; return army2 end,function() return "no next army" end)
+  -- A castle archer knocked out is gone (the next Red Army brings the garrison back).
+  local fallen
+  for ent in pairs(W._things()) do if ent._archer==w.id and ent.object:get_pos() and ent.object:get_pos().y<=6 and not ent._down then fallen=ent end end
+  assert(fallen,"an archer on the walls")
+  for _=1,4 do W.hit(fallen.object,nil,"cannon",{x=1,y=0,z=0},"red") end
+  sleep(2.2)
+  assert(not fallen.object:get_pos(),"a knocked-out archer stays gone")
+  log("FALLEN: a knocked-out castle archer is gone")
   dad:set_pos(brickcraft.home_pos(dad,w))
   for ent in pairs(W._things()) do
     local q=ent.object:get_pos()
@@ -234,7 +242,7 @@ local function run(dad)
   end
   local n=0
   for ent in pairs(W._things()) do
-    if ent._army==id2 and ent.name=="brickcraft:knight" and not ent._boss and not ent._crew and not ent._build and n<3 then
+    if ent._army==id2 and ent.name=="brickcraft:knight" and not ent._boss and not ent._guard and not ent._crew and not ent._build and n<3 then
       n=n+1; ent.object:set_pos({x=w.x+n-2,y=6.5,z=w.z+6})
     end
   end

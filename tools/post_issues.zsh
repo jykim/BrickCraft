@@ -16,14 +16,21 @@ if [[ "${BRICKCRAFT_ISSUES_DRY:-0}" != 1 ]]; then
   # This label is the hand-off to improve_issues.zsh. --force also repairs its description
   # or color if it was created manually with different values.
   gh label create player-report -R "$REPO" --color 5319E7 \
-    --description "Reported from inside BrickCraft; ready for the improvement worker" --force >/dev/null
+    --description "Reported from inside BrickCraft; ready for the improvement worker" --force >/dev/null || exit 1
 fi
 for title_file in "$QUEUE"/*.title(N); do
   id="${title_file:t:r}"
   title="$(<"$title_file")"
   label="$(cat "$QUEUE/$id.label" 2>/dev/null || print bug)"
+  image_markdown=""
+  if [[ -f "$QUEUE/$id.view.json" && "${BRICKCRAFT_ISSUES_DRY:-0}" != 1 ]]; then
+    if ! image_markdown="$(python3 "$ROOT/tools/prepare_report_screenshot.py" "$QUEUE" "$id" "$REPO")"; then
+      print -u2 "Could not prepare screenshot for $id; report remains queued for retry."
+      continue
+    fi
+  fi
   body="$(mktemp)"
-  { cat "$QUEUE/$id.md" 2>/dev/null; print; print "_Game version: ${COMMIT}. Sent from inside BrickCraft by an AI builder._" } > "$body"
+  { cat "$QUEUE/$id.md" 2>/dev/null; print -r -- "$image_markdown"; print; print "_Game version: ${COMMIT}. Sent from inside BrickCraft by an AI builder._" } > "$body"
   if [[ "${BRICKCRAFT_ISSUES_DRY:-0}" == 1 ]]; then
     print -r -- "Would post to $REPO [$label]: $title"
     url="dry-run:$id"
@@ -36,5 +43,9 @@ for title_file in "$QUEUE"/*.title(N); do
   fi
   rm -f "$body"
   mv "$QUEUE/$id".{md,label,title} "$QUEUE/sent/" 2>/dev/null
+  for extra in "$QUEUE/$id".{jpg,image.md,recipient.json}(N); do
+    mv "$extra" "$QUEUE/sent/"
+  done
+  rm -f "$QUEUE/$id.view.json" "$QUEUE/$id.view.mts"
   print -r -- "$url" > "$QUEUE/sent/$id.url"
 done

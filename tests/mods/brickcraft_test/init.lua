@@ -3,6 +3,7 @@
 local C=core
 local dir=C.get_modpath("brickcraft_test")
 local checks={
+  brickcraft_world_api_test="world_api_test.lua",
   brickcraft_integration_test="integration.lua",
   brickcraft_multiplayer_test="multiplayer_test.lua",
   brickcraft_house_test="house_test.lua",
@@ -14,6 +15,10 @@ local checks={
   brickcraft_siege_sim="siege_sim.lua",
   brickcraft_td_test="td_test.lua",
   brickcraft_kart_test="kart_test.lua",
+  brickcraft_models_test="models_test.lua",
+  brickcraft_habitat_test="habitat_test.lua",
+  brickcraft_kingdom_test="kingdom_test.lua",
+  brickcraft_habitat_sim="habitat_sim.lua",
   brickcraft_ai_test="ai_test.lua", -- with brickcraft_ai_builder, which loads the builders
 }
 for setting,file in pairs(checks) do

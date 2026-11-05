@@ -20,20 +20,33 @@ C.register_on_joinplayer(function(player)
   C.after(3,function()
     local inv=player:get_inventory()
     local slot={}
+    inv:set_list("pieces",{}) -- 99 of every piece below, not the starter kit
+    for i=2,inv:get_size("main") do inv:set_stack("main",i,"") end
     for i,color in ipairs(brickcraft.colors) do
-      if i<=8 then slot[color]=i+1; inv:set_stack("main",i+1,"brickcraft:"..color.." 99") end
+      if i<=8 then
+        slot[color]=i+1
+        for _,s in ipairs(brickcraft.shape_list) do brickcraft.give(player,brickcraft.piece_item(color,s).." 99") end
+      end
     end
-    local function count(color) return inv:get_stack("main",slot[color]):get_count() end
+    -- Pieces of a color used so far, counted down from 99 (each piece is one).
+    local function total(color)
+      local n=0
+      for _,s in ipairs(brickcraft.shape_list) do n=n+brickcraft.count_of(player,brickcraft.piece_item(color,s)) end
+      return n
+    end
+    local full={}
+    for color in pairs(slot) do full[color]=total(color) end
+    local function count(color) return 99-(full[color]-total(color)) end
     local function place(piece,color,pos,yaw)
       player:set_look_horizontal(yaw or 0); player:set_look_vertical(0)
-      brickcraft.set_shape(player,brickcraft.shapes[piece])
+      brickcraft.fill_hotbar(player,brickcraft.shapes[piece])
       local stack=inv:get_stack("main",slot[color])
       stack=stack:get_definition().on_place(stack,player,{type="node",under=vector.offset(pos,0,-1,0),above=pos})
       inv:set_stack("main",slot[color],stack)
     end
     -- A right click on a cart, holding a color with the chosen piece (or the separator).
     local function click(ent,piece,color)
-      if piece then brickcraft.set_shape(player,brickcraft.shapes[piece]) end
+      if piece then brickcraft.fill_hotbar(player,brickcraft.shapes[piece]) end
       local held=inv:get_stack("main",1)
       if color then inv:set_stack("main",1,inv:get_stack("main",slot[color])) end
       ent.on_rightclick(ent,player)
@@ -74,7 +87,7 @@ C.register_on_joinplayer(function(player)
     assert(C.get_node({x=18,y=0,z=7}).name=="air" and count("coral")==before,"a gear can't overlap another")
     assert(C.get_node(g24).name=="brickcraft:coral_gear24" and C.get_node(g24).param2==T.axis_param({x=0,y=0,z=1}),
       "a gear points the way you look")
-    assert(count("navy")==97 and count("coral")==96,"each piece uses 1 brick")
+    assert(count("navy")==97 and count("coral")==96,"each piece is one")
     local function still() return T.spin(g8)==0 and T.spin(g24)==0 and T.spin(g40)==0 end
     C.after(.5,function()
       assert(still(),"nothing turns while the switch is off")
@@ -124,7 +137,7 @@ C.register_on_joinplayer(function(player)
                   -- pulling a passenger car.
                   for x=-23,-11 do for y=0,2 do for z=-5,5 do C.set_node({x=x,y=y,z=z},{name="air"}) end end end
                   local cells=brickcraft.trains.lay_loop({x=-22,y=0,z=-4},{x=-12,y=0,z=4},"navy")
-                  local function put(piece,color,pos) brickcraft.set_shape(player,brickcraft.shapes[piece])
+                  local function put(piece,color,pos) brickcraft.fill_hotbar(player,brickcraft.shapes[piece])
                     local st=inv:get_stack("main",slot[color])
                     st=st:get_definition().on_place(st,player,{type="node",under=pos,above=vector.offset(pos,0,1,0)})
                     inv:set_stack("main",slot[color],st) end

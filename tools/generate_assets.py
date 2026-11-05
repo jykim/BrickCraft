@@ -12,7 +12,124 @@ colors=dict(coral=(235,93,72),gold=(249,193,65),mint=(74,183,147),sky=(74,161,21
 for name,rgb in colors.items():
     png('brickcraft_'+name+'.png',32,32,lambda x,y,c=rgb: tuple(max(0,min(255,v+(-16 if x==31 or y==31 else 8 if x==0 or y==0 else 0))) for v in c)+(255,))
 png('brickcraft_baseplate.png',32,32,lambda x,y:(88,126,116,255) if (x%16-8)**2+(y%16-8)**2<12 else (70,103,98,255))
-png('brickcraft_separator.png',32,32,lambda x,y:(245,135,44,255) if (7<=x<=24 and 4<=y<=10) or (12<=x<=20 and 10<=y<=28) else (0,0,0,0))
+import math
+def separator_pixels(size=64, ss=4):
+    """Ray-marched brick separator: ribbed flat handle, raised head with an axle pin and two studs."""
+    # Side profile (x along the tool, y up), extruded across z.
+    P = [(0, .1), (.7, 0), (10.3, 0), (10.8, -.55), (14.0, -.55), (14.4, .5), (14.4, 1.05), (13.9, 1.5),
+         (12.6, 1.5), (12.6, 1.95), (11.3, 1.95), (9.0, .62), (0, .3)]
+    HW = 1.6
+    def poly(px, py):
+        d = (px - P[0][0]) ** 2 + (py - P[0][1]) ** 2; s = 1
+        j = len(P) - 1
+        for i in range(len(P)):
+            (ax, ay), (bx, by) = P[i], P[j]
+            ex, ey = ax - bx, ay - by; wx, wy = px - bx, py - by
+            t = max(0, min(1, (wx * ex + wy * ey) / (ex * ex + ey * ey)))
+            d = min(d, (wx - ex * t) ** 2 + (wy - ey * t) ** 2)
+            c1, c2, c3 = py >= by, py < ay, ex * wy > ey * wx
+            if (c1 and c2 and c3) or (not c1 and not c2 and not c3): s = -s
+            j = i
+        return s * math.sqrt(d)
+    def body(x, y, z):
+        r = .07
+        dx = poly(x, y) + r
+        dz = abs(z) - HW + r
+        d = min(max(dx, dz), 0) + math.hypot(max(dx, 0), max(dz, 0)) - r
+        # Rounded corners at the thin tip, seen from above.
+        if x < .8:
+            cx, cz = .8 - x, abs(z) - (HW - .8)
+            if cz > 0: d = max(d, math.hypot(cx, cz) - .8)
+        return d
+    def capsule_z(x, y, z, cx, cy, half, rad):
+        zz = max(abs(z) - half, 0)
+        return math.sqrt((x - cx) ** 2 + (y - cy) ** 2 + zz * zz) - rad
+    ribs = [1.9 + i * .88 for i in range(8)]
+    def ytop(x): return .3 + .32 * x / 9
+    def cyl_y(x, y, z, cx, cz, rad, y0, y1, rr=.05):
+        dr = math.hypot(x - cx, z - cz) - rad + rr
+        dy = abs(y - (y0 + y1) / 2) - (y1 - y0) / 2 + rr
+        return min(max(dr, dy), 0) + math.hypot(max(dr, 0), max(dy, 0)) - rr
+    def box(x, y, z, cx, cy, cz, hx, hy, hz, rr=.03):
+        qx, qy, qz = abs(x - cx) - hx + rr, abs(y - cy) - hy + rr, abs(z - cz) - hz + rr
+        return math.sqrt(max(qx, 0) ** 2 + max(qy, 0) ** 2 + max(qz, 0) ** 2) + min(max(qx, qy, qz), 0) - rr
+    def logo(x, z):  # shallow raised frame near the tip
+        o = max(abs(x - 1.0) - .55, abs(z) - 1.05)
+        return abs(o) - .06
+    def sdf(x, y, z):
+        d = body(x, y, z)
+        if x < 9.2 and y < 1:
+            for cx in ribs:
+                if abs(x - cx) < .4:
+                    d = min(d, capsule_z(x, y, z, cx, ytop(cx) - .02, 1.05, .12))
+            if x < 1.8:
+                l = logo(x, z); h = y - ytop(x) - .04
+                d = min(d, max(l, h, -(y - ytop(x) + .1)))
+        if x > 12.4:
+            for cz in (-.8, .8):
+                d = min(d, cyl_y(x, y, z, 13.25, cz, .52, 1.3, 1.92))
+        if 11 < x < 12.6 and y > 1.5:
+            d = min(d, box(x, y, z, 11.9, 2.5, 0, .36, .6, .11), box(x, y, z, 11.9, 2.5, 0, .11, .6, .36))
+        return d
+    def normal(x, y, z):
+        e = .004
+        return norm((sdf(x + e, y, z) - sdf(x - e, y, z), sdf(x, y + e, z) - sdf(x, y - e, z), sdf(x, y, z + e) - sdf(x, y, z - e)))
+    def norm(v):
+        l = math.sqrt(sum(c * c for c in v)) or 1
+        return tuple(c / l for c in v)
+    def cross(a, b): return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+    def dot(a, b): return sum(p * q for p, q in zip(a, b))
+    # Camera: look down at the tool from its right side, then turn the image so it runs corner to corner.
+    yaw, pitch = math.radians(5), math.radians(70)
+    fwd = norm((-math.cos(pitch) * math.sin(yaw) * -1, -math.sin(pitch), -math.cos(pitch) * math.cos(yaw)))
+    right = norm(cross(fwd, (0, 1, 0))); up = cross(right, fwd)
+    ang = math.radians(40)
+    centre = (7.2, .7, 0); span = 13.4
+    light = norm((.35, .85, .75)); half = norm(tuple(l - f for l, f in zip(light, fwd)))
+    base = (247, 142, 34)
+    N = size * ss
+    acc = [[[0, 0, 0, 0] for _ in range(size)] for _ in range(size)]
+    for j in range(N):
+        for i in range(N):
+            u = (i + .5) / N - .5; v = .5 - (j + .5) / N
+            uu = (u * math.cos(ang) + v * math.sin(ang)) * span
+            vv = (-u * math.sin(ang) + v * math.cos(ang)) * span
+            o = tuple(c + uu * r + vv * w - 12 * f for c, r, w, f in zip(centre, right, up, fwd))
+            t = 0; hit = False
+            for _ in range(90):
+                p = tuple(oc + t * f for oc, f in zip(o, fwd))
+                d = sdf(*p)
+                if d < .002: hit = True; break
+                t += d
+                if t > 24: break
+            if not hit: continue
+            n = normal(*p)
+            dif = max(dot(n, light), 0)
+            spec = max(dot(n, half), 0) ** 28 * .35
+            rim = (1 - max(dot(n, tuple(-c for c in fwd)), 0)) ** 3 * .25
+            k = .4 + .7 * dif - rim
+            col = [min(255, c * k + 255 * spec) for c in base]
+            a = acc[j // ss][i // ss]
+            for c in range(3): a[c] += col[c]
+            a[3] += 1
+    out = []
+    for row in acc:
+        r = []
+        for a in row:
+            if a[3] * 2 < ss * ss: r.append((0, 0, 0, 0))
+            else: r.append(tuple(int(a[c] / a[3]) for c in range(3)) + (255,))
+        out.append(r)
+    # A darker one-pixel outline keeps the shape readable on any background.
+    w = size
+    res = [list(r) for r in out]
+    for y in range(w):
+        for x in range(w):
+            if out[y][x][3]: continue
+            nb = [out[yy][xx] for yy, xx in ((y-1, x), (y+1, x), (y, x-1), (y, x+1)) if 0 <= yy < w and 0 <= xx < w and out[yy][xx][3]]
+            if nb: res[y][x] = (120, 56, 10, 255)
+    return res
+_sep=separator_pixels()
+png('brickcraft_separator.png',64,64,lambda x,y:_sep[y][x])
 png('brickcraft_hand.png',32,32,lambda x,y:(245,196,134,255) if 9<=x<=24 and 7<=y<=29 else (0,0,0,0))
 # Landscape: flat brick-toy colors with a stud dot so hills read as bricks too.
 def stud(base,light):
@@ -225,6 +342,22 @@ def knight_icon(x,y):  # a shield with a coral cross
     if 13<=x<=18 or 11<=y<=15: return (235,93,72,255)
     return (170,176,188,255)
 png('brickcraft_knight.png',32,32,knight_icon)
+def canopy(x,y):  # the Red Commander's shield roof seen from above: 2x2 red shields, gold rims and bosses
+    u,v=x%16,y%16
+    if u in (0,15) or v in (0,15): return (120,30,26,255)  # the gap between shields
+    if u in (1,14) or v in (1,14): return (222,176,64,255)  # gold rim
+    if (u-7.5)**2+(v-7.5)**2<=5: return (246,214,120,255) if (u-7)**2+(v-7)**2<=1 else (206,160,52,255)  # boss
+    return (196,44,36,255) if (u+v)%7 else (176,38,32,255)
+png('brickcraft_canopy.png',32,32,canopy)
+def gun_icon(x,y):  # a brick blaster pointing right: gray barrel, coral stripe, brown grip
+    if 5<=x<=27 and 9<=y<=15:
+        if x>=26: return (52,56,64,255)  # muzzle
+        if y==12 and 8<=x<=22: return (235,93,72,255)
+        return (110,116,128,255) if y<=10 else (70,74,84,255)
+    if 7<=x<=12 and 16<=y<=26 and x-7>=(y-16)*.25: return (118,80,52,255)
+    if 14<=x<=17 and 16<=y<=19 and not (x in (15,16) and y<=18): return (52,56,64,255)  # trigger guard
+    return (0,0,0,0)
+png('brickcraft_gun.png',32,32,gun_icon)
 def bow_icon(x,y):  # a wooden bow drawn corner to corner, its string and an arrow across
     t,d=(x-y+31)/2,(x+y-31)/2  # along the bow's line, and off it toward the bottom right
     bend=6.5-((t-15.5)**2)/37

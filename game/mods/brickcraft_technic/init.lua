@@ -59,17 +59,17 @@ local function register(name,def)
 end
 for _,color in ipairs(brickcraft.colors) do
   local tex="brickcraft_"..color..".png"
-  local drop="brickcraft:"..color
   local base="brickcraft:"..color
   -- A pair: the piece, and its invisible twin while it turns (the spinner draws it).
   local function pair(suffix,kind,shown,spin_mesh,box,extra)
+    -- Collected, turning or not, the piece comes back as itself.
     local still,spin=base..suffix,base..suffix.."_spin"
-    local def={description=extra.label,drop=drop,collision_box={type="fixed",fixed=box},
+    local def={description=extra.label,collision_box={type="fixed",fixed=box},
       selection_box={type="fixed",fixed=box},brickcraft_power=kind,brickcraft_color=color,
       brickcraft_spin_name=spin,brickcraft_spin_mesh=spin_mesh,brickcraft_teeth=extra.teeth}
     for k,v in pairs(shown) do def[k]=v end
     register(still,def)
-    local twin={description=extra.label,drop=drop,collision_box={type="fixed",fixed=box},
+    local twin={description=extra.label,drop=still,collision_box={type="fixed",fixed=box},
       selection_box={type="fixed",fixed=box},brickcraft_power=kind,brickcraft_color=color,
       brickcraft_still_name=still,brickcraft_spin_mesh=spin_mesh,brickcraft_teeth=extra.teeth,
       groups={brick=1,technic=1,technic_spin=1,not_in_creative_inventory=1},
@@ -90,14 +90,14 @@ for _,color in ipairs(brickcraft.colors) do
   register(base.."_motor_node",{description="Train Motor\nPart 88002",drawtype="mesh",mesh="brickcraft_motor_node.obj",
     tiles={{name=tex,backface_culling=false},{name="brickcraft_track_rail.png",backface_culling=false}},
     collision_box={type="fixed",fixed={-.32,-.5,-.4,.32,.24,.5}},selection_box={type="fixed",fixed={-.32,-.5,-.4,.32,.24,.5}},
-    drop=drop,brickcraft_power="motor",brickcraft_color=color,
+    brickcraft_power="motor",brickcraft_color=color,
     on_construct=nil})
   for state,suffix in pairs({[0]="",[1]="_fwd",[-1]="_back"}) do
     register(base.."_battery_node"..suffix,{description="Battery Box with switch\nPart 8881",drawtype="mesh",
       mesh="brickcraft_battery_node.obj",
       tiles={{name=tex,backface_culling=false},{name=LIGHT[state],backface_culling=false}},
       collision_box={type="fixed",fixed={-.3,-.5,-.34,.3,.18,.3}},selection_box={type="fixed",fixed={-.3,-.5,-.34,.3,.18,.3}},
-      drop=drop,brickcraft_power="battery",brickcraft_color=color,brickcraft_state=state,
+      drop=base.."_battery_node",brickcraft_power="battery",brickcraft_color=color,brickcraft_state=state,
       brickcraft_battery=base.."_battery_node",mesecons=battery_signal})
   end
 end
@@ -391,8 +391,8 @@ local function place(s,stack,placer,pointed,item)
   end
   if not brickcraft.strict_ok(placer,brickcraft.strict.can_place,pos,node) then return stack end
   C.set_node(pos,node)
-  stack:take_item(s.cost)
-  brickcraft.remember(placer,{kind="place",pos=vector.copy(pos),node=node,drop=item.." "..s.cost})
+  stack:take_item(1)
+  brickcraft.remember(placer,{kind="place",pos=vector.copy(pos),node=node,drop=item..SUFFIX[kind]})
   return stack
 end
 

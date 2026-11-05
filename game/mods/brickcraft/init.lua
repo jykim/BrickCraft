@@ -1,6 +1,6 @@
 local C = core
 -- Automated checks skip the welcome and look pickers.
-local testing = C.settings:get_bool("brickcraft_integration_test",false) or
+local testing = C.settings:get_bool("brickcraft_world_api_test",false) or C.settings:get_bool("brickcraft_integration_test",false) or
   C.settings:get_bool("brickcraft_multiplayer_test",false) or C.settings:get_bool("brickcraft_house_test",false) or
   C.settings:get_bool("brickcraft_ai_test",false) or C.settings:get_bool("brickcraft_train_test",false) or
   C.settings:get_bool("brickcraft_war_test",false) or C.settings:get_bool("brickcraft_strict_test",false) or
@@ -14,8 +14,8 @@ C.register_alias("mapgen_singlenode", "air")
 C.register_item(":", {type="none", wield_image="brickcraft_hand.png", range=7,
   tool_capabilities={full_punch_interval=1, groupcaps={}}})
 
--- Shapes share one inventory item per color: the hotbar stays 1 separator + 8 colors.
--- cost = voxel cells occupied; the 2 x 2 node keeps its original name for saved worlds.
+-- Every piece in every color is its own item (piece_item); the 2 x 2's is the plain color
+-- name, as before pieces, so saved worlds and inventories keep their bricks.
 -- One cell = 2 x 2 studs wide and one brick tall; a plate is a third of a brick.
 -- Bodies fill their cell and studs poke into the cell above, so a brick stacked on top
 -- hides the studs it covers, like real bricks clicking together.
@@ -32,71 +32,79 @@ local function plate(x1,z1,xs,zs)
   return studs({{-.5,-.5,-.5,x1,PLATE_TOP,z1}},xs,zs,PLATE_TOP,PLATE_TOP+.14)
 end
 local shapes = {
-  {id="2x2", suffix="", label="Brick 2 x 2", part="3003", group="Bricks", cost=1,
+  {id="2x2", suffix="", label="Brick 2 x 2", part="3003", group="Bricks",
    boxes=studs({{-.5,-.5,-.5,.5,.5,.5}},{-.25,.25},{-.25,.25},.5,.64)},
-  {id="1x2", suffix="_1x2", label="Brick 1 x 2", part="3004", group="Bricks", cost=1,
+  {id="1x2", suffix="_1x2", label="Brick 1 x 2", part="3004", group="Bricks",
    boxes=studs({{-.5,-.5,-.5,0,.5,.5}},{-.25},{-.25,.25},.5,.64),
    collision={-.5,-.5,-.5,0,.5,.5}},
-  {id="2x4", suffix="_2x4", label="Brick 2 x 4", part="3001", group="Bricks", cost=2, long=true,
+  {id="2x4", suffix="_2x4", label="Brick 2 x 4", part="3001", group="Bricks", long=true,
    boxes=studs({{-.5,-.5,-.5,.5,.5,1.5}},{-.25,.25},{-.25,.25,.75,1.25},.5,.64)},
-  {id="1x1", suffix="_1x1", label="Brick 1 x 1", part="3005", group="Bricks", cost=1,
+  {id="1x1", suffix="_1x1", label="Brick 1 x 1", part="3005", group="Bricks",
    boxes=studs({{-.5,-.5,-.5,0,.5,0}},{-.25},{-.25},.5,.64),
    collision={-.5,-.5,-.5,0,.5,0}},
-  {id="plate", suffix="_plate", label="Plate 2 x 2", part="3022", group="Plates", cost=1,
+  {id="plate", suffix="_plate", label="Plate 2 x 2", part="3022", group="Plates",
    boxes=plate(.5,.5,{-.25,.25},{-.25,.25}),
    collision={-.5,-.5,-.5,.5,PLATE_TOP,.5}},
-  {id="plate_1x2", suffix="_plate_1x2", label="Plate 1 x 2", part="3023", group="Plates", cost=1,
+  {id="plate_1x2", suffix="_plate_1x2", label="Plate 1 x 2", part="3023", group="Plates",
    boxes=plate(0,.5,{-.25},{-.25,.25}),
    collision={-.5,-.5,-.5,0,PLATE_TOP,.5}},
-  {id="plate_2x4", suffix="_plate_2x4", label="Plate 2 x 4", part="3020", group="Plates", cost=2, long=true,
+  {id="plate_2x4", suffix="_plate_2x4", label="Plate 2 x 4", part="3020", group="Plates", long=true,
    boxes=plate(.5,1.5,{-.25,.25},{-.25,.25,.75,1.25}),
    collision={-.5,-.5,-.5,.5,PLATE_TOP,.5}},
-  {id="plate_1x1", suffix="_plate_1x1", label="Plate 1 x 1", part="3024", group="Plates", cost=1,
+  {id="plate_1x1", suffix="_plate_1x1", label="Plate 1 x 1", part="3024", group="Plates",
    boxes=plate(0,0,{-.25},{-.25}),
    collision={-.5,-.5,-.5,0,PLATE_TOP,0}},
   -- Tiles are smooth plates: no studs, a flat finish for floors and roof ridges.
-  {id="tile_2x2", suffix="_tile_2x2", label="Tile 2 x 2", part="3068", group="Tiles & Round", cost=1,
+  {id="tile_2x2", suffix="_tile_2x2", label="Tile 2 x 2", part="3068", group="Tiles & Round",
    boxes=plate(.5,.5,{},{}),
    collision={-.5,-.5,-.5,.5,PLATE_TOP,.5}},
-  {id="tile_1x2", suffix="_tile_1x2", label="Tile 1 x 2", part="3069", group="Tiles & Round", cost=1,
+  {id="tile_1x2", suffix="_tile_1x2", label="Tile 1 x 2", part="3069", group="Tiles & Round",
    boxes=plate(0,.5,{},{}),
    collision={-.5,-.5,-.5,0,PLATE_TOP,.5}},
-  {id="round_2x2", suffix="_round_2x2", label="Round Brick 2 x 2", part="3941", group="Tiles & Round", cost=1,
+  {id="round_2x2", suffix="_round_2x2", label="Round Brick 2 x 2", part="3941", group="Tiles & Round",
    mesh="brickcraft_round_2x2.obj"},
-  {id="round_1x1", suffix="_round_1x1", label="Round Brick 1 x 1", part="3062", group="Tiles & Round", cost=1,
+  {id="round_1x1", suffix="_round_1x1", label="Round Brick 1 x 1", part="3062", group="Tiles & Round",
    mesh="brickcraft_round_1x1.obj",
    collision={-.5,-.5,-.5,0,.5,0}},
-  {id="slope_2x2", suffix="_slope_2x2", label="Slope 45 2 x 2", part="3039", group="Slopes", cost=1,
+  {id="slope_2x2", suffix="_slope_2x2", label="Slope 45 2 x 2", part="3039", group="Slopes",
    mesh="brickcraft_slope_2x2.obj",
    collision={{-.5,-.5,-.5,.5,0,.5},{-.5,0,0,.5,.5,.5}}},
-  {id="slope_2x1", suffix="_slope_2x1", label="Slope 45 2 x 1", part="3040", group="Slopes", cost=1,
+  {id="slope_2x1", suffix="_slope_2x1", label="Slope 45 2 x 1", part="3040", group="Slopes",
    mesh="brickcraft_slope_2x1.obj",
    collision={{-.5,-.5,-.5,0,0,.5},{-.5,0,0,0,.5,.5}}},
   -- Inverted: full studded top, the 45-degree face underneath toward the builder.
-  {id="slope_inv_2x2", suffix="_slope_inv_2x2", label="Inverted Slope 45 2 x 2", part="3660", group="Slopes", cost=1,
+  {id="slope_inv_2x2", suffix="_slope_inv_2x2", label="Inverted Slope 45 2 x 2", part="3660", group="Slopes",
    mesh="brickcraft_slope_inv_2x2.obj",
    collision={{-.5,0,-.5,.5,.5,.5},{-.5,-.5,0,.5,0,.5}}},
   -- Train pieces (brickcraft_trains): track is a node that joins the track next to it; a cart
   -- goes on track, and a motor and a battery box go on a cart (right click the cart).
-  {id="track", suffix="_track", label="Train Track", part="53401", group="Trains", cost=1, train="track"},
-  {id="cart", suffix="_cart", label="Train Cart", part="92339", group="Trains", cost=2, train="cart"},
+  {id="track", suffix="_track", label="Train Track", part="53401", group="Trains", train="track"},
+  {id="cart", suffix="_cart", label="Train Cart", part="92339", group="Trains", train="cart"},
   -- invented: no real part looks like it (the coach borrows the cart's number), so strict
   -- LEGO worlds don't offer it.
-  {id="coach", suffix="_coach", label="Passenger Car", part="92339", group="Trains", cost=3, train="coach", invented=true},
-  {id="motor", suffix="_motor", label="Train Motor", part="88002", group="Trains", cost=1, train="motor"},
-  {id="battery", suffix="_battery", label="Battery Box", part="8881", group="Trains", cost=1, train="battery"},
+  {id="coach", suffix="_coach", label="Passenger Car", part="92339", group="Trains", train="coach", invented=true},
+  {id="motor", suffix="_motor", label="Train Motor", part="88002", group="Trains", train="motor", item="_motor_node"},
+  {id="battery", suffix="_battery", label="Battery Box", part="8881", group="Trains", train="battery", item="_battery_node"},
   -- Technic (brickcraft_technic): axles and gears turned by a Train Motor and Battery Box put on
   -- the ground.
-  {id="technic_brick", suffix="_technic_brick", label="Technic Brick", part="32064", group="Technic", cost=1, technic="brick"},
-  {id="axle", suffix="_axle", label="Axle", part="3705", group="Technic", cost=1, technic="axle"},
-  {id="gear8", suffix="_gear8", label="Gear 8", part="3647", group="Technic", cost=1, technic="gear8"},
-  {id="gear24", suffix="_gear24", label="Gear 24", part="3648", group="Technic", cost=1, technic="gear24"},
-  {id="gear40", suffix="_gear40", label="Gear 40", part="3649", group="Technic", cost=1, technic="gear40"},
+  {id="technic_brick", suffix="_technic_brick", label="Technic Brick", part="32064", group="Technic", technic="brick"},
+  {id="axle", suffix="_axle", label="Axle", part="3705", group="Technic", technic="axle"},
+  {id="gear8", suffix="_gear8", label="Gear 8", part="3647", group="Technic", technic="gear8"},
+  {id="gear24", suffix="_gear24", label="Gear 24", part="3648", group="Technic", technic="gear24"},
+  {id="gear40", suffix="_gear40", label="Gear 40", part="3649", group="Technic", technic="gear40"},
 }
 local technic_test=C.settings:get_bool("brickcraft_technic_test",false)
 testing=testing or technic_test
 local shape_by_id = {}
 for i, s in ipairs(shapes) do s.index=i; shape_by_id[s.id]=s end
+-- The item a piece is in a color, and what an item is (its shape and color).
+local function piece_item(color,s) return "brickcraft:"..color..(s.item or s.suffix) end
+local piece_of={}
+local color_index={}
+for i,c in ipairs(colors) do
+  color_index[c]=i
+  for _,s in ipairs(shapes) do piece_of[piece_item(c,s)]={shape=s,color=c} end
+end
 
 local function get_shape(player)
   return shape_by_id[player:get_meta():get_string("brickcraft_shape")] or shapes[1]
@@ -139,7 +147,143 @@ local function strict_ok(player,check,...)
   if not ok and player and player:is_player() then C.chat_send_player(player:get_player_name(),"Strict LEGO: "..why) end
   return ok
 end
+-- Where pieces are kept. The hotbar (slots 2-12) and the bag below it hold whatever pieces
+-- the player put there; every other piece waits in the hidden "pieces" list, and the
+-- inventory screen shows them all and brings one out (to_hotbar); Tab cycles the held slot.
+-- Room for two stacks of every piece in every color.
+local PIECES_SIZE=#colors*#shapes*2
+local HOTBAR=#colors+1 -- the separator and 11 slots
+local function at_war(inv) return inv:get_size("war_stash")>0 end
+local function count_of(player,name)
+  local inv,n=player:get_inventory(),0
+  for _,list in ipairs({"main","pieces","war_stash"}) do
+    for _,st in ipairs(inv:get_list(list) or {}) do if st:get_name()==name then n=n+st:get_count() end end
+  end
+  return n
+end
+local function room_for(player,stack)
+  local inv=player:get_inventory()
+  if piece_of[ItemStack(stack):get_name()] and inv:get_size("pieces")>0 then return inv:room_for_item("pieces",stack) end
+  return inv:room_for_item("main",stack)
+end
+-- Puts a stack in the player's inventory; returns what didn't fit. A piece joins its own
+-- stack in the hotbar or bag when there is one, else uses a free hotbar slot.
+-- A full hotbar leaves the remaining pieces visible in the collection grid.
+local function give(player,stack)
+  stack=ItemStack(stack)
+  local inv=player:get_inventory()
+  local piece=piece_of[stack:get_name()]
+  if not piece or inv:get_size("pieces")==0 then return inv:add_item("main",stack) end
+  if not at_war(inv) then
+    for i=2,HOTBAR do
+      local st=inv:get_stack("main",i)
+      if st:get_name()==stack:get_name() then
+        stack=st:add_item(stack); inv:set_stack("main",i,st)
+        if stack:is_empty() then return stack end
+      end
+    end
+    -- Harvested colors prefer their familiar color key, then any free hotbar slot.
+    local slot=color_index[piece.color]+1
+    if not inv:get_stack("main",slot):is_empty() then
+      slot=nil
+      for i=2,HOTBAR do
+        if inv:get_stack("main",i):is_empty() then slot=i; break end
+      end
+    end
+    if slot then
+      local st=inv:get_stack("main",slot)
+      stack=st:add_item(stack); inv:set_stack("main",slot,st)
+      if stack:is_empty() then return stack end
+    end
+  end
+  if not at_war(inv) then
+    for i=HOTBAR+1,inv:get_size("main") do
+      local st=inv:get_stack("main",i)
+      if st:get_name()==stack:get_name() then
+        stack=st:add_item(stack); inv:set_stack("main",i,st)
+        if stack:is_empty() then return stack end
+      end
+    end
+  end
+  return inv:add_item("pieces",stack)
+end
+-- Takes a stack from wherever the player keeps it (all of it, or nothing).
+local function take(player,stack)
+  stack=ItemStack(stack)
+  if count_of(player,stack:get_name())<stack:get_count() then return false end
+  local inv,left=player:get_inventory(),stack:get_count()
+  for _,list in ipairs({"pieces","main","war_stash"}) do
+    if left>0 and inv:get_size(list)>0 then
+      left=left-inv:remove_item(list,stack:get_name().." "..left):get_count()
+    end
+  end
+  return true
+end
+-- Puts all of a piece into a hotbar slot. What was there goes back: a piece to the hidden
+-- list, anything else (a LEGO part) to the bag. Returns false (and why) when it can't.
+local function to_hotbar(player,item,slot)
+  local inv=player:get_inventory()
+  if inv:get_size("pieces")==0 or at_war(inv) then return false,"Not in war mode." end
+  if slot<2 or slot>HOTBAR then return false,"That's not a hotbar slot for pieces." end
+  local here=inv:get_stack("main",slot)
+  if here:get_name()==item then return true end
+  if count_of(player,item)==0 then return false,"You have none of those." end
+  if not here:is_empty() then
+    if piece_of[here:get_name()] then
+      if not inv:room_for_item("pieces",here) then return false,"No room to put that piece away." end
+      inv:add_item("pieces",here)
+    else
+      local free
+      for i=HOTBAR+1,inv:get_size("main") do if inv:get_stack("main",i):is_empty() then free=i; break end end
+      if not free then return false,"The bag is full." end
+      inv:set_stack("main",free,here)
+    end
+    inv:set_stack("main",slot,"")
+  end
+  local n=0
+  for i=2,inv:get_size("main") do
+    local st=inv:get_stack("main",i)
+    if st:get_name()==item then n=n+st:get_count(); inv:set_stack("main",i,"") end
+  end
+  for _,st in ipairs(inv:get_list("pieces")) do if st:get_name()==item then n=n+st:get_count() end end
+  inv:remove_item("pieces",item.." "..n)
+  local stack=ItemStack(item.." "..math.min(n,999))
+  inv:set_stack("main",slot,stack)
+  if n>999 then inv:add_item("pieces",item.." "..(n-999)) end
+  return true
+end
+-- Every color of a piece onto its color key (2-9 0 - =): the inventory's "All colors" button.
+-- Colors you have none of keep what their slot holds.
+local function fill_hotbar(player,shape)
+  for i,c in ipairs(colors) do
+    local item=piece_item(c,shape)
+    if count_of(player,item)>0 then to_hotbar(player,item,i+1) end
+  end
+end
+-- Pieces lying in the bag go back to the hidden list (Sort).
+local function normalize(player)
+  local inv=player:get_inventory()
+  if inv:get_size("pieces")==0 or at_war(inv) then return end
+  for i=HOTBAR+1,inv:get_size("main") do
+    local st=inv:get_stack("main",i)
+    if piece_of[st:get_name()] then inv:set_stack("main",i,inv:add_item("pieces",st)) end
+  end
+end
+-- Hands are not dropped: what a player digs goes to its place (handle_node_drops).
+local default_drops=C.handle_node_drops
+function C.handle_node_drops(pos,drops,digger)
+  if digger and digger.is_player and digger:is_player() and digger:get_inventory() and
+     digger:get_inventory():get_size("pieces")>0 then
+    for _,d in ipairs(drops) do
+      local left=give(digger,d)
+      if not left:is_empty() then C.add_item(pos,left) end
+    end
+    return
+  end
+  return default_drops(pos,drops,digger)
+end
 local function collect(pos,node,player)
+  if not brickcraft.permissions.check(player,pos) then return false end
   local clicked=pos
   pos,node=primary_of(pos,node)
   local name=player:get_player_name()
@@ -153,20 +297,22 @@ local function collect(pos,node,player)
     if pos~=clicked then C.remove_node(clicked) end
     return false
   end
-  if not player:get_inventory():room_for_item("main", def.drop) then
+  local drop=def.drop or node.name
+  if not room_for(player,drop) then
     C.chat_send_player(name, "Inventory full: place some bricks first.")
     return false
   end
   if not strict_ok(player,strict.can_remove,pos) then return false end
   local tail,tail_node
   if def.brickcraft_long then
+    if not brickcraft.permissions.check(player,tail_pos(pos,node.param2)) then return false end
     tail=tail_pos(pos,node.param2)
     tail_node=C.get_node(tail)
   end
   local result=C.node_dig(pos,node,player)
   if not same_node(pos,node) then
     remember(player,{kind="collect",pos=copy_pos(pos),node={name=node.name,param2=node.param2},
-      drop=def.drop,tail=tail and copy_pos(tail),tail_node=tail_node and
+      drop=drop,tail=tail and copy_pos(tail),tail_node=tail_node and
         {name=tail_node.name,param2=tail_node.param2}})
   end
   return result
@@ -183,18 +329,14 @@ for i, color in ipairs(colors) do
       node_box=not s.mesh and {type="fixed", fixed=s.boxes} or nil,
       tiles={"brickcraft_"..color..".png"}, paramtype="light", paramtype2="facedir",
       collision_box=box, selection_box=box,
+      -- Collected, a piece comes back as itself (drop defaults to the node).
       groups={brick=1, not_in_creative_inventory=s.suffix~="" and 1 or nil}, stack_max=999,
-      drop=item..(s.cost>1 and " "..s.cost or ""),
       sunlight_propagates=s.id~="2x2", brickcraft_shape=s.id, brickcraft_long=s.long,
       on_dig=collect,
-    }
-    if s.id=="2x2" then
-      def.description=labels[i].." Bricks"
       -- Node items default to 4 nodes of reach; match the separator so building works
       -- from as far away as collecting does (and in third-person view).
-      def.range=7
-      def.on_place=function(stack,placer,pointed) return place_brick(stack,placer,pointed,item) end
-    end
+      range=7, on_place=function(stack,placer,pointed) return place_brick(stack,placer,pointed) end,
+    }
     if s.long then
       def.on_destruct=function(pos)
         local t=tail_pos(pos,C.get_node(pos).param2)
@@ -218,15 +360,16 @@ local held={} -- keys each player held last step
 local watching,last_ctrl={},{} -- /clicks (below): until when, and keys held last step
 local function update_hud(player)
   local name=player:get_player_name()
-  local sh=get_shape(player)
-  local text="Piece: "..sh.label.." (part "..sh.part..")  [Tab]     Turn: "..(get_turn(player)*90).."°  [I > Turn]"
+  local held=piece_of[player:get_wielded_item():get_name()]
+  local text=(held and "Holding: "..labels[color_index[held.color]].." "..held.shape.label.." (part "..held.shape.part..
+    ")  [Tab: next piece]" or "Hold a piece to build (I: your pieces)").."     Turn: "..(get_turn(player)*90).."°  [I > Turn]"
   if hud[name] then player:hud_change(hud[name],"text",text)
   else
     hud[name]=player:hud_add({type="text",position={x=.5,y=1},offset={x=0,y=-96},
       text=text,number=0xffffff,alignment={x=0,y=0},scale={x=100,y=20}})
   end
 end
-local inventory_formspec
+local inventory_formspec,brick_counts,give_kit
 local function set_shape(player,shape)
   player:get_meta():set_string("brickcraft_shape",shape.id)
   player:set_inventory_formspec(inventory_formspec(player))
@@ -238,15 +381,16 @@ function turn_next(player)
   update_hud(player)
 end
 
-function place_brick(stack,placer,pointed,item)
+-- Right click with a piece puts that piece down (item: its color's 2 x 2, "brickcraft:navy").
+function place_brick(stack,placer,pointed)
   if pointed.type~="node" or not placer or not placer:is_player() then return stack end
+  local piece=piece_of[stack:get_name()]
+  if not piece or stack:is_empty() then return stack end
+  local s,item=piece.shape,"brickcraft:"..piece.color
   local udef=C.registered_nodes[C.get_node(pointed.under).name]
   local name=placer:get_player_name()
-  local s=get_shape(placer)
-  if stack:get_count()<s.cost then
-    C.chat_send_player(name,"A "..s.label.." needs "..s.cost.." bricks of this color.")
-    return stack
-  end
+  local target=(udef and udef.buildable_to) and pointed.under or pointed.above
+  if not brickcraft.permissions.check(placer,target) then return stack end
   if s.invented and strict.on(pointed.above) then
     C.chat_send_player(name,"Strict LEGO: the "..s.label.." isn't a real part. Pick another piece (Tab).")
     return stack
@@ -261,6 +405,7 @@ function place_brick(stack,placer,pointed,item)
   local pos=(udef and udef.buildable_to) and pointed.under or pointed.above
   local param2=(C.dir_to_facedir(placer:get_look_dir())+get_turn(placer))%4
   local tail=s.long and tail_pos(pos,param2)
+  if tail and not brickcraft.permissions.check(placer,tail) then return stack end
   if tail and not is_free(tail) then
     C.chat_send_player(name,"No room for a "..s.label.." here. Press Q to turn it.")
     return stack
@@ -269,9 +414,9 @@ function place_brick(stack,placer,pointed,item)
   local _,placed=C.item_place_node(ItemStack(item..s.suffix),placer,pointed,param2)
   if not placed then return stack end
   if tail then C.set_node(tail,{name=item..s.suffix.."_tail",param2=param2}) end
-  stack:take_item(s.cost)
+  stack:take_item(1)
   remember(placer,{kind="place",pos=copy_pos(pos),node={name=item..s.suffix,param2=param2},
-    drop=item.." "..s.cost,tail=tail and copy_pos(tail),tail_node=tail and
+    drop=item..s.suffix,tail=tail and copy_pos(tail),tail_node=tail and
       {name=item..s.suffix.."_tail",param2=param2}})
   return stack
 end
@@ -279,14 +424,17 @@ end
 -- Separator right click turns a placed brick a quarter turn in place.
 local function turn_placed(pos,node,player)
   pos,node=primary_of(pos,node)
+  if not brickcraft.permissions.check(player,pos) then return false end
   local def=C.registered_nodes[node.name]
   if not def or not def.brickcraft_shape then return end
   if def.brickcraft_turn then return def.brickcraft_turn(pos,node,player) end
   local param2=(node.param2+1)%4
   if not strict_ok(player,strict.can_replace,pos,{name=node.name,param2=param2}) then return end
   local old_tail,new_tail
+  if def.brickcraft_long and not brickcraft.permissions.check(player,tail_pos(pos,param2)) then return false end
   if def.brickcraft_long then
     old_tail,new_tail=tail_pos(pos,node.param2),tail_pos(pos,param2)
+    if not brickcraft.permissions.check(player,old_tail) then return false end
     if not is_free(new_tail) then
       C.chat_send_player(player:get_player_name(),"No room to turn this long piece.")
       return
@@ -304,31 +452,33 @@ local function undo_last(player)
   local name=player:get_player_name()
   local action=history[name]
   if not action then C.chat_send_player(name,"Nothing to undo yet."); return false end
-  local inv=player:get_inventory()
+  for _,key in ipairs({"pos","tail","old_tail","new_tail"}) do
+    if action[key] and not brickcraft.permissions.check(player,action[key]) then return false end
+  end
   if action.kind=="place" then
     if not same_node(action.pos,action.node) or
        (action.tail and not same_node(action.tail,action.tail_node)) then
       C.chat_send_player(name,"Can't undo: that brick was changed by someone else.")
       return false
     end
-    if not inv:room_for_item("main",action.drop) then
+    if not room_for(player,action.drop) then
       C.chat_send_player(name,"Can't undo: your inventory is full.")
       return false
     end
     if not strict_ok(player,strict.can_remove,action.pos) then return false end
     C.remove_node(action.pos) -- long-piece on_destruct also removes its tail
-    inv:add_item("main",action.drop)
+    give(player,action.drop)
   elseif action.kind=="collect" then
     if not is_free(action.pos) or (action.tail and not is_free(action.tail)) then
       C.chat_send_player(name,"Can't undo: another brick now occupies that space.")
       return false
     end
-    if not inv:contains_item("main",action.drop) then
+    if count_of(player,ItemStack(action.drop):get_name())<ItemStack(action.drop):get_count() then
       C.chat_send_player(name,"Can't undo: you no longer have the collected brick.")
       return false
     end
     if not strict_ok(player,strict.can_place,action.pos,action.node) then return false end
-    inv:remove_item("main",action.drop)
+    take(player,action.drop)
     C.set_node(action.pos,action.node)
     if action.tail then C.set_node(action.tail,action.tail_node) end
   elseif action.kind=="turn" then
@@ -367,7 +517,12 @@ C.register_tool("brickcraft:separator", {
   inventory_image="brickcraft_separator.png", wield_image="brickcraft_separator.png",
   range=7, tool_capabilities={full_punch_interval=.2,groupcaps={brick={times={[1]=.15},uses=0,maxlevel=1}}},
   on_use=function(stack,user,pointed)
-    if pointed.type=="node" then collect(pointed.under,C.get_node(pointed.under),user) end
+    if pointed.type=="node" then collect(pointed.under,C.get_node(pointed.under),user)
+    elseif pointed.type=="object" then
+      -- An object that can be put away with the separator (a display model) says how.
+      local ent=pointed.ref:get_luaentity()
+      if ent and ent._brickcraft_collect and brickcraft.permissions.check(user,pointed.ref:get_pos()) then ent:_brickcraft_collect(user) end
+    end
     return stack
   end,
   on_place=function(stack,user,pointed)
@@ -601,7 +756,8 @@ local function make_world(name,owner,done,opts)
   for _,w in ipairs(worlds) do id=math.max(id,w.id+1) end
   opts=opts or {}
   local w={id=id,name=name,owner=owner,x=c.x,z=c.z,built=false,strict=opts.strict or nil,
-    terrain=opts.terrain,style=opts.style,characters=opts.characters,events=opts.events}
+    terrain=opts.terrain,style=opts.style,characters=opts.characters,events=opts.events,
+    write_owner=opts.write_owner,writers={}}
   worlds[#worlds+1]=w; save_worlds()
   build_world(w,done)
   return w
@@ -649,12 +805,14 @@ local help_rows={
   {"/war","Start or stop: only players in war can be hit, builds are safe"},
   {"/battle","Call a Red Army: a Red Commander and 4 Red Knights"},
   {"1 Sword, left click","Strike (1 heart)"},
-  {"2 Cannon, left click, or Shift / U","Fire a cannonball where you look (uses 1)"},
+  {"2 Cannon, left click, or Shift / U","Fire a cannonball onto your crosshair (uses 1); its blast splashes and throws what's near"},
   {"2 Cannon, right click the ground","Set up a cannon; right click it to aim and fire"},
   {"Walk over a cannonball pile","+3 cannonballs (they turn up around you)"},
   {"3 Boot, left click","Kick: half a heart, sends them flying"},
   {"Right click a player (war kit)","Shove them away"},
   {"4 Knight, right click the ground","A blue knight who follows you and fights the Red Army"},
+  {"6 Brick Blaster, left click","One shot straight at your crosshair: 1 heart to one target, no splash, no ammo"},
+  {"The Red Commander's shield roof","His guards stop cannonballs, arrows and shots; knock them out or draw them away first"},
   {"Knock out the Red Commander","The whole Red Army falls"},
   {"T, then: Dad bot, flank left","Your AI builder commands your knights in war mode, and fights by your side: with its sword when the Red Army comes close or you have no knights, else throwing cannonballs from behind them. An order when you have no knights brings 4"},
   {"Orders","charge, attack the commander, flank left/right, hold, guard me, follow, retreat, more knights, status"},
@@ -668,6 +826,7 @@ local help_rows={
   {"COMMANDS",""},
   {"/keys","This help screen"},{"/guide","Welcome screen"},{"/home","Back to the start of this world"},
   {"/world","Go to another world or make a new one"},
+  {"/worldaccess [grant|revoke <account>]","View world access, or let an account build in your world"},
   {"/undo","Undo your last build action"},
   {"/checkbuild","List loose pieces nearby (strict LEGO worlds don't allow any)"},
   {"/clicks","For a minute, show every click the game gets (when a click doesn't work)"},
@@ -725,6 +884,23 @@ function C.format_chat_message(name,message)
   local st=p and style_by_id[playing_as(p) or ""]
   return format_chat(st and C.colorize(st.tag,st.label) or name,message)
 end
+-- The starter kit: in each of the first 8 colors a few of every brick, plate, tile, round
+-- and slope; and in navy enough train and technic pieces for a first train and machine.
+local KIT={["2x2"]=8,["1x2"]=6,["2x4"]=4,["1x1"]=4,plate=4,plate_1x2=4,plate_2x4=2,plate_1x1=4,
+  tile_2x2=2,tile_1x2=2,round_2x2=2,round_1x1=2,slope_2x2=2,slope_2x1=2,slope_inv_2x2=2}
+local KIT_EXTRA={{"navy","track",12},{"coral","cart",2},{"navy","motor",1},{"navy","battery",1},
+  {"navy","technic_brick",4},{"navy","axle",4},{"navy","gear8",2},{"navy","gear24",2},{"navy","gear40",1}}
+function give_kit(player)
+  local inv=player:get_inventory()
+  for i=1,STARTER_COLORS do
+    for _,s in ipairs(shapes) do
+      if KIT[s.id] then inv:add_item("pieces",piece_item(colors[i],s).." "..KIT[s.id]) end
+    end
+  end
+  for _,e in ipairs(KIT_EXTRA) do
+    if shape_by_id[e[2]] then inv:add_item("pieces",piece_item(e[1],shape_by_id[e[2]]).." "..e[3]) end
+  end
+end
 local function save_bricks(player)
   local id=playing_as(player)
   if not id then return end
@@ -733,6 +909,9 @@ local function save_bricks(player)
   local inv=player:get_inventory()
   for i,stack in ipairs(inv:get_list(inv:get_size("war_stash")>0 and "war_stash" or "main")) do items[i]=stack:to_string() end
   pstore:set_string("bricks_"..id,C.serialize(items))
+  local pieces={}
+  for _,stack in ipairs(inv:get_list("pieces") or {}) do if not stack:is_empty() then pieces[#pieces+1]=stack:to_string() end end
+  pstore:set_string("pieces_"..id,C.serialize(pieces))
 end
 local function load_bricks(player,id)
   local saved=pstore:get_string("bricks_"..id)
@@ -740,12 +919,73 @@ local function load_bricks(player,id)
   saved=C.deserialize(saved) or {}
   local inv=player:get_inventory()
   for i=1,inv:get_size("main") do inv:set_stack("main",i,saved[i] or "") end
+  inv:set_list("pieces",{})
+  for _,st in ipairs(C.deserialize(pstore:get_string("pieces_"..id)) or {}) do inv:add_item("pieces",st) end
+  -- Bricks saved from before pieces are 2 x 2 bricks now; the first time back, the other
+  -- pieces of the starter kit come too.
+  if pstore:get_int("piece_kit_"..id)==0 then give_kit(player); pstore:set_int("piece_kit_"..id,1) end
   return true
 end
-local function give_starter(inv)
-  inv:set_list("main",{})
+-- Sorting: pieces in the bag put away (normalize), and each kind of LEGO part in the bag
+-- starts its own row while that fits, by part (name, number) then color.
+-- Stacks of the same thing merge.
+local function hue(hex)
+  local r,g,b=tonumber(hex:sub(2,3),16),tonumber(hex:sub(4,5),16),tonumber(hex:sub(6,7),16)
+  if not (r and g and b) then return 99 end
+  local mx,mn=math.max(r,g,b),math.min(r,g,b)
+  local d=mx-mn
+  if d<20 then return 10-mx/255 end -- greys after the colors, light to dark
+  local h
+  if mx==r then h=((g-b)/d)%6 elseif mx==g then h=(b-r)/d+2 else h=(r-g)/d+4 end
+  return h
+end
+local function sort_key(st)
+  local meta=st:get_meta()
+  if meta:get_string("part")~="" then
+    return {1,meta:get_string("cname").." "..meta:get_string("part"),hue(meta:get_string("bc_color"))}
+  end
+  return {2,st:get_name(),0}
+end
+local function sort_bricks(player)
+  local inv=player:get_inventory()
+  if at_war(inv) then return end -- the hotbar is the war kit; the bricks are put away
+  normalize(player)
+  local top,size=#colors+1,inv:get_size("main")
+  local rest={}
+  for i=top+1,size do
+    local st=inv:get_stack("main",i)
+    if not st:is_empty() then
+      for _,r in ipairs(rest) do st=r:add_item(st); if st:is_empty() then break end end
+      if not st:is_empty() then rest[#rest+1]=st end
+    end
+  end
+  table.sort(rest,function(a,b)
+    local ka,kb=sort_key(a),sort_key(b)
+    for i=1,3 do if ka[i]~=kb[i] then return ka[i]<kb[i] end end
+    return a:get_count()>b:get_count()
+  end)
+  -- Each kind starts a new row of the 10-wide bag when that still fits, else they pack.
+  local W=10
+  local function kind(st) local k=sort_key(st); return k[1]..k[2] end
+  local function lay(spaced)
+    local out,pos,last={},0,nil
+    for _,st in ipairs(rest) do
+      if spaced and last and kind(st)~=last and pos%W~=0 then pos=pos+W-pos%W end
+      last=kind(st); pos=pos+1
+      if pos>size-top then return nil end
+      out[top+pos]=st
+    end
+    return out
+  end
+  local out=lay(true) or lay(false)
+  for i=top+1,size do inv:set_stack("main",i,out[i] or "") end
+end
+local function give_starter(player)
+  local inv=player:get_inventory()
+  inv:set_list("main",{}); inv:set_list("pieces",{})
   inv:set_stack("main",1,"brickcraft:separator")
-  for i=1,STARTER_COLORS do inv:set_stack("main",i+1,"brickcraft:"..colors[i].." 24") end
+  give_kit(player)
+  fill_hotbar(player,shapes[1])
 end
 local function taken_by(player,id)
   for _,p in ipairs(C.get_connected_players()) do
@@ -756,7 +996,7 @@ end
 -- "Bunny Kingdom"): everyone there, players and AI builders, wears bunny ears and a tail.
 local function bunny_world(w)
   if not w then return false end
-  if w.characters=="bunnies" then return true end
+  if w.characters=="bunnies" or w.habitat=="bunny" or w.habitat=="kingdom" then return true end
   local n=(w.name or ""):lower()
   return n:find("bunn") ~= nil or n:find("rabbit") ~= nil
 end
@@ -788,7 +1028,8 @@ local function choose_player(player,st)
     if not load_bricks(player,st.id) then
       -- A player's first time: a new connection keeps the starter kit it just got,
       -- a switch from another player starts with a fresh kit.
-      if current then give_starter(player:get_inventory()) end
+      if current then give_starter(player) end
+      pstore:set_int("piece_kit_"..st.id,1)
       fresh=true
     end
     history[name]=nil -- an undo must not move bricks between players
@@ -880,6 +1121,7 @@ local function world_template_text(w)
     option_label(WORLD_CHARACTERS,w.characters),option_label(WORLD_EVENTS,w.events)}," / ")
 end
 local function owner_label(w)
+  if w.write_owner then return w.write_owner end
   if w.id==0 then return "everyone" end
   return style_by_id[w.owner] and style_by_id[w.owner].label or w.owner
 end
@@ -908,6 +1150,7 @@ local function show_world_picker(player)
       local n=counts[w.id] or 0
       items[#items+1]=(w.id==0 and "#f5872c" or "")..C.formspec_escape(w.name.."  ("..owner_label(w)..")"..
         (w.strict and "   [strict LEGO]" or "")..
+        (not brickcraft.permissions.can_write(player,w) and "   [read only]" or "")..
         (w.terrain and "   ["..option_label(WORLD_TERRAIN,w.terrain).." / "..option_label(WORLD_STYLE,w.style).."]" or "")..
         (n>0 and "   "..n.." here" or "")..(w==here and "   < you are here" or ""))
     end
@@ -961,13 +1204,14 @@ end
 local function new_world(player,title,opts)
   local name=player:get_player_name()
   opts=opts or {}
+  opts.write_owner=name
   title=(title or ""):gsub("[%c,;#%[%]\\]",""):gsub("^%s+",""):gsub("%s+$",""):sub(1,30)
   if title=="" then title=new_world_name(player) end
   local w=make_world(title,playing_as(player) or name,function(w)
     local p=C.get_player_by_name(name)
     if not p then return end
     enter_world(p,w)
-    C.chat_send_player(name,"Welcome to "..w.name.."! Your own fresh workshop. /world goes back.")
+    C.chat_send_player(name,"Welcome to "..w.name.."! Owner-only building. /worldaccess grant <account> lets a friend build. /world goes back.")
     local template=world_template_text(w)
     if template then C.chat_send_player(name,"World template: "..template..".") end
     if w.strict then
@@ -980,41 +1224,112 @@ local function new_world(player,title,opts)
   return true
 end
 
+-- Bricks of each game color, wherever they are (in war mode they wait in war_stash).
+-- Everything the player has, by item name, in one pass over the lists.
+local function tally(player)
+  local inv,t=player:get_inventory(),{}
+  for _,list in ipairs({"main","pieces","war_stash"}) do
+    for _,st in ipairs(inv:get_list(list) or {}) do
+      if not st:is_empty() then t[st:get_name()]=(t[st:get_name()] or 0)+st:get_count() end
+    end
+  end
+  return t
+end
+-- How many of a piece the player has in each color (t: a tally, made if not given).
+function brick_counts(player,shape,t)
+  t=t or tally(player)
+  local have={}
+  for _,c in ipairs(colors) do have[c]=t[piece_item(c,shape)] or 0 end
+  return have
+end
+-- Keep the collection at the same scroll position when live counts refresh.
+local collection_scroll={}
 function inventory_formspec(player)
   local current=get_shape(player)
-  local fs="formspec_version[6]size[10.8,12.8]label[.4,.4;BRICKCRAFT / YOUR BRICKS   (Tab: next piece)]"
-  -- One row per piece family; the tooltip names the real catalog part.
-  local rows,order={}, {}
-  local strict_here=strict.on(player:get_pos())
+  local owned=tally(player)
+  local fs="formspec_version[6]size[10.8,12.8]label[.4,.4;BRICKCRAFT / ALL YOUR PIECES]"..
+    "button[7.65,.12;2.8,.52;sort;Sort bag]"..
+    "tooltip[sort;Combine stacks and sort LEGO parts by part and color]"..
+    "label[.4,.85;All owned shapes and colors - click a piece to put it in your hotbar]"
+  local body,y,last_group="",0,nil
+  local total,kinds=0,0
   for _,s in ipairs(shapes) do
-    if not (strict_here and s.invented) then
-      if not rows[s.group] then rows[s.group]={}; order[#order+1]=s.group end
-      table.insert(rows[s.group],s)
+    local have=brick_counts(player,s,owned)
+    local n=0
+    for _,count in pairs(have) do n=n+count end
+    if n>0 then
+      total=total+n
+      if last_group~=s.group then
+        body=body.."label[.05,"..(y+.2)..";"..C.formspec_escape(s.group).."]"
+        y=y+.45; last_group=s.group
+      end
+      body=body.."button[.05,"..y..";2.35,.55;shape_"..s.id..";"..
+        C.formspec_escape(s.label).."]"..
+        "tooltip[shape_"..s.id..";"..C.formspec_escape("Part "..s.part.." - "..n.." owned. Select for All colors to hotbar.").."]"
+      for i,c in ipairs(colors) do
+        if have[c]>0 then
+          kinds=kinds+1
+          local x=2.5+(i-1)*.65
+          local item=piece_item(c,s)
+          local field="owned_"..s.id.."_"..c
+          body=body.."item_image_button["..x..","..y..";.62,.62;"..item..";"..field..";]"..
+            "label["..(x+.04)..","..(y+.78)..";"..have[c].."]"..
+            "tooltip["..field..";"..C.formspec_escape(labels[i].." "..s.label.." - part "..s.part..
+              " - "..have[c].." owned (includes hotbar and storage). Click: into hotbar.").."]"
+        end
+      end
+      y=y+1.05
     end
   end
-  for r,group in ipairs(order) do
-    local y=.8+(r-1)*.68
-    fs=fs.."label[.4,"..(y+.28)..";"..C.formspec_escape(group).."]"
-    for i,s in ipairs(rows[group]) do
-      local x=2.2+(i-1)*1.72
-      fs=fs.."style[shape_"..s.id..";bgcolor="..(s==current and "#f5872c" or "#3a5566").."]"..
-        "button["..x..","..y..";1.66,.56;shape_"..s.id..";"..
-        C.formspec_escape((s.label:gsub("^Brick ",""):gsub("^Plate ",""):gsub("^Round Brick","Round")
-          :gsub("^Inverted Slope 45","Inverted"):gsub("^Slope 45","Slope"))).."]"..
-        "tooltip[shape_"..s.id..";"..C.formspec_escape(s.label.." - part "..s.part.." - uses "..s.cost.." brick"..(s.cost>1 and "s" or "")).."]"
-    end
-  end
-  return fs.."list[current_player;main;.4,4.9;8,4;]"..
-    "label[.4,10.1;1: Separator | 2-9 0 - =, wheel: Colors | Right click or F: Build | Q/E: Look left/right | U: Undo]"..
-    "label[.4,10.6;2 x 4 pieces and carts use 2 bricks of their color. The others use 1.]listring[current_player;main]"..
-    "style[undo;bgcolor=#f5872c]button[.4,11;2.4,.6;undo;Undo last action]"..
-    "button[2.95,11;2.4,.6;look;Switch player]button[5.5,11;2.4,.6;world;Switch world]"..
-    "button[8.05,11;2.4,.6;help;Help: all keys]"..
-    "button[8.05,11.8;2.4,.6;turn;Turn next brick]"..
-    (brickcraft.war and "style[war;bgcolor=#b8402c]button[.4,11.8;2.4,.6;war;"..
+  if total==0 then body="label[.1,.4;No game pieces yet. Collect bricks with the separator (key 1).]" end
+  local max_scroll=math.max(0,math.ceil((y-4.95)*10))
+  local scroll=math.min(collection_scroll[player:get_player_name()] or 0,max_scroll)
+  fs=fs.."scrollbaroptions[min=0;max="..max_scroll..";smallstep=5;largestep=40;thumbsize=49]"..
+    "scrollbar[10.05,1.25;.35,4.95;vertical;collection_scroll;"..scroll.."]"..
+    "scroll_container[.4,1.25;9.65,4.95;collection_scroll;vertical;.1]"..body.."scroll_container_end[]"..
+    "label[.4,6.5;"..total.." game pieces / "..kinds.." shape-color combinations]"..
+    "button[7.3,6.3;3.1,.48;fill;All colors to hotbar]"..
+    "tooltip[fill;"..C.formspec_escape(current.label.." in every owned color, on its color key").."]"
+  -- Below: the hotbar (each color on its key) and the bag (LEGO parts, extra stacks).
+  return fs.."style_type[list;size=.76;spacing=.08]"..
+    "label[.4,6.9;Hotbar  (1: separator, 2-12: any pieces - drag to arrange)]list[current_player;main;.4,7.1;12,1;0]"..
+    "label[.4,8.15;Bag  (LEGO parts, and pieces you keep at hand)]"..
+    "list[current_player;main;.4,8.35;10,2;12]listring[current_player;main]"..
+    "label[.4,10.3;Right click or F: Build  |  Q/E: Look left/right  |  U: Undo  |  Tab: Next piece]"..
+    "style[undo;bgcolor=#f5872c]button[.4,10.65;2.4,.6;undo;Undo last action]"..
+    "button[2.95,10.65;2.4,.6;look;Switch player]button[5.5,10.65;2.4,.6;world;Switch world]"..
+    "button[8.05,10.65;2.4,.6;help;Help: all keys]"..
+    "button[8.05,11.45;2.4,.6;turn;Turn next brick]"..
+    (brickcraft.models and "button[5.5,11.45;2.4,.6;gallery;Model gallery]"..
+      "tooltip[gallery;Every model turning in 3D: choose its size, put it in front of you (/gallery)]" or "")..
+    (brickcraft.war and "style[war;bgcolor=#b8402c]button[.4,11.45;2.4,.6;war;"..
       (brickcraft.war.on(player) and "Stop war" or "War mode").."]"..
-    "label[3,12.1;Cannons, swords, kicks: only players in war mode can be hit]" or "")
+    "label[.4,12.4;Cannons, swords, kicks: only players in war mode can be hit]" or "")
 end
+-- The inventory screen is drawn ahead of time, so its counts are redrawn when the bricks change.
+local shown_counts,shown_held={},{}
+local function counts_sig(player)
+  local inv,t=player:get_inventory(),{}
+  for _,list in ipairs({"main","pieces","war_stash"}) do
+    for _,st in ipairs(inv:get_list(list) or {}) do if not st:is_empty() then t[#t+1]=st:to_string() end end
+  end
+  return table.concat(t,",")
+end
+local count_timer=0
+C.register_globalstep(function(dt)
+  count_timer=count_timer+dt; if count_timer<.5 then return end; count_timer=0
+  for _,p in ipairs(C.get_connected_players()) do
+    local sig=counts_sig(p)
+    local name=p:get_player_name()
+    if shown_counts[name]~=sig then shown_counts[name]=sig; p:set_inventory_formspec(inventory_formspec(p)) end
+    local w=p:get_wield_index()..p:get_wielded_item():get_name()
+    if shown_held[name]~=w then shown_held[name]=w; update_hud(p) end
+  end
+end)
+C.register_on_leaveplayer(function(p)
+  local name=p:get_player_name()
+  shown_counts[name]=nil; shown_held[name]=nil; collection_scroll[name]=nil
+end)
 C.register_on_player_receive_fields(function(player,formname,fields)
   if formname=="brickcraft:welcome" and fields.help then show_help(player); return true end
   if formname=="brickcraft:style" then
@@ -1068,8 +1383,41 @@ C.register_on_player_receive_fields(function(player,formname,fields)
     return true
   end
   if formname~="" then return end
+  if fields.collection_scroll then
+    local event=C.explode_scrollbar_event(fields.collection_scroll)
+    if event.type=="CHG" then collection_scroll[player:get_player_name()]=math.max(0,event.value) end
+  end
+  -- Both the collection grid and the legacy shape/color actions use the same transfer.
+  for _,s in ipairs(shapes) do
+    for _,c in ipairs(colors) do
+      if fields["owned_"..s.id.."_"..c] then
+        if s.invented and strict.on(player:get_pos()) then
+          C.chat_send_player(player:get_player_name(),"This piece can't be used in a strict LEGO world.")
+          return true
+        end
+        fields["take_"..c]=true
+        player:get_meta():set_string("brickcraft_shape",s.id)
+      end
+    end
+  end
   if fields.undo then undo_last(player); return true end
   if fields.turn then turn_next(player); return true end
+  if fields.sort then sort_bricks(player); return true end
+  if fields.fill then fill_hotbar(player,get_shape(player)); return true end
+  for _,c in ipairs(colors) do
+    if fields["take_"..c] then
+      -- Into the first empty hotbar slot, else the held slot, else the last.
+      local inv,slot=player:get_inventory(),nil
+      for i=2,HOTBAR do if inv:get_stack("main",i):is_empty() then slot=i; break end end
+      local w=player:get_wield_index()
+      slot=slot or (w>=2 and w<=HOTBAR and w) or HOTBAR
+      local ok,why=to_hotbar(player,piece_item(c,get_shape(player)),slot)
+      if not ok then C.chat_send_player(player:get_player_name(),why) end
+      player:set_inventory_formspec(inventory_formspec(player))
+      update_hud(player)
+      return true
+    end
+  end
   if fields.help then show_help(player); return true end
   if fields.look then show_style_picker(player); return true end
   if fields.world then picked[player:get_player_name()]=nil; show_world_picker(player); return true end
@@ -1078,7 +1426,7 @@ C.register_on_player_receive_fields(function(player,formname,fields)
   end
 end)
 C.register_on_joinplayer(function(player)
-  local inv=player:get_inventory(); inv:set_size("main",32)
+  local inv=player:get_inventory(); inv:set_size("main",32); inv:set_size("pieces",PIECES_SIZE)
   -- 1 separator + 8 starter colors + 3 slots for harvested green/brown/tan bricks.
   player:hud_set_hotbar_itemcount(12)
   player:set_inventory_formspec(inventory_formspec(player))
@@ -1088,9 +1436,14 @@ C.register_on_joinplayer(function(player)
   player:hud_add({type="text",position={x=.5,y=0},offset={x=0,y=28},
     text="BRICKCRAFT   |   1 Collect   2-9 0 - = Colors   Right click Build   Tab Piece   Q Turn   U Undo   ? Help",number=0xffffff,alignment={x=0,y=0},scale={x=100,y=20}})
   update_hud(player)
+  -- A connection's bricks from before pieces (the ones not chosen as a player yet).
+  if player:get_meta():get_int("brickcraft_started")==1 and player:get_meta():get_int("brickcraft_piece_kit")==0 then
+    give_kit(player); player:get_meta():set_int("brickcraft_piece_kit",1)
+  end
   if player:get_meta():get_int("brickcraft_started")==0 then
-    give_starter(inv)
+    give_starter(player)
     player:get_meta():set_int("brickcraft_started",1)
+    player:get_meta():set_int("brickcraft_piece_kit",1)
     claim_spot(player)
     player:set_pos(home_pos(player)); player:set_look_horizontal(0)
   end
@@ -1185,6 +1538,14 @@ local function seen(player,what)
   C.log("action","BrickCraft input "..name..": "..what)
   if watching[name] then C.chat_send_player(name,C.colorize("#9ee6c6","[clicks] "..what)) end
 end
+-- Train and technic pieces are registered by their mods; as items they place like any piece.
+C.register_on_mods_loaded(function()
+  for name,piece in pairs(piece_of) do
+    if C.registered_items[name] and (piece.shape.train or piece.shape.technic) then
+      C.override_item(name,{range=7,stack_max=999,on_place=function(stack,placer,pointed) return place_brick(stack,placer,pointed) end})
+    end
+  end
+end)
 C.register_on_mods_loaded(function()
   for iname,def in pairs(C.registered_items) do
     local place,second,use=def.on_place,def.on_secondary_use,def.on_use
@@ -1249,9 +1610,22 @@ function turn_view(p,by)
 end
 local key_actions={
   aux1=function(p)
-    local s=shapes[get_shape(p).index%#shapes+1]
-    if s.invented and strict.on(p:get_pos()) then s=shapes[s.index%#shapes+1] end
-    set_shape(p,s)
+    -- The held piece becomes the next piece you have in its color; with no piece in hand,
+    -- the inventory's chosen piece moves on.
+    local held=piece_of[p:get_wielded_item():get_name()]
+    local owned=tally(p)
+    local from=held and held.shape or get_shape(p)
+    for k=1,#shapes do
+      local t=shapes[(from.index+k-1)%#shapes+1]
+      if not (t.invented and strict.on(p:get_pos())) then
+        if not held then set_shape(p,t); return end
+        if (owned[piece_item(held.color,t)] or 0)>0 then
+          to_hotbar(p,piece_item(held.color,t),p:get_wield_index())
+          set_shape(p,t)
+          return
+        end
+      end
+    end
   end,
   sneak=function(p)
     if brickcraft.kart and brickcraft.kart.riding(p:get_player_name()) then return end
@@ -1285,7 +1659,9 @@ C.register_globalstep(function(dt)
     if p:get_pos().y< -8 then p:set_pos(home_pos(p)) end
     -- Walking or switching into (or out of) a bunny world changes the look.
     local mesh=look_mesh(get_style(p).mesh,p:get_pos())
-    if p:get_properties().mesh~=mesh then p:set_properties({mesh=mesh}) end
+    if p:get_meta():get_string("brickcraft_habitat_skin")=="" and
+      not (brickcraft.war and brickcraft.war.on and brickcraft.war.on(p)) and
+      p:get_properties().mesh~=mesh then p:set_properties({mesh=mesh}) end
   end
 end)
 
@@ -1293,8 +1669,25 @@ brickcraft={shapes=shape_by_id,shape_list=shapes,colors=colors,set_shape=set_sha
   remember=remember,forget=function(name) history[name]=nil end,
   refresh_inventory=function(p) p:set_inventory_formspec(inventory_formspec(p)) end,help=help_rows,get_shape=get_shape,
   get_style=get_style,bunny_world=bunny_world,look_mesh=look_mesh,home_pos=home_pos,playing_as=playing_as,world_at=world_at,worlds=function() return worlds end,
-  make_world=make_world,save_worlds=save_worlds,testing=testing,
+  make_world=make_world,save_worlds=save_worlds,testing=testing,sort_bricks=sort_bricks,
+  piece_item=piece_item,piece_of=function(name) return piece_of[name] end,give=give,take=take,room_for=room_for,
+  count_of=count_of,normalize=normalize,give_kit=give_kit,to_hotbar=to_hotbar,fill_hotbar=fill_hotbar,
   -- Mod storage belongs to the mod that asks for it; the BrickCraft mods share this one so
   -- worlds saved before the split keep their data.
   storage=storage,placers=placers,strict=strict,strict_ok=strict_ok}
 
+-- Help the AI builders can give (brickcraft_ai): any mod registers a helper with
+-- prompt (what it can do, for the builder's instructions), context(name) (what the
+-- builder should know about that player now; "" for nothing) and step(name,text,say,api)
+-- (do a step of the builder's plan; true when it was this helper's). api = {bot, owner,
+-- is_owner, owner_label, go(pos)}. Anything a chat command does needs no helper: builders
+-- can run any command for the player who asks.
+brickcraft.assist={helpers={}}
+function brickcraft.assist.register(def) brickcraft.assist.helpers[#brickcraft.assist.helpers+1]=def end
+
+-- Shared authorization and external commands load after the public core table exists.
+brickcraft.permissions=dofile(C.get_modpath("brickcraft").."/permissions.lua")({
+  world_by_id=world_by_id,workshop=WORKSHOP,save=save_worlds})
+brickcraft.world_api=dofile(C.get_modpath("brickcraft").."/world_api.lua")({
+  world_by_id=world_by_id,workshop=WORKSHOP,primary_of=primary_of,tail_pos=tail_pos,
+  place=place_brick,collect=collect,rotate=turn_placed,history=history,same_node=same_node})

@@ -34,23 +34,23 @@ C.register_on_joinplayer(function()
     stack=stack:get_definition().on_place(stack,dad,{type="node",under={x=10,y=-1,z=-2},above=pos})
     inv_dad:set_stack("main",2,stack)
     assert(C.get_node(pos).name=="brickcraft:coral","dad placed a brick")
-    assert(inv_dad:get_stack("main",2):get_count()==23,"dad spent one")
+    assert(inv_dad:get_stack("main",2):get_count()==7,"dad spent one of the kit's 8 coral 2 x 2s")
     C.registered_tools["brickcraft:separator"].on_use(inv_kid:get_stack("main",1),kid,
       {type="node",under=pos,above={x=10,y=1,z=-2}})
     assert(C.get_node(pos).name=="air","leona collected it")
-    assert(inv_kid:get_stack("main",2):get_count()==25,"leona received it")
+    assert(inv_kid:get_stack("main",2):get_count()==9,"leona received it")
     local ok,who=C.registered_chatcommands.who.func(KID,"")
     assert(ok and who:find(DAD) and who:find(KID) and who:find("Leona"),"/who lists both")
     -- Bricks belong to the player, not the computer: Dad's computer switches to
     -- Explorer (a fresh kit), Leona's computer gives up Leona, and Dad's computer then
     -- plays Leona with her collected brick, then Dad again with his spent one.
     choose_look(dad,"explorer")
-    assert(brickcraft.playing_as(dad)=="explorer" and inv_dad:get_stack("main",2):get_count()==24,"explorer starts fresh")
+    assert(brickcraft.playing_as(dad)=="explorer" and inv_dad:get_stack("main",2):get_count()==8 and brickcraft.count_of(dad,"brickcraft:sky_slope_2x1")==2,"explorer starts fresh, with the piece kit")
     choose_look(kid,"builder")
     choose_look(dad,"daughter")
-    assert(inv_dad:get_stack("main",2):get_count()==25,"leona's bricks follow her to another computer")
+    assert(inv_dad:get_stack("main",2):get_count()==9,"leona's bricks follow her to another computer")
     choose_look(dad,"dad")
-    assert(inv_dad:get_stack("main",2):get_count()==23,"dad's bricks come back")
+    assert(inv_dad:get_stack("main",2):get_count()==7,"dad's bricks come back")
     -- Worlds: Dad makes his own through the real "Which world?" form, Leona goes there,
     -- then back to the Workshop. Each world is a fresh workshop in its own square.
     local function form(player,formname,fields)
@@ -72,6 +72,8 @@ C.register_on_joinplayer(function()
         return C.after(.5,check_worlds)
       end
       assert(w.name=="Dad's Fort" and w.owner=="dad" and (w.x~=0 or w.z~=0),"world saved with its owner")
+      assert(w.write_owner==DAD and brickcraft.permissions.can_write(dad,w) and
+        not brickcraft.permissions.can_write(kid,w),"new-world template preserves account-based write ownership")
       assert(w.terrain=="flat" and w.style=="castle" and w.characters=="knights" and w.events=="battle" and w.strict,
         "new-world menu settings are saved")
       assert(C.get_node({x=w.x+1,y=-1,z=w.z+2}).name=="brickcraft:baseplate","new world has its baseplate")
@@ -112,9 +114,30 @@ C.register_on_joinplayer(function()
         assert(brickcraft.bunny_world({name="Bunny Kingdom"}) and not brickcraft.bunny_world(brickcraft.worlds()[1]),
           "a world named for bunnies is a bunny world; Dad's Fort is not")
         assert(kid:get_properties().mesh=="brickcraft_person.obj","leona, in the Workshop, is no bunny")
-        C.log("action","BRICKCRAFT MULTIPLAYER PASS: two network clients, own spots and looks, shared building, new world, "..
-          "bunny world"..(dad_ai and " (Dad and Dad bot are bunnies)" or "")..", "..who)
-        C.request_shutdown("BrickCraft multiplayer check passed",false,1)
+        local habitat=brickcraft.habitat
+        if habitat then assert(habitat.set_skin(dad,"snow")) end
+        C.after(1.5,function()
+          if habitat then
+            assert(dad:get_properties().mesh=="brickcraft_habitat_bunny_person.obj",
+              "automatic bunny looks preserve the player's selected habitat skin")
+            habitat.set_skin(dad,nil)
+          end
+          dad:set_pos(a)
+          local back_tries=0
+          local function check_back()
+            back_tries=back_tries+1
+            if dad:get_properties().mesh~="brickcraft_person_short.obj" or
+                (dad_ai and (not dad_bot() or dad_bot():get_properties().mesh~="brickcraft_person_short.obj")) then
+              assert(back_tries<40,"Dad and his builder regain their own looks in the Workshop")
+              return C.after(.5,check_back)
+            end
+            C.log("action","BRICKCRAFT MULTIPLAYER PASS: two network clients, own spots and looks, shared building, new world, "..
+              "bunny world"..(dad_ai and " (Dad and Dad bot are bunnies)" or "")..
+              ", selected habitat skin preserved, normal looks restored on return, "..who)
+            C.request_shutdown("BrickCraft multiplayer check passed",false,1)
+          end
+          check_back()
+        end)
       end
       check_bunnies()
     end

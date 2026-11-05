@@ -37,6 +37,8 @@
 | `game/mods/mesecons/` | 원본 그대로의 Mesecons 일부(모드팩). 고치지 않고, 바꿀 때는 원본 커밋을 통째로 교체 |
 | [game/mods/brickcraft_war/](../game/mods/brickcraft_war/init.lua) | 전쟁 모드, War Lab |
 | [game/mods/brickcraft_kart/](../game/mods/brickcraft_kart/init.lua) | 카트 레이싱, Kart Circuit |
+| [game/mods/brickcraft_models/](../game/mods/brickcraft_models/init.lua) | BrickWright 실제 레고 모델(부품 단위, `/model`, Model Gallery, 보내기 받기). 메시·`data/*.json`은 [tools/import_brickwright.py](../tools/import_brickwright.py)가 생성 |
+| [game/mods/brickcraft_habitat/](../game/mods/brickcraft_habitat/init.lua) | 서식지(Bunnyland): 동물·포식자·재해·먹이·스킨·동상, 플레이어 토끼 마을(`colony.lua`), 변형은 `variants/`. 그림·메시는 [tools/generate_habitat_assets.py](../tools/generate_habitat_assets.py) |
 | [game/mods/brickcraft_ai/](../game/mods/brickcraft_ai/init.lua) | AI 빌더(`brickcraft_ai_builder = true`일 때만 동작) |
 | [tests/mods/brickcraft_test/](../tests/mods/brickcraft_test/init.lua) | 엔진 검사 모드. 게임에 포함되지 않고 `tools/test_*.py`가 검사 세계의 `worldmods/`에 링크 |
 | [tools/generate_assets.py](../tools/generate_assets.py) | 원본 PNG 12개와 블록 사람 OBJ 생성 |
@@ -161,6 +163,38 @@ Finder에서 실행 스크립트를 더블클릭해도 됩니다. 앱만 직접 
 
 키 바인딩은 [brickcraft.conf](../brickcraft.conf)의 `keymap_*`에 있습니다. 방향키는 WASD와 `|`로 함께 묶었고, 서버가 볼 수 있는 키 신호는 aux1·zoom·drop·sneak뿐이라 이렇게 나눴습니다: Tab(43)만 `keymap_aux1`(다음 부품, 카트 리셋), E(8)는 `keymap_zoom`(`zoom_fov = 0`이라 확대 없음)으로 오른쪽 45°, Q(20)는 `keymap_drop`이고 모든 아이템의 `on_drop`(`register_on_mods_loaded`)이 버리지 않고 왼쪽 45°로 돌립니다(빈손이면 Q가 신호를 보내지 않음). U(24)와 Shift(225, 229)는 sneak: 건축 중엔 되돌리기, 카트에서는 바나나 던지기(`brickcraft_kart`가 읽고 되돌리기는 건너뜀), 전쟁 모드에서는 `brickcraft.war.fire_from`. 돌기는 0.3초에 한 번까지입니다(누르고 있으면 Q가 초당 8번쯤 반복됨). 카트에서는 시점 대신 조향: E는 누르고 있는 zoom을 `controls`가 읽고, Q는 이벤트로만 오므로 `brickcraft.kart.steer_left`가 0.35초 동안 왼쪽 조향을 켭니다(반복으로 이어짐). `/clicks`는 Q와 E도 보여 주고, 카트 타기·내리기는 서버 로그에 `BrickCraft kart:`로 남습니다. 다음 브릭 돌리기는 인벤토리 *Turn next brick*(`fields.turn`)과 세퍼레이터 우클릭(놓은 브릭)입니다. 도움말 키는 없고 I > *Help: all keys*·`/keys`로 엽니다. 명령 채팅 키는 쓰지 않는 F13으로 옮겼습니다(빈 값은 쓰지 마세요). F 키도 배치(`keymap_place`)에 묶었습니다. 실행기가 시작 전 빠진 `keymap_*` 줄을 다시 추가하고, `SDL_MAC_CTRL_CLICK_EMULATE_RIGHT_CLICK=1`로 Control+클릭을 우클릭으로 바꿉니다(Luanti 5.17 내장 SDL 2.32). Cmd+클릭은 Luanti 키 설정이 수정키+마우스 조합을 지원하지 않아 넣지 않았습니다. **게임이 켜진 동안 이 파일을 고치지 마세요.** 클라이언트가 종료하며 시작 시점 설정으로 파일을 다시 써서 수정이 사라집니다. 조작 전체 목록은 게임 안 `?`·`/keys` 화면이며 `init.lua`의 `help_rows` 표 하나가 내용을 정합니다. 키를 바꾸면 이 표도 함께 고치세요. 조작: WASD 이동, 마우스 시점, Space 점프(`game/minetest.conf`의 `movement_speed_jump = 9.3`, 높이 = 점프²/(4×중력) ≈ 2.2칸이라 2칸 벽에 오름), 1 세퍼레이터/좌클릭 회수, 2–9 색 선택/우클릭 배치, U 되돌리기, I 인벤토리, C 카메라 전환. `/guide` 안내, `/home` 시작점 복귀. Esc만 눌러서는 세계가 닫히지 않으며, Exit to Menu 또는 Exit to OS로 저장 종료합니다.
 
+## 4g. 실제 레고 모델(brickcraft_models)
+
+- [tools/import_brickwright.py](../tools/import_brickwright.py)가 BrickWright 갤러리(`site/models/<id>.glb`, LDraw 부품마다 노드 하나, 미터)를 읽어 **부품과 회전마다 메시 하나**(`brickcraft_model_<slug>_<k>.glb`, 부품 가운데 기준)와 `data/<slug>.json`을 씁니다. JSON의 `parts`는 `[메시 k, "#rrggbbaa", 가운데 x,y,z, 반크기 x,y,z, 부품 번호, 색 이름]`, `links`는 상자가 0.5mm 안으로 닿는 부품 쌍, `ground`는 바닥에 닿는 부품, `bricks`는 같은 모델의 게임 브릭판(표면을 4mm마다 표본, 칸마다 면적이 가장 큰 게임 색, 투명 부품 제외)입니다.
+- **스케일:** 한 칸 = 가로 16mm(2돌기)·세로 9.6mm(브릭 1개). 게임이 자기 브릭을 그리는 방식과 같아 실제 부품이 게임 부품과 크기가 같고, `bricks`가 모델이 차지한 칸을 그대로 채웁니다. 메시는 y로 16/9.6배 늘어나고 법선도 그에 맞춰 바뀝니다.
+- **좌표:** 부품 위치는 Luanti 좌표(z 반전)로 쓰고, 메시는 glTF 좌표로 둡니다(로더가 z를 뒤집음). 앞(LDraw -z)은 세계 -z를 봅니다. 로더 한도(프리미티브당 정점·인덱스 65535)는 메시마다 지킵니다. 색은 엔티티 텍스처 `[fill:1x1:#rrggbbaa]`이고 UV는 모두 가운데입니다.
+- **미디어는 필요할 때만:** 샘플의 메시·그림은 미디어 폴더가 아닌 `parts/`에 있어 접속 때 받지 않습니다(전에는 13.5MB, 612파일). 서버가 `files`(이름 → 경로, 받은 편지함 모델 포함)를 들고, 1초마다 모델 근처(96칸)의 플레이어에게 그 모델의 파일(`files_of`)을 `core.dynamic_add_media{to_player, ephemeral=false}`로 하나씩 보냅니다(클라이언트 캐시에 남음). 근처에 파일을 다 받은 사람이 있어야 부품을 만들고, 부품이 생긴 뒤에 다 받은 사람이 오면 다시 만듭니다(`shown`). 인벤토리의 LEGO part 그림은 접속 1초 뒤에 보냅니다.
+- **인스턴스:** 모델은 모드 저장소 `model_instances`의 `{id, slug 또는 part, x,y,z(발), turn, scale, gone, support, modified}`입니다. 부품 엔티티(`brickcraft:model_part`, 저장 안 함)는 1초마다 96칸 안에 사람이 있을 때 만들고 없으면 지웁니다. 맵 블록당 객체 한도 때문에 엔티티를 맵에 저장하지 않습니다. 첫 버전의 한 덩어리 `brickcraft:display_model`은 깨어날 때 그 자리의 인스턴스로 바뀝니다.
+- **받침:** `brickcraft:model_support`(보이지 않음, `leveled` 노드 상자, 걸을 수 있음, 가리킬 수 없음, buildable_to)가 부품 상자가 가운데를 덮는 칸(얇으면 가장 가까운 칸)에 부품 윗면 높이만큼 들어갑니다. 공기 칸에만 쓰며, 엄격한 검사의 `ground`(부품이 아닌 단단한 것)라 위에 놓인 브릭은 돌기에 끼운 것으로 칩니다.
+- **변경:** 분해 두 가지(`organize`: 그 자리에 쌓기, `break_all`: 인벤토리로·남는 건 `organize`)는 모델이 사라지므로 확인·크기 맞춤 없이 바로 합니다. 떼기(`take_part`), 게임 브릭판(`convert`, 엄격하면 `strict.order`로 붙는 것만), 브릭·부품 올리기는 모두 `before_change`를 거칩니다. 처음이면 확인 창(`brickcraft_models:unify`)을 띄우고, 예를 누르면 `unify`가 크기 1로 바꾸고 `modified`를 세워 크기를 고정합니다. 돌리기·치우기·크기 바꾸기는 변경이 아닙니다.
+- **인벤토리:** 부품 번호 앞 숫자가 `shapes`의 실제 부품(`part`, invented·기차·테크닉 제외)과 같으면 가장 가까운 게임 색의 그 부품(`brickcraft.piece_item`), 아니면 `brickcraft:real_part`(메타: 메시·색·반크기·번호, 아이콘을 `color`로 칠함)입니다. LEGO part를 놓으면 부품 하나짜리 인스턴스(`part`, `modified`)가 됩니다.
+- **엄격(중력):** 떼면 새로 `hanging`(땅 부품에서 `links`로 닿지 않는)이 된 부품을 그 인스턴스에서 빼고, `links`로 이어진 덩어리마다(낮은 것부터) `floor_under`(노드 윗면, 받침 높이, 근처 모든 부품 상자)로 떨어질 거리를 구해 `custom` 인스턴스(`{title, parts, links, ground=내려앉은 부품}`, 원래 turn·scale)로 놓습니다. 화면의 엔티티는 가속도 20으로 떨어진 뒤 지우고 새 인스턴스는 그만큼(`hold`) 기다렸다 나타납니다. 그다음 `settle`이 근처 인스턴스 중 어느 부품도 아래에 닿지 않는 것을 통째로 떨어뜨립니다(최대 8번). 사라질 받침 칸 바로 위에 부품이 있으면(`bricks_on`) 거절합니다.
+- **부품 정리(`organize`):** 남은 부품을 (번호, 색)별로 모아 바로 선 메시(`umesh`)로 최대 8개씩 쌓고(브릭은 돌기만큼 겹침), 바닥 넓이가 큰 것부터 너비 8–24칸 줄로 놓은 `custom` 인스턴스로 바꿉니다.
+- **바로 선 부품과 그림:** 가져오기는 부품마다 원래 파일 방향(부모 회전만)의 메시도 쓰고(`parts`의 11–14번째: 메시, 반크기), 그 메시를 위·오른쪽 앞에서 본 32×32 회색 그림(`<메시>.png`, 2배로 그려 줄임)을 만듭니다. LEGO part 아이템은 바로 선 메시와 `inventory_image`=`그림^[multiply:#색]`을 갖습니다. 그림 없이 들어온 옛 아이템은 접속할 때 채웁니다.
+- **메뉴 열기:** 클라이언트가 부품 우클릭을 보내지 않는 경우가 있어(트랙패드), 서버가 매 단계 `place` 키(우클릭·F·Control+클릭)가 눌리는 순간 세퍼레이터나 빈손이면 시선 광선으로 부품을 찾아 메뉴를 엽니다(0.4초 안의 중복은 무시).
+- **보내기:** `import_brickwright.py --send <id> [--title] [--world] [--gallery]`가 `<world>/brickwright_models/<slug>/`에 메시와 `model.json`(마지막, 임시 이름에서 바꿈)을 씁니다. 메시 이름에 매번 새 표시(`mesh_prefix`)를 붙여 이미 보낸 미디어와 겹치지 않게 합니다. 게임은 3초마다 받은 편지함을 보고 `core.dynamic_add_media`로 메시를 보낸 뒤(2초 뒤부터 부품을 만듦) 카탈로그에 넣고, 알리고, Model Gallery 앞줄(`EXTRA`)의 빈 자리에 놓습니다. BrickWright 갤러리 서버의 `POST /api/brickcraft`가 이 명령을 부릅니다(`$BRICKCRAFT_DIR`, 기본 `~/dev/BrickCraft`).
+- **Model Gallery:** Kart Circuit처럼 첫 실행 때 `make_world(...,{strict=true})`로 한 번 만들고(`w.gallery`), 더미·아치를 비운 뒤 `GALLERY`의 자리에 인스턴스를 놓습니다(`w.gallery_models`).
+- 검사: `python3 tools/test_models.py`(포트 30019): 갤러리·부품 수·27칸 분재·3003 크기·받침, `/model` 크기와 돌아보기, 첫 변경 확인과 크기 고정, 부품 → 인벤토리(3003 → 2×2 브릭, 그 밖은 LEGO part), 위에 브릭이 있는 부품 거절, 중력(분재 바닥판을 떼면 454부품이 0.33칸 떨어져 세계 바닥판 위로), LEGO part 그림, 부품 정리(메카 65부품, 25종 쌓기), 분해, 게임 브릭판, LEGO part 놓기·떼기, 실행 중 `--send`로 들어온 병아리(198부품)가 갤러리에 서기.
+
+## 4h. 서식지와 토끼 마을(brickcraft_habitat)
+
+- **일반 틀, 변형은 정의만:** `init.lua`가 등록부 여섯 개를 둡니다: `register_creature`(지킬 동물, 엔티티), `register_predator`(걷거나 `flies`), `register_source`(먹이·물 노드, `units`·`regrow`), `register_skin`, `register_disaster`(`start/step/stop`, `creatures_seek="high"|"shelter"`, `panic`), `register_variant`(동물·동상·처음 놓을 먹이·키트·포식자·재해·스킨·`match_names`·`wave`·`colony`). `colony.lua`는 `register_structure`(`effect="home"|"nursery"|"lookout"`, `hideout`)와 마을을 더합니다. Bunnyland는 [variants/bunny.lua](../game/mods/brickcraft_habitat/variants/bunny.lua) 하나이고, 새 서식지(펭귄·사슴…)는 이 파일을 본떠 `init.lua` 끝의 목록에 이름을 더하면 됩니다. 테스트는 정의만으로 두 번째 변형(`meadow`)을 만들어 확인합니다.
+- **세계:** 세계 기록의 `habitat=<변형 id>`가 서식지 표시입니다. `bind_names`가 시작할 때와 5초마다 이름이 `match_names`와 같은 세계(공백·대소문자 무시)를 바꿉니다. 상태는 모드 저장소 `habitat_<세계 id>`(`built`, `spawned`, `born`, `lost`, `wild`, `colonies`)입니다. 동상은 `emerge_area` 뒤 VoxelManip으로 풍경 노드(잔디·흙·나무)만 지우고 `statue_<색>` 노드(브릭 그룹 아님 → 세퍼레이터로 못 뗌)를 씁니다. 동물은 그 세계에 사람이 처음 있을 때 나옵니다.
+- **움직임:** 동물·걷는 포식자는 `physical`, 중력 2g, `stepheight` 0.3, 점프 6.6(1.1칸). 발밑이 단단하고, 부딪힌 기둥의 발 높이 칸만 단단하고 그 위 칸은 비었을 때만 뜁니다(벽에 붙은 채 엔진이 공중에서도 `touching_ground`를 주는 일이 있어 연속 점프로 두 칸 벽을 넘었음). 그래서 두 칸 벽은 못 넘지만 언덕을 따라 올라가 벽 위로 걸어갈 수는 있습니다. 포식자는 막히면 2.5초 뒤 옆으로 돌아갑니다. 15초 동안 먹이에 더 가까워지지 못하면 포기하고 떠나며, 떠나는 중 20초가 지나면 사라집니다. 걷는 포식자는 평평한 잔디 고리(중심에서 26.5칸, 풀·흙·바닥판 위)에서 나옵니다(언덕·나무 위에서 나오면 사자가 갇혔음). 울타리 조각(`register_fence`, connected nodebox, 충돌 1.5칸)은 `leaps`(사자, 점프 8)만 뛰어넘으려 합니다: 다른 동물은 물통 위에서도 울타리 앞에서는 뛰지 않습니다(물통에서 뛰어 울타리를 넘어 목말라 죽던 문제). 독수리는 `physical=false`, 지붕 아래(`sheltered`: 위 8칸 안에 단단한 것, 또는 허치 칸 `hidden`)가 아닌 토끼만 노립니다.
+- **재해:** 홍수는 층마다 BFS: 하늘이 트인 공기 칸(또는 아래가 물인 칸)에서 옆으로 공기를 따라 퍼지므로 닫힌 벙커는 마릅니다. 끝나거나 서버가 중간에 꺼지면 LBM이 물을 지웁니다. 소행성은 `raycast`로 첫 단단한 노드에서 멈추고 풍경만 파며, 먹이 노드는 지웁니다. 피해는 `line_of_sight`가 트인 토끼만.
+- **마을:** 놓은 구조물·먹이에 `owner` 메타(`claim`). `tally`가 세계의 소유자별 집 수용·보육원·망루·먹이·물을 2초마다 셉니다. 행복 = 0.3 집 + 0.2 물 + 0.3 먹이 + 0.2 안전. 매초 `colony_tick`이 클로버(마리당 `income`×(행복+0.5))를 더하고, 행복 ≥ `happy`이고 빈 집이 있으면 `birth`/(1+보육원) 초마다 새끼를 낳습니다. 마을 토끼는 가장 가까운 내 허치(없으면 시작 자리) 12칸 안에 머물고, 포식자·소행성 때는 빈 허치로 숨습니다(허치마다 `capacity`).
+- 검사: `python3 tools/test_habitat.py`(포트 30021). 균형: `python3 tools/sim_habitat.py [분] ["wolf.speed=3.5 colony.birth=40"] [seed] [runs]`(포트 30022, 클라이언트 없이 세계를 강제 로드): 가상 플레이어 넷(`none`, `chase`, `reasonable`, `strong`)이 각자 세계에서 같은 포식자·재해 일정을 겪고 생존율(끝에 산 수 / 마을이 가진 모든 토끼)을 냅니다.
+
+## 4i. AI 빌더 돕기 확장(brickcraft.assist)
+
+- 핵심 모드의 `brickcraft.assist.register{name, prompt, context(name), step(name,text,say,api)}`로 어느 모드든 빌더에게 할 일을 가르칩니다. 빌더(`brickcraft_ai`)는 처음 대화할 때 `chat_system()`으로 지시문에 모든 도우미의 `prompt`와 **모든 채팅 명령**(`interact`·`shout` 밖의 권한이 필요한 것 제외, 매개변수·설명)을 붙이고, 볼 것에 `context`를 더합니다. 계획의 각 단계는 `extras`가 먼저 받습니다: `/명령 …`이면 부탁한 사람의 이름·권한으로 그 명령의 `func`를 부르고, 아니면 도우미의 `step`을 차례로 묻습니다(`api`: `bot`, `owner`, `is_owner`(jms는 모두), `owner_label`, `go(pos)`: 빌더가 pos 옆으로 걸어감). `handle`이 Lua 업밸류 60개 한도에 닿아 이 부분은 따로 함수입니다.
+- 서식지 도우미([ai.lua](../game/mods/brickcraft_habitat/ai.lua)): 마을 상태·가방·포식자·재해를 알려 주고, 몰기(토끼가 빌더 객체를 `_follow_obj`로 따라감, 집 10칸 안의 문을 열고 도착 4초 뒤 닫음), 지키기(2분, 집이나 부탁한 사람 24칸 안의 포식자를 1.2초마다 `_hit`), 울타리 고리(집에서 4칸, 문은 부탁한 사람 쪽), 먹이 놓기, 시작·상태·사기·머물기를 합니다.
+
 ## 5. 검사 방법과 확인된 범위
 
 이번 문서 작성에서는 게임을 재실행하지 않고 기존 통과 로그와 현재 코드·설정을 대조했습니다. 원본 검사일은 2026-10-31입니다.
@@ -200,7 +234,7 @@ python3 tools/test_integration.py
 
 색을 늘릴 때 배열만 추가하면 끝나지 않습니다. 맵 생성의 `for i=1,8`, 수집 더미 간격, 핫바 9칸, 처음 지급 슬롯, 안내 문구가 현재 8색에 맞춰져 있습니다. 먼저 색 선택 UX를 정한 뒤 함께 수정해야 합니다.
 
-형태는 `init.lua`의 `shapes` 표에 있습니다(`id`, 노드 이름 `suffix`, 실제 부품 `part`, 인벤토리 줄 `group`, `cost`, 2칸 부품 `long`, 노드박스 `boxes` 또는 메시 `mesh`, 충돌 상자). 경사·둥근 브릭은 노드박스로 그릴 수 없어 `generate_assets.py`의 `Mesh`가 OBJ를 만듭니다(바깥쪽 법선, 높은 쪽 +z). 새 부품은 실제 부품 번호와 돌기 배치를 확인해 표에 추가하고, `house_test.lua`에서 한 번 이상 쓰도록 하세요. 색마다 형태별 노드가 등록되지만 인벤토리 아이템은 `brickcraft:<color>` 하나이며, 그 `on_place`가 플레이어 메타 `brickcraft_shape`·`brickcraft_turn`을 읽어 해당 형태 노드를 놓습니다. 형태 노드의 `drop`은 색 아이템 × `cost`입니다.
+형태는 `init.lua`의 `shapes` 표에 있습니다(`id`, 노드 이름 `suffix`, 실제 부품 `part`, 인벤토리 줄 `group`, 2칸 부품 `long`, 노드박스 `boxes` 또는 메시 `mesh`, 충돌 상자). 경사·둥근 브릭은 노드박스로 그릴 수 없어 `generate_assets.py`의 `Mesh`가 OBJ를 만듭니다(바깥쪽 법선, 높은 쪽 +z). 새 부품은 실제 부품 번호와 돌기 배치를 확인해 표에 추가하고, `house_test.lua`에서 한 번 이상 쓰도록 하세요. 부품은 색 × 형태마다 따로인 아이템입니다(`piece_item(color, shape)` = `brickcraft:<color><item 또는 suffix>`, 2×2는 예전 이름 `brickcraft:<color>` 그대로라 저장된 브릭이 2×2가 됨). 노드 부품은 노드 자체가 아이템이고 회수하면 자기 자신이 나옵니다(`drop` 없음). 기차·테크닉 부품은 그 모드의 노드(선로, `_motor_node`, `_battery_node`, 기어·축)이고, 수레·객차는 인벤토리 그림용 메시 노드(`brickcraft_trains`, 놓이지 않음)이며 `register_on_mods_loaded`가 `on_place`를 `place_brick`으로 바꿉니다. `place_brick`은 든 아이템(`piece_of`)으로 형태와 색을 정하고 하나를 씁니다. **보관:** 핫바 2–12칸과 가방(13–32)에는 플레이어가 둔 부품이 그대로 있고, 나머지 부품은 숨은 `pieces` 목록(`PIECES_SIZE`)에 있습니다. `to_hotbar(player,item,slot)`이 그 부품 전부를 한 칸으로 꺼내고(있던 부품은 보관, LEGO part는 가방으로), `fill_hotbar`(*All colors to hotbar*)는 한 부품을 색마다 그 색 키 칸에 넣습니다. `brickcraft_shape` 메타(`set_shape`)는 인벤토리에서 고른 부품일 뿐 핫바를 바꾸지 않습니다. Tab은 든 칸의 부품을 같은 색의 다음 부품으로 바꾸고, `give`는 main에 같은 부품이 있으면 그 칸에 합칩니다. `normalize`(Sort)는 가방의 부품을 보관합니다. 부품을 넣고 빼는 곳은 모두 `brickcraft.give`·`take`·`room_for`·`count_of`를 쓰고(회수는 `core.handle_node_drops` 재정의), 전쟁 모드에서는 `pieces`로만 들어갑니다. 저장은 `bricks_<id>`(main)와 `pieces_<id>`. 시작 세트는 `KIT`·`KIT_EXTRA`(`give_kit`)이고, 부품 이전의 저장은 `piece_kit_<id>`(접속은 메타 `brickcraft_piece_kit`)로 한 번 더 받습니다.
 
 몸통은 칸(-0.5..0.5)을 꽉 채우고 돌기는 0.5..0.64로 위 칸에 솟습니다. 위에 놓인 노드의 몸통이 돌기를 덮어 가리므로 쌓인 브릭 사이에 돌기가 보이지 않습니다. 충돌 상자는 칸 크기 그대로입니다. 2×4는 주 노드의 노드박스가 로컬 +z 방향으로 1.5까지 뻗고, `facedir_to_dir(param2)` 칸에 보이지 않는 `_2x4_tail` 노드를 둡니다. 끝 칸은 충돌·선택만 담당하며 회수·회전은 `primary_of`로 주 노드를 찾아 처리합니다. 주 노드의 `on_destruct`가 끝 칸을 지웁니다. 노드박스는 ±1.5를 넘을 수 없으므로 더 긴 부품은 같은 방식으로 끝 칸을 여러 개 두어야 합니다.
 
@@ -218,7 +252,7 @@ python3 tools/test_integration.py
 
 ### 인벤토리와 플레이어
 
-`register_on_joinplayer`가 `main` 32칸, 핫바 12칸과 8×4 인벤토리 formspec을 설정합니다. 최초 지급은 1번 세퍼레이터, 2–9번 8색 브릭 각 24개(`STARTER_COLORS`)입니다. `colors`의 마지막 3색(green·brown·tan)은 지급하지 않고 경치 수확으로만 얻으며, 보통 10–12번 칸에 들어갑니다. 슬롯을 늘리거나 재배치할 때 formspec·핫바·초기 지급·기존 저장의 아이템 보존을 함께 확인하세요. 작은 크기로 줄이면 기존 슬롯의 아이템이 영향을 받을 수 있습니다.
+`register_on_joinplayer`가 `main` 32칸, 핫바 12칸과 8×4 인벤토리 formspec을 설정합니다. 최초 지급은 1번 세퍼레이터와 시작 세트(`give_kit`: `STARTER_COLORS` 8색의 `KIT` 부품, 남색 기차·테크닉 `KIT_EXTRA`)입니다. `colors`의 마지막 3색(green·brown·tan)은 지급하지 않고 경치 수확으로만 얻으며, 보통 10–12번 칸에 들어갑니다. 슬롯을 늘리거나 재배치할 때 formspec·핫바·초기 지급·기존 저장의 아이템 보존을 함께 확인하세요. 작은 크기로 줄이면 기존 슬롯의 아이템이 영향을 받을 수 있습니다.
 
 현재 캐릭터는 원본 OBJ 정적 메시입니다. `visual_size = {x=10,y=10}`, 충돌 상자와 `eye_height`를 함께 사용하므로 메시 단위와 실제 이동 충돌을 혼동하지 마세요.
 
@@ -245,3 +279,46 @@ python3 tools/test_integration.py
 사용자가 Codex 데스크톱 앱에서 `~/dev/BrickCraft`를 프로젝트로 추가하고 해당 프로젝트의 **Local** 작업을 열어야 합니다. 이어서 “README, docs/DEVELOPMENT.md, TODO.md를 읽고 현재 저장 세계를 보존하며 다음 작업을 정하자”라고 시작할 수 있습니다.
 
 `bind_address = 127.0.0.1` 변경은 자동 승인 검토에서 기존 “보안 변경 금지” 지침을 이유로 거절됐고 **미적용·사용자 명시적 승인 대기**입니다. 현재 설정에는 `server_announce = false`가 있으나 로그상 기본 내장 서버는 `[::]:30000`에서 수신했습니다. 이 문서 작성은 설정 변경 권한을 부여하지 않으며, 승인 전 재시도하거나 다른 경로로 적용하지 않습니다. 방화벽·보안 설정 변경이나 공개 배포도 수행하지 않았습니다.
+
+
+### Compact report screenshots
+
+`/bug`, `/feature`, `/report`, and reports through AI builders capture the reporting
+save name, logical world ID/name, position, viewing direction (radians), and UTC time
+before the asynchronous write-up. The GitHub issue contains this small JSON pointer
+instead of the previous long area dump.
+
+`brickcraft_ai/report_view.lua` saves a temporary 33-node cube and limited visual entity
+properties at submission. `tools/render_report_view.py` renders it in a disposable
+Luanti client; `tools/prepare_report_screenshot.py` uploads one JPEG to the GitHub
+`report-screenshots` release. Each image is at most 960 pixels wide and 200 KiB.
+It is labelled as a reconstructed view, since UI, animations, imported assets and distant
+terrain can differ from the reporting device. Rendering requires a macOS GUI session
+and the existing System Events input permission; do not run this part in launchd.
+
+`post_issues.zsh` keeps the report queued if screenshot preparation fails, reuses images
+on retries, and deletes temporary scene files after a successful post. It archives the
+small JPEG locally. Older reports without scene data can still post without an image.
+No whole-world database, chat history, authentication data, inventories, imported models
+or backups are uploaded. The location points to the live world and does not freeze it.
+
+Checks: `python3 tools/test_report_context.py`, `python3 tools/test_report_screenshots.py`,
+and `python3 tools/test_ai_builder.py`. To inspect a disposable captured scene, run
+`python3 tools/render_report_view.py <world>/issues <report-id>`.
+
+Report acknowledgments are private to the reporting player identity. `report_notifications.lua`
+persists received/posted/working/review/merged acknowledgments in mod storage and delivers
+unread updates after reconnecting, even from a different Mac. `tools/sync_report_status.py`
+checks GitHub labels, worker comments and linked PR state, writing atomic local status files.
+The Codex forwarding heartbeat runs it every five minutes. No lifecycle update is sent twice.
+
+## World API and authorization
+
+See [WORLD_API.md](WORLD_API.md) for the API capability matrix, protocol and setup.
+`brickcraft/permissions.lua` owns account-based world ACLs and the common input guards.
+`brickcraft/world_api.lua` executes bounded reads and ordinary-piece preview/apply/undo
+on the game thread. `tools/world_api.py` is the opt-in authenticated local HTTP transport.
+New player worlds set `write_owner` to the connection account; legacy `owner` remains the
+family profile/display field. `writers` and `public_write` are stored with the worlds;
+Workshop uses `workshop_access`. Do not authorize from selectable profiles.
+Run `python3 tools/test_world_api.py` for isolated engine/HTTP coverage.

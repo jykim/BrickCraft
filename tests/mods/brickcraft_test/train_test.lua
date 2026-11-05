@@ -27,20 +27,33 @@ C.register_on_joinplayer(function(player)
   C.after(3,function()
     local inv=player:get_inventory()
     local slot={}
+    inv:set_list("pieces",{}) -- 99 of every piece below, not the starter kit
+    for i=2,inv:get_size("main") do inv:set_stack("main",i,"") end
     for i,color in ipairs(brickcraft.colors) do
-      if i<=8 then slot[color]=i+1; inv:set_stack("main",i+1,"brickcraft:"..color.." 99") end
+      if i<=8 then
+        slot[color]=i+1
+        for _,s in ipairs(brickcraft.shape_list) do brickcraft.give(player,brickcraft.piece_item(color,s).." 99") end
+      end
     end
-    local function count(color) return inv:get_stack("main",slot[color]):get_count() end
+    -- Pieces of a color used so far, counted down from 99 (each piece is one).
+    local function total(color)
+      local n=0
+      for _,s in ipairs(brickcraft.shape_list) do n=n+brickcraft.count_of(player,brickcraft.piece_item(color,s)) end
+      return n
+    end
+    local full={}
+    for color in pairs(slot) do full[color]=total(color) end
+    local function count(color) return 99-(full[color]-total(color)) end
     -- A right click with a color and the chosen piece, through the color's own on_place.
     local function place(piece,color,under,above)
-      brickcraft.set_shape(player,brickcraft.shapes[piece])
+      brickcraft.fill_hotbar(player,brickcraft.shapes[piece])
       local stack=inv:get_stack("main",slot[color])
       stack=stack:get_definition().on_place(stack,player,{type="node",under=under,above=above})
       inv:set_stack("main",slot[color],stack)
     end
     -- A right click on a cart, holding a color with the chosen piece (or the separator).
     local function click(ent,piece,color)
-      if piece then brickcraft.set_shape(player,brickcraft.shapes[piece]) end
+      if piece then brickcraft.fill_hotbar(player,brickcraft.shapes[piece]) end
       local held=inv:get_stack("main",1)
       if color then inv:set_stack("main",1,inv:get_stack("main",slot[color])) end
       ent.on_rightclick(ent,player)
@@ -63,7 +76,7 @@ C.register_on_joinplayer(function(player)
       if C.get_node(pos).name=="brickcraft:navy_track_curve" then curves=curves+1 end
     end
     assert(curves==4,"4 corners curve, got "..curves)
-    assert(count("navy")==99-#loop,"each piece uses 1 navy brick")
+    assert(count("navy")==99-#loop,"each track is one navy piece")
     -- Undo takes the last piece back; laying it again closes the loop.
     brickcraft.undo(player)
     assert(not T.ends(loop[#loop]) and count("navy")==100-#loop,"undo lifts the last piece")
@@ -72,7 +85,7 @@ C.register_on_joinplayer(function(player)
 
     place("cart","coral",loop[2],vector.offset(loop[2],0,1,0))
     local ent=cart_at(loop[2])
-    assert(ent and count("coral")==97,"a coral cart on the track for 2 coral bricks")
+    assert(ent and count("coral")==98,"a coral cart piece on the track")
     local cart=ent.object
     -- Landing on the deck boards it.
     local cp=cart:get_pos()
@@ -102,7 +115,7 @@ C.register_on_joinplayer(function(player)
       assert(player:get_wielded_item():get_name()=="brickcraft:separator","holding the separator")
       C.registered_tools["brickcraft:separator"].on_use(inv:get_stack("main",1),player,
         {type="node",under=gap,above=vector.offset(gap,0,1,0)})
-      assert(not T.ends(gap) and count("navy")==100-#loop,"separator collects track, a brick back")
+      assert(not T.ends(gap) and count("navy")==100-#loop,"separator collects track, the piece back")
       wait(20,function() return ent._v==0 and vector.distance(ent._cell,gap)==1 end,function()
         log("GAP: stopped next to "..key(gap))
         brickcraft.undo(player)
@@ -113,7 +126,7 @@ C.register_on_joinplayer(function(player)
         C.after(.3,function()
         assert(not player:get_attach(),"doesn't land straight back on")
         ent.on_punch(ent,player)
-        assert(not cart:get_pos() and count("coral")==99,"separator collects the cart, 2 coral back")
+        assert(not cart:get_pos() and count("coral")==99,"separator collects the cart, the cart piece back")
 
         -- A locomotive: a cart, then the motor and battery box pieces on it (right click it
         -- holding navy), then two cars put behind it hook on.
@@ -121,7 +134,7 @@ C.register_on_joinplayer(function(player)
         local loco=cart_at(loop[3])
         local navy=count("navy")
         click(loco,"motor","navy"); click(loco,"battery","navy")
-        assert(loco._motor=="navy" and loco._battery=="navy" and count("navy")==navy-2,"motor and battery box on, a navy brick each")
+        assert(loco._motor=="navy" and loco._battery=="navy" and count("navy")==navy-2,"motor and battery box on, one navy piece each")
         assert(inv:get_stack("main",1):get_name()=="brickcraft:separator","separator back in hand")
         place("cart","gold",loop[2],vector.offset(loop[2],0,1,0))
         place("cart","gold",loop[1],vector.offset(loop[1],0,1,0))
@@ -174,8 +187,8 @@ C.register_on_joinplayer(function(player)
                   -- Collecting the locomotive gives back its bricks and its parts' bricks.
                   local coral,nv=count("coral"),count("navy")
                   loco.on_punch(loco,player)
-                  assert(not loco.object:get_pos() and count("coral")==coral+2 and count("navy")==nv+2,
-                    "separator collects the locomotive: 2 coral, motor and battery box 2 navy")
+                  assert(not loco.object:get_pos() and count("coral")==coral+1 and count("navy")==nv+2,
+                    "separator collects the locomotive: its cart, motor and battery box pieces")
                   for _,c in ipairs({car1,car2}) do c.on_punch(c,player) end
                   -- Leave a train going round for a look.
                   local look=T.put_train({loop[3],loop[2],loop[1]},"coral")
