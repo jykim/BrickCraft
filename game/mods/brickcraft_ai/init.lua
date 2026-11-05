@@ -1134,9 +1134,15 @@ local function owner_player(owner)
   end
 end
 
--- A builder: a block person steered like a player's controls.
+-- A builder: a block person steered like a player's controls. In a bunny world it wears
+-- bunny ears and a tail like the players there; the look follows it from world to world.
+local BOT_MESH="brickcraft_person_short.obj"
+local function bot_look(obj)
+  local mesh=brickcraft.look_mesh(BOT_MESH,obj:get_pos())
+  if obj:get_properties().mesh~=mesh then obj:set_properties({mesh=mesh}) end
+end
 C.register_entity(":brickcraft:ai_builder",{
-  initial_properties={visual="mesh",mesh="brickcraft_person_short.obj",textures={"brickcraft_person_jms.png"},
+  initial_properties={visual="mesh",mesh=BOT_MESH,textures={"brickcraft_person_jms.png"},
     visual_size={x=10,y=10},collisionbox={-.3,0,-.3,.3,1.75,.3},selectionbox={-.3,0,-.3,.3,1.75,.3},
     physical=true,collide_with_objects=false,stepheight=.6,pointable=true,static_save=false,
     nametag="",nametag_color="#f5872c",nametag_bgcolor="#14293699"},
@@ -1148,7 +1154,10 @@ C.register_entity(":brickcraft:ai_builder",{
     if self._worker and clicker and clicker:is_player() then self._worker.show(clicker) end
   end,
   on_step=function(self,dtime,moveresult)
-    if self._worker then self._worker.move(self.object,dtime,moveresult) else self.object:remove() end
+    if not self._worker then self.object:remove(); return end
+    self._look_t=(self._look_t or 1)+dtime
+    if self._look_t>=1 then self._look_t=0; bot_look(self.object) end
+    self._worker.move(self.object,dtime,moveresult)
   end,
 })
 
