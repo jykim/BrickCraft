@@ -826,6 +826,7 @@ local help_rows={
   {"COMMANDS",""},
   {"/keys","This help screen"},{"/guide","Welcome screen"},{"/home","Back to the start of this world"},
   {"/world","Go to another world or make a new one"},
+  {"/parkour restart","Parkour: back to the course start (also checkpoint, back, start here)"},
   {"/worldaccess [grant|revoke <account>]","View world access, or let an account build in your world"},
   {"/undo","Undo your last build action"},
   {"/checkbuild","List loose pieces nearby (strict LEGO worlds don't allow any)"},
@@ -1459,6 +1460,71 @@ end)
 C.register_on_shutdown(function()
   for _,p in ipairs(C.get_connected_players()) do save_bricks(p) end
 end)
+-- Parkour: builders mark a course start for their world; anyone can restart from it or
+-- save a checkpoint. Falling off the course goes back to your checkpoint, or the start.
+-- Starts are saved per world id; checkpoints per player (and only for the world they're in).
+local parkour_starts=C.deserialize(storage:get_string("parkour_starts")) or {}
+local function parkour_start(w)
+  local s=parkour_starts[tostring(w.id)]
+  return s and {x=s.x,y=s.y,z=s.z},s and s.yaw
+end
+local function parkour_checkpoint(p,w)
+  local cp=C.deserialize(p:get_meta():get_string("brickcraft_parkour_checkpoint"))
+  if cp and cp.world==w.id then return {x=cp.x,y=cp.y,z=cp.z},cp.yaw end
+end
+local function parkour_move(p,pos,yaw)
+  p:set_pos(pos)
+  if yaw then p:set_look_horizontal(yaw) end
+  local v=p:get_velocity(); if v then p:add_velocity(vector.multiply(v,-1)) end
+end
+-- Where someone who falls off is caught: their checkpoint, the course start, else home.
+local function fall_back(p)
+  local w=world_at(p:get_pos())
+  local pos,yaw=parkour_checkpoint(p,w)
+  if not pos then pos,yaw=parkour_start(w) end
+  if pos then parkour_move(p,pos,yaw) else p:set_pos(home_pos(p)) end
+end
+local PARKOUR_PARAMS="[restart | checkpoint | back | start here | start clear]"
+C.register_chatcommand("parkour",{params=PARKOUR_PARAMS,
+  description="Parkour: restart from the course start, save a checkpoint, or (builders) mark the start",
+  func=function(name,param)
+    local p=C.get_player_by_name(name)
+    if not p then return false,"Join the game first." end
+    local w=world_at(p:get_pos())
+    local words=(param or ""):lower():gsub("^%s+",""):gsub("%s+$","")
+    local action,rest=words:match("^(%S*)%s*(.*)$")
+    if action=="" or action=="restart" or action=="reset" then
+      p:get_meta():set_string("brickcraft_parkour_checkpoint","")
+      local pos,yaw=parkour_start(w)
+      if pos then parkour_move(p,pos,yaw); return true,"Parkour restarted! Back to the start of the course." end
+      parkour_move(p,home_pos(p,w))
+      return true,"Parkour restarted from the start of "..w.name..". (A builder can mark the course start with /parkour start here.)"
+    elseif action=="checkpoint" or action=="cp" then
+      local pos=p:get_pos()
+      p:get_meta():set_string("brickcraft_parkour_checkpoint",C.serialize({world=w.id,x=pos.x,y=pos.y,z=pos.z,
+        yaw=p:get_look_horizontal()}))
+      return true,"Checkpoint saved! Falling off or /parkour back brings you here; /parkour restart starts over."
+    elseif action=="back" then
+      local pos,yaw=parkour_checkpoint(p,w)
+      if not pos then pos,yaw=parkour_start(w) end
+      if not pos then return false,"No checkpoint here yet. Stand on a safe spot and type /parkour checkpoint." end
+      parkour_move(p,pos,yaw); return true,"Back to your checkpoint."
+    elseif action=="start" or action=="setstart" then
+      if not brickcraft.permissions.can_write(p,w) then
+        return false,"Only builders of "..w.name.." can change its parkour start."
+      end
+      if rest=="clear" or rest=="off" or rest=="remove" then
+        parkour_starts[tostring(w.id)]=nil
+        storage:set_string("parkour_starts",C.serialize(parkour_starts))
+        return true,"Parkour start cleared. /parkour restart now goes to the start of "..w.name.."."
+      end
+      local pos=p:get_pos()
+      parkour_starts[tostring(w.id)]={x=pos.x,y=pos.y,z=pos.z,yaw=p:get_look_horizontal()}
+      storage:set_string("parkour_starts",C.serialize(parkour_starts))
+      return true,"Parkour start set here. /parkour restart brings everyone in "..w.name.." back to this spot."
+    end
+    return false,"Unknown parkour command. Try /parkour "..PARKOUR_PARAMS
+  end})
 C.register_on_respawnplayer(function(player) player:set_pos(home_pos(player)); return true end)
 C.register_chatcommand("home",{description="Back to the start of this world",func=function(name)
   local p=C.get_player_by_name(name); if p then p:set_pos(home_pos(p)) end
@@ -1656,7 +1722,7 @@ C.register_globalstep(function(dt)
   end
   elapsed=elapsed+dt; if elapsed<1 then return end; elapsed=0
   for _,p in ipairs(C.get_connected_players()) do
-    if p:get_pos().y< -8 then p:set_pos(home_pos(p)) end
+    if p:get_pos().y< -8 then fall_back(p) end
     -- Walking or switching into (or out of) a bunny world changes the look.
     local mesh=look_mesh(get_style(p).mesh,p:get_pos())
     if p:get_meta():get_string("brickcraft_habitat_skin")=="" and

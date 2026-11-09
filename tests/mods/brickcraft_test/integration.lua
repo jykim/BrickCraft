@@ -19,6 +19,32 @@ C.register_on_joinplayer(function(player)
     local inv=player:get_inventory()
     local stage=store:get_int("test_stage")
     if stage==0 then
+      -- /parkour: restart works with or without a marked start; checkpoints and starts stick.
+      do
+        local parkour=C.registered_chatcommands.parkour
+        assert(parkour,"/parkour exists")
+        local function near(a,b) return vector.distance(a,b)<.01 end
+        player:set_pos({x=9,y=4,z=9})
+        local ok,msg=parkour.func(name,"restart")
+        assert(ok and msg~="" and near(player:get_pos(),brickcraft.home_pos(player)),
+          "/parkour restart with no course start goes to the world start and says so")
+        player:set_pos({x=5,y=1,z=6})
+        assert(parkour.func(name,"start here"),"/parkour start here marks the course start")
+        player:set_pos({x=12,y=2,z=8})
+        assert(parkour.func(name,"checkpoint"),"/parkour checkpoint saves this spot")
+        player:set_pos({x=14,y=3,z=1})
+        assert(parkour.func(name,"back") and near(player:get_pos(),{x=12,y=2,z=8}),"/parkour back returns to the checkpoint")
+        player:set_pos({x=14,y=3,z=1})
+        assert(parkour.func(name,"restart") and near(player:get_pos(),{x=5,y=1,z=6}),"/parkour restart returns to the course start")
+        assert(player:get_meta():get_string("brickcraft_parkour_checkpoint")=="","restart forgets the checkpoint")
+        player:set_pos({x=14,y=3,z=1})
+        assert(parkour.func(name,"back") and near(player:get_pos(),{x=5,y=1,z=6}),"with no checkpoint, back goes to the start")
+        assert(parkour.func(name,"") and near(player:get_pos(),{x=5,y=1,z=6}),"/parkour alone restarts")
+        assert(not parkour.func(name,"fly"),"unknown /parkour words are refused with help")
+        assert(parkour.func(name,"start clear"),"/parkour start clear removes the start")
+        player:set_pos({x=14,y=3,z=1})
+        assert(parkour.func(name,"restart") and near(player:get_pos(),brickcraft.home_pos(player)),"cleared start: back to the world start")
+      end
       -- Move first so the client has acknowledged the position before the save.
       player:set_pos({x=2,y=.5,z=3})
       assert(C.get_node({x=1,y=-1,z=2}).name=="brickcraft:baseplate","baseplate generated")
