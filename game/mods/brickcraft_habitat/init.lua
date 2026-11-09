@@ -1170,6 +1170,9 @@ local function panel(p)
     "style[colony;bgcolor=#f5872c]button[3.9,8.3;3.2,.7;colony;My colony]"..
     "button_exit[7.2,8.3;3.2,.7;close;Back to building]"
   if v.cycle then fs=fs.."button[.6,9.3;6.5,.7;cycle_settings;Day / night settings]" end
+  if v.id=="bunny" and H.word_story then
+    fs=fs.."style[story;bgcolor=#f5872c]button[7.2,9.3;3.2,.7;story;이야기책]"
+  end
   C.show_formspec(name,"brickcraft_habitat:panel",fs)
 end
 H.panel=panel
@@ -1195,6 +1198,7 @@ local function act(p,field)
   if field=="kit" then return "You got "..H.give_kit(p,v).."." end
   if field=="colony" then H.colony_panel(p); return nil,true end
   if field=="cycle_settings" and v.cycle then H.cycle_panel(p); return nil,true end
+  if field=="story" and v.id=="bunny" and H.word_story then H.word_story.open(p); return nil,true end
   if field=="rules" or field=="help" then H.welcome(p); return nil,true end
   if field=="wild" then
     local st=H.state(w); st.wild=st.wild==false; H.save(w)
@@ -1292,6 +1296,7 @@ dofile(MP.."/welcome.lua")(H)
 dofile(MP.."/meadow.lua")(H)
 dofile(MP.."/ai.lua")(H)
 for _,f in ipairs({"bunny"}) do dofile(MP.."/variants/"..f..".lua")(H) end
+dofile(MP.."/word_story.lua")(H)
 dofile(MP.."/kingdom.lua")(H)
 
 for _,row in ipairs({
