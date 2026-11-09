@@ -2578,6 +2578,7 @@ end)
 -- The Admin launcher uses this heartbeat to deploy a merged improvement only when the
 -- server has no players. Atomic safe_file_write prevents a half-written status read.
 local server_status_file=C.get_worldpath().."/server-status.json"
+local server_restart_file=C.get_worldpath().."/server-restart-now"
 local server_status_timer=0
 local function write_server_status(running)
   C.safe_file_write(server_status_file,C.write_json({
@@ -2586,7 +2587,16 @@ local function write_server_status(running)
 end
 C.register_globalstep(function(dt)
   server_status_timer=server_status_timer+dt
-  if server_status_timer>=2 then server_status_timer=0; write_server_status(true) end
+  if server_status_timer>=2 then
+    server_status_timer=0
+    write_server_status(true)
+    local restart=io.open(server_restart_file,"r")
+    if restart then
+      restart:close()
+      os.remove(server_restart_file)
+      C.request_shutdown("BrickCraft is restarting. Reconnecting automatically...",true,1)
+    end
+  end
 end)
 C.register_on_joinplayer(function() C.after(0,write_server_status,true) end)
 C.register_on_leaveplayer(function() C.after(0,write_server_status,true) end)

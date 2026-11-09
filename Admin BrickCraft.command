@@ -106,7 +106,16 @@ if [[ $HEADLESS == 1 ]]; then
       sleep 3
       if SECOND_IDLE=$(idle_heartbeat "$STATUS") && [[ $SECOND_IDLE -gt $FIRST_IDLE ]]; then
         print "No players are connected. Installing the merged improvement and restarting..."
-        kill $SERVER_PID 2>/dev/null; wait $SERVER_PID 2>/dev/null || true
+        # Let Luanti tell connected clients this is a restart. BrickCraft clients accept
+        # that signal automatically; fall back to TERM if the game cannot shut itself down.
+        : > "$WORLD/server-restart-now"
+        for i in {1..20}; do
+          kill -0 $SERVER_PID 2>/dev/null || break
+          sleep 0.5
+        done
+        if kill -0 $SERVER_PID 2>/dev/null; then kill $SERVER_PID 2>/dev/null; fi
+        wait $SERVER_PID 2>/dev/null || true
+        rm -f "$WORLD/server-restart-now"
         if git -C "$ROOT" pull --ff-only --quiet; then
           rm -f "$REQUEST"
           start_server
