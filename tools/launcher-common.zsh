@@ -80,6 +80,9 @@ ensure touch_controls false
 # A Mac joining for the first time registers without the "Register and Join" dialog,
 # which otherwise waits silently in the game window.
 ensure enable_register_confirmation false
+# The server marks planned restarts as reconnectable. Use the stock main menu with a
+# BrickCraft hook that accepts that request automatically instead of waiting for a click.
+ensure main_menu_script "$ROOT/tools/brickcraft-mainmenu.lua"
 
 # Connection name without a prompt. Who is playing is picked in the game window, so this
 # only has to tell computers apart: $BRICKCRAFT_NAME, else this Mac's user/player_name
