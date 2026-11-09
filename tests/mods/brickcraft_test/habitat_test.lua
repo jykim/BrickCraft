@@ -404,6 +404,44 @@ local function run(dad)
   local food,water=H.supplies(w,true)
   assert(food==3+clovers and water>2,"supplies "..food.."/"..water) -- patches and troughs, clover and ponds
 
+  -- Bunnyland's Korean word story: every numbered word belongs to the player's separate
+  -- storybook. Correct ordering unlocks a four-step recipe and its usable bunny reward.
+  local story=H.word_story
+  assert(story and #story.words==20 and #story.sentences==4,"word story registered")
+  local function story_entities(kind)
+    local n=0
+    for _,o in ipairs(C.get_objects_inside_radius({x=w.x,y=8,z=w.z},80)) do
+      local e=o:get_luaentity()
+      if e and e.name=="brickcraft_habitat:"..kind then n=n+1 end
+    end
+    return n
+  end
+  story.ensure(w)
+  wait(5,function() return story_entities("story_word")==20 and story_entities("story_glow")>=4 end,
+    function() return "story objects words/glows "..story_entities("story_word").."/"..story_entities("story_glow") end)
+  local function fields(form,data)
+    for _,f in ipairs(C.registered_on_player_receive_fields) do if f(dad,form,data) then return true end end
+  end
+  for i=1,#story.words do story.collect(dad,w,i) end
+  for n,sen in ipairs(story.sentences) do
+    assert(fields("brickcraft_habitat:word_story",{["open_"..n]=true}),"open story sentence "..n)
+    for _,i in ipairs(sen.words) do assert(fields("brickcraft_habitat:word_sentence",{["add_"..i]=true}),"add word "..i) end
+    assert(fields("brickcraft_habitat:word_sentence",{check=true}),"check sentence "..n)
+  end
+  local ss=story.state(dad,w)
+  for n=1,4 do assert(ss.complete[n],"sentence "..n.." completed") end
+  story.ensure(w)
+  wait(5,function() return story_entities("story_recipe")==4 end,
+    function() return "recipe markers "..story_entities("story_recipe") end)
+  for i=1,4 do story.recipe_collect(dad,w,i,dad:get_pos()) end
+  ss=story.state(dad,w)
+  assert(ss.recipe_step==4 and ss.rewarded,"recipe completed and rewarded")
+  assert(brickcraft.count_of(dad,story.reward)==1,"magic carrot soup received")
+  local fed=bunnies(w)[1]; fed._food,fed._water,fed._hp=1,2,3
+  local soup=C.registered_items[story.reward].on_use(ItemStack(story.reward),dad,{type="object",ref=fed.object})
+  assert(soup:is_empty() and fed._food==100 and fed._water==100 and fed._hp==10,"magic soup restores a bunny")
+  log("glowing Korean words make four sentences; following the recipe rewards restorative soup")
+
   if C.settings:get_bool("brickcraft_cycle_test_only",false) then
     cycle_regressions(w,dad); cycle_settings_regressions(w,dad); log("PASS"); return
   end
