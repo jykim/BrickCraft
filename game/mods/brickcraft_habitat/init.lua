@@ -304,14 +304,27 @@ function H.blocked(moveresult)
   return false
 end
 -- Walks toward target (a position) at speed; with a nil target it stands still.
+-- A creature crowded by others (self._room, from H.make_room) leans away from them on the
+-- way, and steps aside instead of standing still.
 local function steer(self,target,speed)
   local p=self.object:get_pos()
   local vel=self.object:get_velocity()
-  if not target then self.object:set_velocity({x=0,y=vel.y,z=0}); return end
-  local d={x=target.x-p.x,y=0,z=target.z-p.z}
-  local l=math.sqrt(d.x^2+d.z^2)
-  if l<.3 then self.object:set_velocity({x=0,y=vel.y,z=0}); return end
-  self.object:set_velocity({x=d.x/l*speed,y=vel.y,z=d.z/l*speed})
+  local room=self._room
+  local d=target and {x=target.x-p.x,y=0,z=target.z-p.z}
+  local l=d and math.sqrt(d.x^2+d.z^2) or 0
+  if l<.3 then
+    if room then self.object:set_velocity({x=room.x*.8,y=vel.y,z=room.z*.8}); face(self.object,room)
+    else self.object:set_velocity({x=0,y=vel.y,z=0}) end
+    return
+  end
+  local dx,dz=d.x/l,d.z/l
+  if room then
+    -- Still on its way (at least .4 of the speed, slowing behind one it's queued after).
+    dx,dz=dx+room.x*.6,dz+room.z*.6
+    local m=math.sqrt(dx*dx+dz*dz)
+    if m>1 then dx,dz=dx/m,dz/m end
+  end
+  self.object:set_velocity({x=dx*speed,y=vel.y,z=dz*speed})
   face(self.object,d)
 end
 H.steer=steer
@@ -463,6 +476,40 @@ local function nearest_hunter(p,r)
   end
   return best,bd
 end
+-- Creatures don't collide with objects (so players and predators can reach them), which
+-- lets them walk into and stand inside one another. When others crowd one, the way out:
+-- a flat unit vector away from them, or nil when it has room. A hideout (hutch) is made to
+-- be shared, so in one, or with others in one, they stay together.
+local function crowd_radius(ent)
+  local d=H.creatures[ent._kind]
+  return .22*(d and d.size or 1)*(ent._baby and .6 or 1)
+end
+function H.make_room(self,p)
+  if H.hidden(p) then return nil end
+  local r=crowd_radius(self)
+  local px,pz,n=0,0,0
+  for _,obj in ipairs(C.get_objects_inside_radius(p,1.5)) do
+    local ent=obj:get_luaentity()
+    if ent and ent~=self and H.live[ent] and not ent._dead and not ent._carried then
+      local q=obj:get_pos()
+      local apart=(r+crowd_radius(ent))*1.3
+      if q and math.abs(q.y-p.y)<apart+.4 and not H.hidden(q) then
+        local dx,dz=p.x-q.x,p.z-q.z
+        local d=math.sqrt(dx*dx+dz*dz)
+        if d<apart then
+          -- Right on top of each other: any way will do (the other picks its own).
+          if d<.01 then local a=rnd(0,6.28); dx,dz,d=math.cos(a),math.sin(a),1 end
+          local push=(apart-d)/apart
+          px,pz,n=px+dx/d*push,pz+dz/d*push,n+1
+        end
+      end
+    end
+  end
+  if n==0 then return nil end
+  local l=math.sqrt(px*px+pz*pz)
+  if l<.001 then local a=rnd(0,6.28); return {x=math.cos(a),y=0,z=math.sin(a)} end
+  return {x=px/l,y=0,z=pz/l}
+end
 function H.creature_step(self,def,dtime,moveresult)
   if self._dead or self._carried then return end
   local p=self.object:get_pos()
@@ -486,6 +533,8 @@ function H.creature_step(self,def,dtime,moveresult)
   self._think=self._think-dtime
   if self._think>0 then return end
   self._think=.3
+  -- Standing in another one: whatever it does next, it makes room (see steer).
+  self._room=H.make_room(self,p)
   local home=H.home_of and H.home_of(self)
   if H.unstick(self,function(s) return home and -H.flat(s,home) or 0 end) then return end
   local w,v=H.world_at(p)
